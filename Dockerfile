@@ -1,3 +1,13 @@
+FROM node:22-alpine
+
+RUN apk add --no-cache \
+    git \
+    ffmpeg \
+    libwebp-tools \
+    python3 \
+    make \
+    g++
+
 WORKDIR /app
 
 RUN mkdir -p temp
@@ -7,7 +17,6 @@ ENV ACTIVATION_KEY=123
 ENV BOT_NAME=Abby
 
 RUN npm install -g --force yarn pm2
-
 RUN echo '{\
   "name": "abby-bot",\
   "version": "1.0.0",\
@@ -20,6 +29,8 @@ RUN echo '{\
     "start": "node index.js"\
   }\
 }' > package.json
+
+# Create the bot code
 RUN echo '\
 const makeWASocket = require("@whiskeysockets/baileys").default;\
 const { useMultiFileAuthState } = require("@whiskeysockets/baileys");\
