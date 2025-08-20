@@ -1,5 +1,4 @@
 FROM node:22-alpine
-
 RUN apk add --no-cache \
     git \
     ffmpeg \
@@ -11,17 +10,15 @@ RUN apk add --no-cache \
 ENV ACTIVATION_KEY=123
 ENV BOT_NAME=Abby
 ENV TZ=Asia/Kolkata
-
 WORKDIR /abby-bot
 
 COPY package*.json ./
-
 COPY yarn.lock ./
 
 RUN npm install -g --force yarn pm2
 
 RUN yarn install
-e
+
 COPY . .
 
 RUN mkdir -p temp
