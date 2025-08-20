@@ -1,12 +1,6 @@
 FROM node:22-alpine
 
-RUN apk add --no-cache \
-    git \
-    ffmpeg \
-    libwebp-tools \
-    python3 \
-    make \
-    g++
+RUN apk add --no-cache git ffmpeg libwebp-tools python3 make g++
 
 WORKDIR /app
 
@@ -17,63 +11,10 @@ ENV ACTIVATION_KEY=123
 ENV BOT_NAME=Abby
 
 RUN npm install -g --force yarn pm2
-RUN echo '{\
-  "name": "abby-bot",\
-  "version": "1.0.0",\
-  "description": "WhatsApp bot that responds to activation code",\
-  "main": "index.js",\
-  "dependencies": {\
-    "@whiskeysockets/baileys": "^6.4.0"\
-  },\
-  "scripts": {\
-    "start": "node index.js"\
-  }\
-}' > package.json
 
-# Create the bot code
-RUN echo '\
-const makeWASocket = require("@whiskeysockets/baileys").default;\
-const { useMultiFileAuthState } = require("@whiskeysockets/baileys");\
-\
-async function startBot() {\
-    const { state, saveCreds } = await useMultiFileAuthState("auth_info");\
-    \
-    const sock = makeWASocket({\
-        auth: state,\
-        printQRInTerminal: true\
-    });\
-\
-    sock.ev.on("connection.update", (update) => {\
-        const { connection, lastDisconnect } = update;\
-        if (connection === "close") {\
-            console.log("Connection closed, reconnecting...");\
-            startBot();\
-        } else if (connection === "open") {\
-            console.log("Bot connected successfully!");\
-        }\
-    });\
-\
-    sock.ev.on("creds.update", saveCreds);\
-\
-    sock.ev.on("messages.upsert", async (m) => {\
-        const message = m.messages[0];\
-        if (!message.message) return;\
-        \
-        const text = message.message.conversation || \
-                    message.message.extendedTextMessage?.text || \
-                    message.message.imageMessage?.caption || "";\
-        \
-        const sender = message.key.remoteJid;\
-        \
-        if (text === process.env.ACTIVATION_KEY || text === "123") {\
-            console.log("Received activation code, sending hello...");\
-            await sock.sendMessage(sender, { text: "hello from " + process.env.BOT_NAME });\
-        }\
-    });\
-}\
-\
-startBot().catch(console.error);\
-' > index.js
+RUN echo '{"name":"abby-bot","version":"1.0.0","description":"WhatsApp bot","main":"index.js","dependencies":{},"scripts":{"start":"node index.js"}}' > package.json
+
+RUN echo 'const http = require("http");const server = http.createServer((req, res) => {if (req.method === "POST" && req.url === "/message") {let body = "";req.on("data", chunk => {body += chunk.toString();});req.on("end", () => {try {const data = JSON.parse(body);if (data.message === process.env.ACTIVATION_KEY) {console.log("Received activation code, responding: hello");res.writeHead(200, { "Content-Type": "application/json" });res.end(JSON.stringify({ response: "hello from " + process.env.BOT_NAME }));} else {res.writeHead(200, { "Content-Type": "application/json" });res.end(JSON.stringify({ response: "ignored" }));}} catch (error) {res.writeHead(400, { "Content-Type": "application/json" });res.end(JSON.stringify({ error: "Invalid JSON" }));}});} else {res.writeHead(200, { "Content-Type": "text/plain" });res.end("Abby Bot is running");}});const PORT = 3000;server.listen(PORT, () => {console.log("Abby Bot server running on port", PORT);console.log("Activation key:", process.env.ACTIVATION_KEY);console.log("Send POST to /message with: {\"message\": \"123\"}");});' > index.js
 
 RUN yarn install
 
