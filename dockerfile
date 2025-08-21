@@ -567,9 +567,5 @@ RUN echo '    // Check download limits (admins and subscribers have no limits)' 
     echo '    return true;' >> commands/download.js && \
     echo '}' >> commands/download.js && \
     echo '' >> commands/download.js && \
-
-# Install dependencies
 RUN npm install
-
-# Start the bot
 CMD ["node", "index.js"]
