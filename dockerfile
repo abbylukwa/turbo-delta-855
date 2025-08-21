@@ -4,41 +4,44 @@ FROM python:3.11-alpine
 RUN apk add --no-cache python3 py3-pip
 RUN pip install --no-cache-dir qrcode
 
-# Create the QR code script using printf to handle newlines properly
-RUN printf '#!/usr/bin/env python3\n\
-import qrcode\n\
-import sys\n\
-\ndef main():\n\
-    if len(sys.argv) < 2:\n\
-        print("Usage: qr-cli <text> [output_file]")\n\
-        print("Example: qr-cli \\\"Hello World\\\" output.png")\n\
-        print("If no output file is provided, shows QR in terminal")\n\
-        sys.exit(1)\n\
-    \n\
-    text = sys.argv[1]\n\
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None\n\
-    \n\
-    # Create QR code\n\
-    qr = qrcode.QRCode(\n\
-        version=1,\n\
-        error_correction=qrcode.constants.ERROR_CORRECT_L,\n\
-        box_size=10,\n\
-        border=4,\n\
-    )\n\
-    qr.add_data(text)\n\
-    qr.make(fit=True)\n\
-    \n\
-    if output_file:\n\
-        # Save to file\n\
-        img = qr.make_image(fill_color="black", back_color="white")\n\
-        img.save(output_file)\n\
-        print(f"QR code saved to: {output_file}")\n\
-    else:\n\
-        # Show in terminal\n\
-        qr.print_ascii()\n\
-\n\
-if __name__ == "__main__":\n\
-    main()\n' > /usr/local/bin/qr-cli
+# Create the QR code script using a here-document to avoid escape issues
+RUN cat > /usr/local/bin/qr-cli << 'EOF'
+#!/usr/bin/env python3
+import qrcode
+import sys
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: qr-cli <text> [output_file]")
+        print('Example: qr-cli "Hello World" output.png')
+        print("If no output file is provided, shows QR in terminal")
+        sys.exit(1)
+    
+    text = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    
+    # Create QR code
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(text)
+    qr.make(fit=True)
+    
+    if output_file:
+        # Save to file
+        img = qr.make_image(fill_color="black", back_color="white")
+        img.save(output_file)
+        print(f"QR code saved to: {output_file}")
+    else:
+        # Show in terminal
+        qr.print_ascii()
+
+if __name__ == "__main__":
+    main()
+EOF
 
 # Make the script executable
 RUN chmod +x /usr/local/bin/qr-cli
