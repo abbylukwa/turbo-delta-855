@@ -558,14 +558,17 @@ RUN echo '    } catch (error) {' >> commands/download.js
 RUN echo '      await sock.sendMessage(sender, { text: responses.downloadFailed });' >> commands/download.js
 RUN echo '    }' >> commands/download.js
 RUN echo '    return true;' >> commands/download.js
-# Modify the download limit check to include subscription check
-RUN echo '    // Check download limits (admins and subscribers have no limits)' >> commands/download.js
-RUN echo '    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);' >> commands/download.js
-RUN echo '    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {' >> commands/download.js
-RUN echo '  return false;' >> commands/download.js
-RUN echo '}' >> commands/download.js
-RUN echo '' >> commands/download.js
-RUN echo 'module.exports = { handleFileDownload };' >> commands/download.js
+# Modify the download limit check to include subscription check using printf
+RUN printf '    // Check download limits (admins and subscribers have no limits)\n' >> commands/download.js
+RUN printf '    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);\n' >> commands/download.js
+RUN printf '    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {\n' >> commands/download.js
+RUN printf '        return false;\n' >> commands/download.js
+RUN printf '    }\n' >> commands/download.js
+RUN printf '\n' >> commands/download.js
+RUN printf '    return true;\n' >> commands/download.js
+RUN printf '}\n' >> commands/download.js
+RUN printf '\n' >> commands/download.js
+RUN printf 'module.exports = { handleFileDownload };\n' >> commands/download.js
 # Update download.js to check for subscriptions
 RUN echo 'const { searchAndDownloadFile } = require("../utils");' > commands/download.js
 RUN echo 'const { responses } = require("../config");' >> commands/download.js
