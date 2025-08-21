@@ -11,16 +11,11 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies directly
+RUN pip install --no-cache-dir qrcode[pil]==7.4.2 Pillow==10.0.0
 
-# Copy application code
-COPY . .
-
-# Create a simple QR code generator script if not provided
-RUN if [ ! -f qr_generator.py ]; then \
-    echo '#!/usr/bin/env python3\n\
+# Create QR code generator script
+RUN echo '#!/usr/bin/env python3\n\
 import qrcode\n\
 import argparse\n\
 import sys\n\
@@ -50,8 +45,7 @@ if __name__ == "__main__":\n\
     \n\
     args = parser.parse_args()\n\
     \n\
-    generate_qr(args.data, args.output, args.version, args.size, args.border)' > qr_generator.py; \
-fi
+    generate_qr(args.data, args.output, args.version, args.size, args.border)' > qr_generator.py
 
 # Make the script executable
 RUN chmod +x qr_generator.py
