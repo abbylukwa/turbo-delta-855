@@ -551,21 +551,38 @@ RUN echo '    try {' >> commands/download.js
 RUN echo '      const result = await searchAndDownloadFile(text, senderNumber);' >> commands/download.js
 RUN echo '      if (result.success) {' >> commands/download.js
 RUN echo '        await sock.sendMessage(sender, { text: responses.downloadSuccess });' >> commands/download.js
-RUN echo '      } else {' >> commands/download.js
-RUN echo '        await sock.sendMessage(sender, { text: responses.fileNotFound });' >> commands/download.js
-RUN echo '      }' >> commands/download.js
-RUN echo '    } catch (error) {' >> commands/download.js
-RUN echo '      await sock.sendMessage(sender, { text: responses.downloadFailed });' >> commands/download.js
-RUN echo '    }' >> commands/download.js
-RUN echo '    return true;' >> commands/download.js
-RUN echo '    // Check download limits (admins and subscribers have no limits)' >> commands/download.js && \
-    echo '    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);' >> commands/download.js && \
-    echo '    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {' >> commands/download.js && \
-    echo '        return false;' >> commands/download.js && \
-    echo '    }' >> commands/download.js && \
-    echo '' >> commands/download.js && \
-    echo '    return true;' >> commands/download.js && \
-    echo '}' >> commands/download.js && \
-    echo '' >> commands/download.js && \
-RUN npm install
+# Create commands/qrcode.js
+RUN echo 'const qrcode = require("qrcode-terminal");' > commands/qrcode.js
+RUN echo '' >> commands/qrcode.js
+RUN echo 'class QRCodeHandler {' >> commands/qrcode.js
+RUN echo '  constructor() {' >> commands/qrcode.js
+RUN echo '    this.qrCodes = new Map();' >> commands/qrcode.js
+RUN echo '  }' >> commands/qrcode.js
+RUN echo '' >> commands/qrcode.js
+RUN echo '  generateQRCode(qrData) {' >> commands/qrcode.js
+RUN echo '    console.log("📱 Generating QR code...");' >> commands/qrcode.js
+RUN echo '    qrcode.generate(qrData, { small: true });' >> commands/qrcode.js
+RUN echo '    return qrData;' >> commands/qrcode.js
+RUN echo '  }' >> commands/qrcode.js
+RUN echo '' >> commands/qrcode.js
+RUN echo '  async handleQRCommand(sock, sender) {' >> commands/qrcode.js
+RUN echo '    // Generate a simple QR code for demonstration' >> commands/qrcode.js
+RUN echo '    const qrData = "https://wa.me/?text=Hello+World";' >> commands/qrcode.js
+RUN echo '    this.generateQRCode(qrData);' >> commands/qrcode.js
+RUN echo '' >> commands/qrcode.js
+RUN echo '    const message = "📱 *QR Code Generated*\\n\\n" +' >> commands/qrcode.js
+RUN echo '      "Scan this QR code to connect!\\n\\n" +' >> commands/qrcode.js
+RUN echo '      "🔗 " + qrData;' >> commands/qrcode.js
+RUN echo '' >> commands/qrcode.js
+RUN echo '    await sock.sendMessage(sender, { text: message });' >> commands/qrcode.js
+RUN echo '    return true;' >> commands/qrcode.js
+RUN echo '  }' >> commands/qrcode.js
+RUN echo '}' >> commands/qrcode.js
+RUN echo '' >> commands/qrcode.js
+RUN echo 'module.exports = new QRCodeHandler();' >> commands/qrcode.js
+
+# Install dependencies
+RUN npm install qrcode-terminal
+
+# Set the startup command
 CMD ["node", "index.js"]
