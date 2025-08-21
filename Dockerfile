@@ -48,18 +48,6 @@ RUN echo 'let subscribedUsers = {};' >> index.js
 # Add the rest of the JavaScript file
 COPY <<EOF >> index.js
 
-// Responses
-const responses = {
-  welcome: "Welcome to Abby's Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription.",
-  activation: "Activation successful! Welcome to Abby's Bot. 🤖",
-  adminActivation: "Admin activation successful! Welcome to Abby's Bot. 🤖",
-  notActivated: "Please activate first by sending: Abby0121",
-  searchStarted: "🔍 Searching for your file across multiple websites...",
-  downloadLimit: "Download limit reached. Please subscribe for unlimited downloads.",
-  downloadSuccess: "Download completed successfully! 🎉",
-  downloadFailed: "Download failed. Please try another file.",
-  fileNotFound: "File not found on any of our supported websites."
-};
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
