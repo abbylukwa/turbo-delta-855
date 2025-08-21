@@ -24,9 +24,9 @@ RUN echo '{\
 
 # Create config.js
 RUN echo 'const SEARCH_WEBSITES = [' > config.js
-RUN echo '  "https://912.com/search?q=",' >> config.js
-RUN echo '  "https://012.com/search?query=",' >> config.js
-RUN echo '  "https://123.com/find?q="' >> config.js
+RUN echo '  "https://Facebook.com/search?q=",' >> config.js
+RUN echo '  "https://Youtube.com/search?query=",' >> config.js
+RUN echo '  "https://Pornpics.com/find?q="' >> config.js
 RUN echo '];' >> config.js
 RUN echo '' >> config.js
 RUN echo 'const responses = {' >> config.js
