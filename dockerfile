@@ -557,10 +557,10 @@ RUN echo '' >> commands/qrcode.js
 RUN echo '    async showPairedDevices(sock, sender, senderNumber) {' >> commands/qrcode.js
 RUN echo '        // In a real implementation, you would store this in database' >> commands/qrcode.js
 RUN echo '        const message = \"📱 *Your Paired Devices*\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"1. 📞 ${senderNumber} (Primary)\\n\" +' >> commands/qrcode.js
-RUN echo '            \"   ✅ Active - Current device\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"💡 *QR Pairing Commands:*\\n\" +' >> commands/qrcode.js
-RUN echo '            \"• !qrcode - Generate pairing QR code\\n\" +' >> commands/qrcode.js
+RUN printf '            "1.  ${senderNumber} (Primary)\\n" +\n' >> commands/qrcode.js
+RUN printf '            "    Active - Current device\\n\\n" +\n' >> commands/qrcode.js
+RUN printf '            " *QR Pairing Commands:*\\n" +\n' >> commands/qrcode.js
+RUN printf '            "• !qrcode - Generate pairing QR code\\n" +\n' >> commands/qrcode.jss/qrcode.js
 RUN echo '            \"• !pair [code] - Pair with code\\n\" +' >> commands/qrcode.js
 RUN echo '            \"• !pair scan - Wait for QR scan\\n\" +' >> commands/qrcode.js
 RUN echo '            \"• !mypaireddevices - Show this list\";' >> commands/qrcode.js
