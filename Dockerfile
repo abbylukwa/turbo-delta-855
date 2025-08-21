@@ -51,78 +51,39 @@ RUN echo 'let userLanguages = {};' >> index.js
 # Add the rest of the JavaScript file in a more manageable way
 COPY <<EOF >> index.js
 
-// Multi-language responses
+
 const responses = {
   welcome: {
-    en: "Welcome to Abby's Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription.",
-    es: "¡Bienvenido al Bot de Abby! 🤖\\n\\nComandos disponibles:\\n• Envía cualquier nombre de archivo para buscar y descargar\\n• !mystatus - Consulta tu estado de descarga\\n• !payments - Información de pago\\n\\nChatear es gratis, las descargas tienen límites según tu suscripción.",
-    fr: "Bienvenue sur le Bot d'Abby ! 🤖\\n\\nCommandes disponibles:\\n• Envoyez n'importe quel nom de fichier pour rechercher et télécharger\\n• !mystatus - Vérifiez votre statut de téléchargement\\n• !payments - Informations de paiement\\n\\nDiscuter est gratuit, les téléchargements ont des limites selon votre abonnement.",
-    de: "Willkommen bei Abbys Bot! 🤖\\n\\nVerfügbare Befehle:\\n• Senden Sie einen beliebigen Dateinamen zum Suchen und Herunterladen\\n• !mystatus - Überprüfen Sie Ihren Download-Status\\n• !payments - Zahlungsinformationen\\n\\nChatten ist kostenlos, Downloads haben Limits basierend auf Ihrem Abonnement."
+    en: "Welcome to Abby's Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription."
   },
   activation: {
-    en: "Activation successful! Welcome to Abby's Bot. 🤖",
-    es: "¡Activación exitosa! Bienvenido al Bot de Abby. 🤖",
-    fr: "Activation réussie ! Bienvenue sur le Bot d'Abby. 🤖",
-    de: "Aktivierung erfolgreich! Willkommen bei Abbys Bot. 🤖"
+    en: "Activation successful! Welcome to Abby's Bot. 🤖"
   },
   adminActivation: {
-    en: "Admin activation successful! Welcome to Abby's Bot. 🤖",
-    es: "¡Activación de administrador exitosa! Bienvenido al Bot de Abby. 🤖",
-    fr: "Activation administrateur réussie ! Bienvenue sur le Bot d'Abby. 🤖",
-    de: "Admin-Aktivierung erfolgreich! Willkommen bei Abbys Bot. 🤖"
+    en: "Admin activation successful! Welcome to Abby's Bot. 🤖"
   },
   notActivated: {
-    en: "Please activate first by sending: Abby0121",
-    es: "Por favor, active primero enviando: Abby0121",
-    fr: "Veuillez d'abord activer en envoyant: Abby0121",
-    de: "Bitte aktivieren Sie zuerst durch Senden von: Abby0121"
+    en: "Please activate first by sending: Abby0121"
   },
   searchStarted: {
-    en: "🔍 Searching for your file across multiple websites...",
-    es: "🔍 Buscando tu archivo en múltiples sitios web...",
-    fr: "🔍 Recherche de votre fichier sur plusieurs sites web...",
-    de: "🔍 Durchsuche mehrere Websites nach Ihrer Datei..."
+    en: "🔍 Searching for your file across multiple websites..."
   },
   downloadLimit: {
-    en: "Download limit reached. Please subscribe for unlimited downloads.",
-    es: "Límite de descarga alcanzado. Suscríbete para descargas ilimitadas.",
-    fr: "Limite de téléchargement atteinte. Veuillez vous abonner pour des téléchargements illimités.",
-    de: "Download-Limit erreicht. Bitte abonnieren Sie für unbegrenzte Downloads."
+    en: "Download limit reached. Please subscribe for unlimited downloads."
   },
   downloadSuccess: {
-    en: "Download completed successfully! 🎉",
-    es: "¡Descarga completada con éxito! 🎉",
-    fr: "Téléchargement terminé avec succès ! 🎉",
-    de: "Download erfolgreich abgeschlossen! 🎉"
+    en: "Download completed successfully! 🎉"
   },
   downloadFailed: {
-    en: "Download failed. Please try another file.",
-    es: "Descarga fallida. Por favor, intenta con otro archivo.",
-    fr: "Échec du téléchargement. Veuillez essayer un autre fichier.",
-    de: "Download fehlgeschlagen. Bitte versuchen Sie eine andere Datei."
+    en: "Download failed. Please try another file."
   },
   fileNotFound: {
-    en: "File not found on any of our supported websites.",
-    es: "Archivo no encontrado en ninguno de nuestros sitios web compatibles.",
-    fr: "Fichier non trouvé sur aucun de nos sites web pris en charge.",
-    de: "Datei auf keiner unserer unterstützten Websites gefunden."
+    en: "File not found on any of our supported websites."
   }
 };
 
 async function getResponse(key, lang = "en") {
   return responses[key][lang] || responses[key]["en"];
-}
-
-async function detectLanguage(text) {
-  try {
-    // Simple language detection based on common words
-    if (/hola|gracias|por favor|buenos/i.test(text)) return "es";
-    if (/bonjour|merci|s'il vous|je voudrais/i.test(text)) return "fr";
-    if (/hallo|danke|bitte|guten tag/i.test(text)) return "de";
-    return "en";
-  } catch (error) {
-    return "en";
-  }
 }
 
 async function startBot() {
@@ -155,11 +116,8 @@ async function startBot() {
     const sender = message.key.remoteJid;
     const senderNumber = sender.split("@")[0];
 
-    // Detect user language if not already set
-    if (!userLanguages[senderNumber]) {
-      userLanguages[senderNumber] = await detectLanguage(text);
+   
     }
-    const userLang = userLanguages[senderNumber];
 
     // Activation commands
     if (text === "Abby0121") {
