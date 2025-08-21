@@ -462,129 +462,47 @@ RUN echo 'module.exports = { canDownloadMore, getFileType, estimateFileSize };' 
 RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js
 RUN echo '  handleSubscriptionCommand,' >> commands/index.js
 RUN echo '  handleAdminSubscriptionCommands,' >> commands/index.js
-# Create commands/qrcode.js with proper formatting
-RUN mkdir -p commands
-RUN echo '' >> commands/qrcode.js
-RUN echo '        // Generate QR code in terminal (for debugging)' >> commands/qrcode.js
-RUN echo '        console.log(\"\\n📱 QR Code generated for ${senderNumber}:\");' >> commands/qrcode.js
-RUN echo '        qrcode.generate(qrData, { small: true });' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        // Send QR code as text to user' >> commands/qrcode.js
-RUN echo '        const message = \"📱 *QR Code for Pairing*\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"🔢 *Pairing Code:* ${pairingCode}\\n\" +' >> commands/qrcode.js
-RUN echo '            \"⏰ *Expires:* 5 minutes\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"📋 *To pair another device:*\\n\" +' >> commands/qrcode.js
-RUN echo '            \"1. Open WhatsApp on new device\\n\" +' >> commands/qrcode.js
-RUN echo '            \"2. Go to Settings → Linked Devices\\n\" +' >> commands/qrcode.js
-RUN echo '            \"3. Scan this QR code or enter code:\\n\" +' >> commands/qrcode.js
-RUN echo '            \"\\`${pairingCode}\\`\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"💡 *QR Data:* ${qrData}\";' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        await sock.sendMessage(sender, { text: message });' >> commands/qrcode.js
-RUN echo '        return true;' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '    async handlePairing(sock, text, sender, senderNumber) {' >> commands/qrcode.js
-RUN echo '        const parts = text.split(\" \");' >> commands/qrcode.js
-RUN echo '        if (parts.length < 2) {' >> commands/qrcode.js
-RUN echo '            await sock.sendMessage(sender, { text: \"Usage: !pair [pairing-code] or !pair scan\" });' >> commands/qrcode.js
-RUN echo '            return true;' >> commands/qrcode.js
-RUN echo '        }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        const action = parts[1].toLowerCase();' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        if (action === \"scan\") {' >> commands/qrcode.js
-RUN echo '            return await this.initiatePairingScan(sock, sender, senderNumber);' >> commands/qrcode.js
-RUN echo '        }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        // Handle pairing code input' >> commands/qrcode.js
-RUN echo '        const pairingCode = parts[1];' >> commands/qrcode.js
-RUN echo '        return await this.processPairingCode(sock, sender, senderNumber, pairingCode);' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '    async initiatePairingScan(sock, sender, senderNumber) {' >> commands/qrcode.js
-RUN echo '        this.pairingRequests.set(senderNumber, {' >> commands/qrcode.js
-RUN echo '            status: \"waiting_for_scan\",' >> commands/qrcode.js
-RUN echo '            startedAt: Date.now()' >> commands/qrcode.js
-RUN echo '        });' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        const message = \"📱 *Pairing Scan Mode*\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"Please scan the QR code from the device you want to pair with.\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"⏰ *Scan timeout:* 2 minutes\\n\" +' >> commands/qrcode.js
-RUN echo '            \"❌ *To cancel:* !pair cancel\";' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        await sock.sendMessage(sender, { text: message });' >> commands/qrcode.js
-RUN echo '        return true;' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '    async processPairingCode(sock, sender, senderNumber, pairingCode) {' >> commands/qrcode.js
-RUN echo '        // Find which user has this pairing code' >> commands/qrcode.js
-RUN echo '        let targetUser = null;' >> commands/qrcode.js
-RUN echo '        for (const [userNumber, qrInfo] of this.qrCodes.entries()) {' >> commands/qrcode.js
-RUN echo '            if (qrInfo.code === pairingCode && qrInfo.expiresAt > Date.now()) {' >> commands/qrcode.js
-RUN echo '                targetUser = userNumber;' >> commands/qrcode.js
-RUN echo '                break;' >> commands/qrcode.js
-RUN echo '            }' >> commands/qrcode.js
-RUN echo '        }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        if (!targetUser) {' >> commands/qrcode.js
-RUN echo '            await sock.sendMessage(sender, { text: \"❌ Invalid or expired pairing code.\" });' >> commands/qrcode.js
-RUN echo '            return true;' >> commands/qrcode.js
-RUN echo '        }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        // Pair the devices' >> commands/qrcode.js
-RUN echo '        this.qrCodes.delete(targetUser);' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        const message = \"✅ *Pairing Successful!*\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"You are now paired with device: ${targetUser}\\n\" +' >> commands/qrcode.js
-RUN echo '            \"🌐 *Connection established*\\n\" +' >> commands/qrcode.js
-RUN echo '            \"📱 Both devices can now access your account.\";' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        await sock.sendMessage(sender, { text: message });' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        // Notify the other user' >> commands/qrcode.js
-RUN echo '        const notifyMessage = \"📱 *New Device Paired*\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"A new device has been paired with your account:\\n\" +' >> commands/qrcode.js
-RUN echo '            \"📞 Phone: ${senderNumber}\\n\" +' >> commands/qrcode.js
-RUN echo '            \"⏰ Time: ${new Date().toLocaleString()}\\n\\n\" +' >> commands/qrcode.js
-RUN echo '            \"✅ Pairing successful!\";' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        await sock.sendMessage(\"${targetUser}@s.whatsapp.net\", { text: notifyMessage });' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        return true;' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '    async showPairedDevices(sock, sender, senderNumber) {' >> commands/qrcode.js
-RUN echo '        // In a real implementation, you would store this in database' >> commands/qrcode.js
-RUN echo '        const message = \"📱 *Your Paired Devices*\\n\\n\" +' >> commands/qrcode.js
-RUN printf '            "1.  ${senderNumber} (Primary)\\n" +\n' >> commands/qrcode.js
-RUN printf '            "    Active - Current device\\n\\n" +\n' >> commands/qrcode.js
-RUN printf '            " *QR Pairing Commands:*\\n" +\n' >> commands/qrcode.js
-RUN printf '            "• !qrcode - Generate pairing QR code\\n" +\n' >> commands/qrcode.jss/qrcode.js
-RUN echo '            \"• !pair [code] - Pair with code\\n\" +' >> commands/qrcode.js
-RUN echo '            \"• !pair scan - Wait for QR scan\\n\" +' >> commands/qrcode.js
-RUN echo '            \"• !mypaireddevices - Show this list\";' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '        await sock.sendMessage(sender, { text: message });' >> commands/qrcode.js
-RUN echo '        return true;' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '    generatePairingCode() {' >> commands/qrcode.js
-RUN echo '        // Generate a 6-digit pairing code' >> commands/qrcode.js
-RUN echo '        return Math.floor(100000 + Math.random() * 900000).toString();' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo '    cleanupExpiredCodes() {' >> commands/qrcode.js
-RUN echo '        const now = Date.now();' >> commands/qrcode.js
-RUN echo '        for (const [userNumber, qrInfo] of this.qrCodes.entries()) {' >> commands/qrcode.js
-RUN echo '            if (qrInfo.expiresAt < now) {' >> commands/qrcode.js
-RUN echo '                this.qrCodes.delete(userNumber);' >> commands/qrcode.js
-RUN echo '            }' >> commands/qrcode.js
-RUN echo '        }' >> commands/qrcode.js
-RUN echo '    }' >> commands/qrcode.js
-RUN echo '}' >> commands/qrcode.js
-RUN echo '' >> commands/qrcode.js
-RUN echo 'module.exports = new QRCodeHandler();' >> commands/qrcode.js
+# Create commands/qrcode.js using a script approach
+RUN mkdir -p commands && cat > /tmp/create_qrcode.sh << 'EOS'
+#!/bin/sh
+cat > commands/qrcode.js << 'EOF'
+        // Generate QR code in terminal (for debugging)
+        console.log("\n📱 QR Code generated for ${senderNumber}:");
+        qrcode.generate(qrData, { small: true });
+
+        // Send QR code as text to user
+        const message = "📱 *QR Code for Pairing*\n\n" +
+            "🔢 *Pairing Code:* ${pairingCode}\n" +
+            "⏰ *Expires:* 5 minutes\n\n" +
+            "📋 *To pair another device:*\n" +
+            "1. Open WhatsApp on new device\n" +
+            "2. Go to Settings → Linked Devices\n" +
+            "3. Scan this QR code or enter code:\n" +
+            "`${pairingCode}`\n\n" +
+            "💡 *QR Data:* ${qrData}";
+
+        await sock.sendMessage(sender, { text: message });
+        return true;
+    }
+
+    async showPairedDevices(sock, sender, senderNumber) {
+        // In a real implementation, you would store this in database
+        const message = "📱 *Your Paired Devices*\n\n" +
+            "1. 📞 ${senderNumber} (Primary)\n" +
+            "   ✅ Active - Current device\n\n" +
+            "💡 *QR Pairing Commands:*\n" +
+            "• !qrcode - Generate pairing QR code\n" +
+            "• !pair [code] - Pair with code\n" +
+            "• !pair scan - Wait for QR scan\n" +
+            "• !mypaireddevices - Show this list";
+
+        await sock.sendMessage(sender, { text: message });
+        return true;
+    }
+EOF
+EOS
+
+RUN chmod +x /tmp/create_qrcode.sh && /tmp/create_qrcode.sh
 # Create commands/activation.js
 RUN mkdir -p commands
 RUN echo 'const { responses, ACTIVATION_CODES } = require("../config");' > commands/activation.js
