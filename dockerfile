@@ -1,14 +1,14 @@
 FROM node:22-alpine
 RUN apk add --no-cache git ffmpeg libwebp-tools python3 make g++ curl
 WORKDIR /app
-ENV TZ=Asia/Kolkata
-ENV BOT_NAME=MultiBot
-ENV WEBSITE_URL=https://Pornpics.com
+ENV TZ=Africa/Harare
+ENV BOT_NAME=MediaBot
+ENV WEBSITE_URL=https://your-website.com/media
 ENV DOWNLOAD_PATH=./downloads
 
 # Create package.json
 RUN echo '{\
-  "name":"multibot",\
+  "name":"mediabot",\
   "version":"1.0.0",\
   "main":"index.js",\
   "dependencies":{\
@@ -29,14 +29,16 @@ RUN echo '{\
 }' > package.json
 
 # Create directory structure
-RUN mkdir -p downloads media temp
+RUN mkdir -p downloads media temp data
 
 # Copy the bot scripts
 COPY index.js .
+COPY user-manager.js .
 COPY downloader.js .
 COPY website-scraper.js .
-COPY group-manager.js .
 COPY web-searcher.js .
+COPY group-manager.js .
+COPY admin-commands.js .
 
 RUN npm install
 CMD ["node", "index.js"]
