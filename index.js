@@ -1,12 +1,18 @@
 const makeWASocket = require("@whiskeysockets/baileys").default;
 const { useMultiFileAuthState } = require("@whiskeysockets/baileys");
 const qrcode = require("qrcode-terminal");
-const ImageDownloader = require('./downloader.js');
+const UserManager = require('./user-manager.js');
+const EnhancedDownloader = require('./downloader.js');
 const WebsiteScraper = require('./website-scraper.js');
+const WebSearcher = require('./web-searcher.js');
+const GroupManager = require('./group-manager.js');
 
-// Initialize modules
-const imageDownloader = new ImageDownloader();
+// Initialize all modules
+const userManager = new UserManager();
+const imageDownloader = new EnhancedDownloader();
 const websiteScraper = new WebsiteScraper();
+const webSearcher = new WebSearcher();
+const groupManager = new GroupManager();
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_info");
@@ -37,130 +43,141 @@ async function startBot() {
                     message.message.imageMessage?.caption || "";
         
         const sender = message.key.remoteJid;
+        const phoneNumber = sender.split('@')[0];
 
-        // Activation command
-        if (text === process.env.ACTIVATION_KEY) {
-            console.log("Received activation code, responding...");
+        // Check if message is an activation key
+        if (['Abby0121', 'Admin0121', 'Nicci0121'].includes(text.trim())) {
+            const activationKey = text.trim();
+            if (userManager.authenticateUser(phoneNumber, activationKey)) {
+                const role = userManager.getUserRole(phoneNumber);
+                const welcomeMessage = userManager.getWelcomeMessage(role);
+                
+                await sock.sendMessage(sender, { text: welcomeMessage });
+            } else {
+                await sock.sendMessage(sender, { 
+                    text: "❌ Invalid activation key. Please use a valid key." 
+                });
+            }
+            return;
+        }
+
+        // Check if user is authenticated
+        const userRole = userManager.getUserRole(phoneNumber);
+        if (!userRole) {
             await sock.sendMessage(sender, { 
-                text: `🤖 Hello from ${process.env.BOT_NAME}! Your device is paired and ready.\n\n📋 Available commands:\n• !available - Show available images on website\n• !download image.jpg - Download specific image\n• !mydownloads - Show your downloaded images\n• !delete image.jpg - Delete downloaded image\n• !help - Show help menu` 
+                text: "🔒 Please authenticate first using your activation key.\nAvailable keys: Abby0121, Admin0121, Nicci0121" 
             });
+            return;
         }
 
-        // Show available images command
-        if (text === '!available' || text === '!images') {
-            try {
-                await sock.sendMessage(sender, { 
-                    text: "🔍 Scanning website for available images..." 
-                });
-
-                const availableImages = await websiteScraper.scanWebsiteForImages();
-                
-                if (availableImages.length > 0) {
-                    let messageText = `📸 Available Images (${availableImages.length}):\n\n`;
-                    
-                    availableImages.forEach((image, index) => {
-                        messageText += `${index + 1}. ${image.filename}\n`;
-                        messageText += `   📝: ${image.alt}\n`;
-                        messageText += `   🌐: ${image.url}\n\n`;
-                    });
-                    
-                    messageText += "💡 Use !download filename.jpg to download any image";
-                    
-                    // Split long messages to avoid WhatsApp limits
-                    if (messageText.length > 4000) {
-                        const chunks = messageText.match(/[\s\S]{1,4000}/g) || [];
-                        for (const chunk of chunks) {
-                            await sock.sendMessage(sender, { text: chunk });
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        }
-                    } else {
-                        await sock.sendMessage(sender, { text: messageText });
-                    }
-                } else {
-                    await sock.sendMessage(sender, { 
-                        text: "❌ No images found on the website." 
-                    });
-                }
-            } catch (error) {
-                await sock.sendMessage(sender, { 
-                    text: `❌ Error scanning website: ${error.message}` 
-                });
-            }
+        // Abby0121 - Website Media Downloader
+        if (userRole === 'abby_user') {
+            await handleAbbyUser(sock, sender, phoneNumber, text);
         }
 
-        // Download image command
-        if (text.startsWith('!download ')) {
-            const imageName = text.replace('!download ', '').trim();
-            if (imageName) {
-                try {
-                    await sock.sendMessage(sender, { 
-                        text: `📥 Downloading: ${imageName}...` 
-                    });
-                    
-                    const result = await imageDownloader.downloadImage(imageName);
-                    
-                    let successMessage = `✅ Download successful!\n📁: ${result.path}`;
-                    if (result.dimensions) {
-                        successMessage += `\n📏: ${result.dimensions.width}x${result.dimensions.height}`;
-                    }
-                    if (result.size) {
-                        successMessage += `\n💾: ${(result.size / 1024).toFixed(2)}KB`;
-                    }
-                    
-                    await sock.sendMessage(sender, { text: successMessage });
-                    
-                } catch (error) {
-                    await sock.sendMessage(sender, { 
-                        text: `❌ Download failed: ${error.message}\n💡 Use !available to see valid filenames` 
-                    });
-                }
-            }
+        // Admin0121 - Free Web Searcher
+        else if (userRole === 'admin_user') {
+            await handleAdminUser(sock, sender, phoneNumber, text);
         }
 
-        // Show downloaded images command
-        if (text === '!mydownloads' || text === '!downloads') {
-            try {
-                const downloadedImages = await imageDownloader.listDownloadedImages();
-                
-                if (downloadedImages.length > 0) {
-                    let messageText = `📂 Your Downloads (${downloadedImages.length}):\n\n`;
-                    
-                    downloadedImages.forEach((image, index) => {
-                        messageText += `${index + 1}. ${image.name}\n`;
-                        if (image.dimensions) {
-                            messageText += `   📏: ${image.dimensions.width}x${image.dimensions.height}\n`;
-                        }
-                        if (image.size) {
-                            messageText += `   💾: ${(image.size / 1024).toFixed(2)}KB\n`;
-                        }
-                        messageText += `   🕒: ${image.modified.toLocaleString()}\n\n`;
-                    });
-                    
-                    await sock.sendMessage(sender, { text: messageText });
-                } else {
-                    await sock.sendMessage(sender, { 
-                        text: "📂 You haven't downloaded any images yet.\n💡 Use !available to see available images" 
-                    });
-                }
-            } catch (error) {
-                await sock.sendMessage(sender, { 
-                    text: `❌ Error listing downloads: ${error.message}` 
-                });
-            }
-        }
-
-        // Help command
-        if (text === '!help') {
-            const helpText = `🤖 ${process.env.BOT_NAME} Bot Help\n\n📋 Commands:\n• !available - Show available images on website\n• !download filename.jpg - Download specific image\n• !mydownloads - Show your downloaded images\n• !delete image.jpg - Delete downloaded image\n• !help - Show this help\n\n🌐 Website: ${process.env.WEBSITE_URL}\n📁 Downloads: ${process.env.DOWNLOAD_PATH}`;
-            
-            await sock.sendMessage(sender, { text: helpText });
+        // Nicci0121 - Group Manager
+        else if (userRole === 'nicci_user') {
+            await handleNicciUser(sock, sender, phoneNumber, text, message);
         }
     });
+
+    // Handle Abby user commands
+    async function handleAbbyUser(sock, sender, phoneNumber, text) {
+        if (text.startsWith('!search ')) {
+            const query = text.replace('!search ', '').trim();
+            if (query) {
+                await sock.sendMessage(sender, { text: "🔍 Searching website for media..." });
+                
+                const results = await websiteScraper.scanWebsiteForImages();
+                const filteredResults = results.filter(item => 
+                    item.filename.toLowerCase().includes(query.toLowerCase()) ||
+                    item.alt.toLowerCase().includes(query.toLowerCase())
+                ).slice(0, 3);
+                
+                if (filteredResults.length > 0) {
+                    imageDownloader.storeSearchResults(phoneNumber, filteredResults);
+                    
+                    let resultText = "📋 Search Results:\n\n";
+                    filteredResults.forEach((result, index) => {
+                        resultText += `${index + 1}. ${result.filename}\n`;
+                        resultText += `   📝: ${result.alt}\n`;
+                        resultText += `   🌐: ${result.url}\n\n`;
+                    });
+                    resultText += "💡 Reply with !download <number> to download";
+                    
+                    await sock.sendMessage(sender, { text: resultText });
+                } else {
+                    await sock.sendMessage(sender, { text: "❌ No results found for your search." });
+                }
+            }
+        }
+        // ... other Abby commands
+    }
+
+    // Handle Admin user commands
+    async function handleAdminUser(sock, sender, phoneNumber, text) {
+        if (text.startsWith('!websearch ')) {
+            const query = text.replace('!websearch ', '').trim();
+            if (query) {
+                await sock.sendMessage(sender, { text: "🌐 Searching the web for media..." });
+                
+                const results = await webSearcher.searchWeb(query, 'all', 3);
+                
+                if (results.length > 0) {
+                    imageDownloader.storeSearchResults(phoneNumber, results);
+                    
+                    let resultText = "🌍 Web Search Results:\n\n";
+                    results.forEach((result, index) => {
+                        resultText += `${index + 1}. ${result.title}\n`;
+                        resultText += `   📁: ${result.type}\n`;
+                        resultText += `   🌐: ${result.url}\n`;
+                        if (result.duration) resultText += `   ⏱️: ${result.duration}\n`;
+                        resultText += `   🔗: ${result.source}\n\n`;
+                    });
+                    resultText += "💡 Reply with !download <number> to download";
+                    
+                    await sock.sendMessage(sender, { text: resultText });
+                } else {
+                    await sock.sendMessage(sender, { text: "❌ No web results found." });
+                }
+            }
+        }
+        // ... other Admin commands
+    }
+
+    // Handle Nicci user commands
+    async function handleNicciUser(sock, sender, phoneNumber, text, message) {
+        if (text === '!groupinfo') {
+            if (message.key.remoteJid.endsWith('@g.us')) {
+                try {
+                    const groupInfo = await groupManager.getGroupInfo(message.key.remoteJid, sock);
+                    let infoText = `📊 Group Info:\n\n`;
+                    infoText += `🏷️ Name: ${groupInfo.subject}\n`;
+                    infoText += `👥 Members: ${groupInfo.participants.length}\n`;
+                    infoText += `👑 Owner: ${groupInfo.owner}\n`;
+                    infoText += `🆔 ID: ${groupInfo.id}\n`;
+                    if (groupInfo.description) infoText += `📝 Description: ${groupInfo.description}\n`;
+                    
+                    await sock.sendMessage(sender, { text: infoText });
+                } catch (error) {
+                    await sock.sendMessage(sender, { text: "❌ Error getting group info." });
+                }
+            } else {
+                await sock.sendMessage(sender, { text: "❌ This command only works in groups." });
+            }
+        }
+        // ... other Nicci commands
+    }
 }
 
 // Initialize on startup
 imageDownloader.ensureDirectory().then(() => {
-    console.log('Image downloader initialized');
+    console.log('Enhanced downloader initialized');
 }).catch(console.error);
 
 startBot().catch(console.error);
