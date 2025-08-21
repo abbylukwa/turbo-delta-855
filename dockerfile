@@ -343,7 +343,33 @@ RUN echo '        status TEXT DEFAULT '\''active'\'',' >> database.js
 RUN echo '        created_at INTEGER DEFAULT (strftime('\''%s'\'', '\''now'\'')),' >> database.js
 RUN echo '        FOREIGN KEY (phone_number) REFERENCES users (phone_number)' >> database.js
 RUN echo '      )`);' >> database.js
-
+# Create commands/index.js properly
+RUN echo 'const { handleActivation, isUserActivated, isUserAdmin, isGroupManager } = require("./activation");' > commands/index.js
+RUN echo 'const { handleFileDownload } = require("./download");' >> commands/index.js
+RUN echo 'const { handleStatusCommand } = require("./status");' >> commands/index.js
+RUN echo 'const { handleAdminCommands } = require("./admin");' >> commands/index.js
+RUN echo 'const { handlePaymentsCommand } = require("./payments");' >> commands/index.js
+RUN echo 'const { handleDatingCommand } = require("./dating");' >> commands/index.js
+RUN echo 'const { handleGroupActivation, handleGroupCommands, handleGroupInvite, shouldReplyToIndividual } = require("./group");' >> commands/index.js
+RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js
+RUN echo '' >> commands/index.js
+RUN echo 'module.exports = {' >> commands/index.js
+RUN echo '  handleActivation,' >> commands/index.js
+RUN echo '  isUserActivated,' >> commands/index.js
+RUN echo '  isUserAdmin,' >> commands/index.js
+RUN echo '  isGroupManager,' >> commands/index.js
+RUN echo '  handleFileDownload,' >> commands/index.js
+RUN echo '  handleStatusCommand,' >> commands/index.js
+RUN echo '  handleAdminCommands,' >> commands/index.js
+RUN echo '  handlePaymentsCommand,' >> commands/index.js
+RUN echo '  handleDatingCommand,' >> commands/index.js
+RUN echo '  handleGroupActivation,' >> commands/index.js
+RUN echo '  handleGroupCommands,' >> commands/index.js
+RUN echo '  handleGroupInvite,' >> commands/index.js
+RUN echo '  shouldReplyToIndividual,' >> commands/index.js
+RUN echo '  handleSubscriptionCommand,' >> commands/index.js
+RUN echo '  handleAdminSubscriptionCommands' >> commands/index.js
+RUN echo '};' >> commands/index.js
 # Create utils.js
 RUN echo 'const fs = require("fs");' > utils.js
 RUN echo 'const { DOWNLOAD_LIMITS } = require("./config");' >> utils.js
@@ -495,7 +521,68 @@ RUN echo '  return false;' >> commands/download.js
 RUN echo '}' >> commands/download.js
 RUN echo '' >> commands/download.js
 RUN echo 'module.exports = { handleFileDownload };' >> commands/download.js
-
+# Update download.js to check for subscriptions
+RUN echo 'const { searchAndDownloadFile } = require("../utils");' > commands/download.js
+RUN echo 'const { responses } = require("../config");' >> commands/download.js
+RUN echo 'const db = require("../database");' >> commands/download.js
+RUN echo 'const { canDownloadMore, estimateFileSize, getFileType } = require("../utils");' >> commands/download.js
+RUN echo '' >> commands/download.js
+RUN echo 'async function handleFileDownload(sock, text, sender, senderNumber) {' >> commands/download.js
+RUN echo '  if (!text.startsWith("!") && text.length > 2) {' >> commands/download.js
+RUN echo '    const user = await db.getUser(senderNumber);' >> commands/download.js
+RUN echo '    if (!user) {' >> commands/download.js
+RUN echo '      await sock.sendMessage(sender, { text: responses.notActivated });' >> commands/download.js
+RUN echo '      return true;' >> commands/download.js
+RUN echo '    }' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    const fileType = getFileType(text);' >> commands/download.js
+RUN echo '    const isVideo = fileType === "video";' >> commands/download.js
+RUN echo '    const isImage = fileType === "image";' >> commands/download.js
+RUN echo '    const estimatedSize = estimateFileSize(text);' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    // Check if user has active subscription' >> commands/download.js
+RUN echo '    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    // Check download limits (admins and subscribers have no limits)' >> commands/download.js
+RUN echo '    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {' >> commands/download.js
+RUN echo '      const limitMessage = responses.downloadLimit' >> commands/download.js
+RUN echo '        .replace("{videosUsed}", user.video_downloads)' >> commands/download.js
+RUN echo '        .replace("{picturesUsed}", user.picture_downloads);' >> commands/download.js
+RUN echo '      ' >> commands/download.js
+RUN echo '      await sock.sendMessage(sender, { text: limitMessage });' >> commands/download.js
+RUN echo '      return true;' >> commands/download.js
+RUN echo '    }' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    await sock.sendMessage(sender, { text: responses.searchStarted });' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    // Reset counts if needed' >> commands/download.js
+RUN echo '    const now = Date.now();' >> commands/download.js
+RUN echo '    const resetTime = 9 * 60 * 60 * 1000;' >> commands/download.js
+RUN echo '    if (user.last_download_time && (now - user.last_download_time) > resetTime) {' >> commands/download.js
+RUN echo '      await db.resetDownloadCounts(senderNumber);' >> commands/download.js
+RUN echo '    }' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    // Update download stats (only for non-subscribers)' >> commands/download.js
+RUN echo '    if (!hasActiveSubscription) {' >> commands/download.js
+RUN echo '      await db.updateDownloadStats(senderNumber, isVideo, estimatedSize);' >> commands/download.js
+RUN echo '    }' >> commands/download.js
+RUN echo '    ' >> commands/download.js
+RUN echo '    try {' >> commands/download.js
+RUN echo '      const result = await searchAndDownloadFile(text, senderNumber);' >> commands/download.js
+RUN echo '      if (result.success) {' >> commands/download.js
+RUN echo '        await sock.sendMessage(sender, { text: responses.downloadSuccess });' >> commands/download.js
+RUN echo '      } else {' >> commands/download.js
+RUN echo '        await sock.sendMessage(sender, { text: responses.fileNotFound });' >> commands/download.js
+RUN echo '      }' >> commands/download.js
+RUN echo '    } catch (error) {' >> commands/download.js
+RUN echo '      await sock.sendMessage(sender, { text: responses.downloadFailed });' >> commands/download.js
+RUN echo '    }' >> commands/download.js
+RUN echo '    return true;' >> commands/download.js
+RUN echo '  }' >> commands/download.js
+RUN echo '  return false;' >> commands/download.js
+RUN echo '}' >> commands/download.js
+RUN echo '' >> commands/download.js
+RUN echo 'module.exports = { handleFileDownload };' >> commands/download.js
 # Create commands/admin.js
 RUN echo 'const db = require("../database");' > commands/admin.js
 RUN echo '' >> commands/admin.js
@@ -534,6 +621,20 @@ RUN echo '  return false;' >> commands/admin.js
 RUN echo '}' >> commands/admin.js
 RUN echo '' >> commands/admin.js
 RUN echo 'module.exports = { handleAdminCommands };' >> commands/admin.js
+
+# Add subscription handling after admin commands
+RUN echo '  // Handle subscription commands' >> handlers.js
+RUN echo '  const subHandled = await handleSubscriptionCommand(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (subHandled) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle admin subscription commands' >> handlers.js
+RUN echo '  if (await isUserAdmin(senderNumber)) {' >> handlers.js
+RUN echo '    const adminSubHandled = await handleAdminSubscriptionCommands(sock, text, sender, senderNumber, true);' >> handlers.js
+RUN echo '    if (adminSubHandled) return;' >> handlers.js
+RUN echo '  }' >> handlers.js
+RUN echo '}' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo 'module.exports = { handleMessage };' >> handlers.js
 
 # Create commands/group.js
 RUN echo 'const db = require("../database");' > commands/group.js
@@ -650,19 +751,89 @@ RUN echo '    ];' >> handlers.js
 RUN echo '    ' >> handlers.js
 RUN echo '    const randomReply = replies[Math.floor(Math.random() * replies.length)];' >> handlers.js
 RUN echo '    await sock.sendMessage(sender, { text: randomReply });' >> handlers.js
-# Add subscription handling after admin commands
+
+# Update handlers.js to include subscription commands
+RUN echo 'const { ' > handlers.js
+RUN echo '  handleActivation,' >> handlers.js
+RUN echo '  isUserActivated,' >> handlers.js
+RUN echo '  isUserAdmin,' >> handlers.js
+RUN echo '  isGroupManager' >> handlers.js
+RUN echo '} = require("./commands/activation");' >> handlers.js
+RUN echo 'const { handleFileDownload } = require("./commands/download");' >> handlers.js
+RUN echo 'const { handleStatusCommand } = require("./commands/status");' >> handlers.js
+RUN echo 'const { handleAdminCommands } = require("./commands/admin");' >> handlers.js
+RUN echo 'const { handlePaymentsCommand } = require("./commands/payments");' >> handlers.js
+RUN echo 'const { handleDatingCommand } = require("./commands/dating");' >> handlers.js
+RUN echo 'const { handleGroupActivation, handleGroupCommands, handleGroupInvite, shouldReplyToIndividual } = require("./commands/group");' >> handlers.js
+RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./commands/subscription");' >> handlers.js
+RUN echo 'const { responses } = require("./config");' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo 'async function handleMessage(sock, text, sender, senderNumber) {' >> handlers.js
+RUN echo '  // Check activation first' >> handlers.js
+RUN echo '  const isActivated = await handleActivation(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (isActivated) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Only respond to activated users' >> handlers.js
+RUN echo '  if (!await isUserActivated(senderNumber)) {' >> handlers.js
+RUN echo '    return;' >> handlers.js
+RUN echo '  }' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle terms command' >> handlers.js
+RUN echo '  if (text === "!terms") {' >> handlers.js
+RUN echo '    await sock.sendMessage(sender, { text: responses.terms });' >> handlers.js
+RUN echo '    return;' >> handlers.js
+RUN echo '  }' >> handlers.js
+RUN echo '' >> handlers.js
 RUN echo '  // Handle subscription commands' >> handlers.js
 RUN echo '  const subHandled = await handleSubscriptionCommand(sock, text, sender, senderNumber);' >> handlers.js
 RUN echo '  if (subHandled) return;' >> handlers.js
 RUN echo '' >> handlers.js
-RUN echo '  // Handle admin subscription commands' >> handlers.js
+RUN echo '  // Handle admin commands' >> handlers.js
 RUN echo '  if (await isUserAdmin(senderNumber)) {' >> handlers.js
+RUN echo '    const adminHandled = await handleAdminCommands(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '    if (adminHandled) return;' >> handlers.js
+RUN echo '    ' >> handlers.js
 RUN echo '    const adminSubHandled = await handleAdminSubscriptionCommands(sock, text, sender, senderNumber, true);' >> handlers.js
 RUN echo '    if (adminSubHandled) return;' >> handlers.js
+RUN echo '  }' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle group commands' >> handlers.js
+RUN echo '  if (await isGroupManager(senderNumber)) {' >> handlers.js
+RUN echo '    const groupHandled = await handleGroupCommands(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '    if (groupHandled) return;' >> handlers.js
+RUN echo '  }' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle dating commands' >> handlers.js
+RUN echo '  const datingHandled = await handleDatingCommand(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (datingHandled) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle file downloads' >> handlers.js
+RUN echo '  const downloadHandled = await handleFileDownload(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (downloadHandled) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle status command' >> handlers.js
+RUN echo '  const statusHandled = await handleStatusCommand(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (statusHandled) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle payments command' >> handlers.js
+RUN echo '  const paymentsHandled = await handlePaymentsCommand(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (paymentsHandled) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Auto-reply for other messages' >> handlers.js
+RUN echo '  if (text.length > 1) {' >> handlers.js
+RUN echo '    const replies = [' >> handlers.js
+RUN echo '      "I'\''m here to help you find files!",' >> handlers.js
+RUN echo '      "You can send me any filename to search.",' >> handlers.js
+RUN echo '      "Need help finding something?"' >> handlers.js
+RUN echo '    ];' >> handlers.js
+RUN echo '    ' >> handlers.js
+RUN echo '    const randomReply = replies[Math.floor(Math.random() * replies.length)];' >> handlers.js
+RUN echo '    await sock.sendMessage(sender, { text: randomReply });' >> handlers.js
 RUN echo '  }' >> handlers.js
 RUN echo '}' >> handlers.js
 RUN echo '' >> handlers.js
 RUN echo 'module.exports = { handleMessage };' >> handlers.js
+
 
 # Create the subscription commands file
 RUN echo 'const { responses, SUBSCRIPTION_CONFIG } = require("../config");' > commands/subscription.js
@@ -801,6 +972,21 @@ RUN echo '}' >> commands/subscription.js
 RUN echo '' >> commands/subscription.js
 RUN echo 'module.exports = new SubscriptionManager();' >> commands/subscription.js
 
+# Create basic structure for missing command files
+RUN echo 'module.exports = { handleStatusCommand: async () => false };' > commands/status.js
+RUN echo 'module.exports = { handlePaymentsCommand: async () => false };' > commands/payments.js
+RUN echo 'module.exports = { handleDatingCommand: async () => false };' > commands/dating.js
+
+# Create group.js with basic structure
+RUN echo 'module.exports = {' > commands/group.js
+RUN echo '  handleGroupActivation: async () => false,' >> commands/group.js
+RUN echo '  handleGroupCommands: async () => false,' >> commands/group.js
+RUN echo '  handleGroupInvite: async () => false,' >> commands/group.js
+RUN echo '  shouldReplyToIndividual: () => true' >> commands/group.js
+RUN echo '};' >> commands/group.js
+
+# Create admin.js with basic structure
+RUN echo 'module.exports = { handleAdminCommands: async () => false };' > commands/admin.js
 # Create index.js
 RUN echo 'const makeWASocket = require("@whiskeysockets/baileys").default;' > index.js
 RUN echo 'const { useMultiFileAuthState } = require("@whiskeysockets/baileys");' >> index.js
