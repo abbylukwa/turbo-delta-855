@@ -1,6 +1,7 @@
 const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
+const sizeOf = require('image-size');
 
 class ImageDownloader {
     constructor() {
@@ -32,7 +33,8 @@ class ImageDownloader {
             const response = await axios({
                 method: 'GET',
                 url: imageUrl,
-                responseType: 'stream'
+                responseType: 'stream',
+                timeout: 15000
             });
 
             const writer = fs.createWriteStream(filePath);
@@ -40,9 +42,20 @@ class ImageDownloader {
             response.data.pipe(writer);
             
             return new Promise((resolve, reject) => {
-                writer.on('finish', () => {
-                    console.log(`Image downloaded successfully: ${filePath}`);
-                    resolve(filePath);
+                writer.on('finish', async () => {
+                    try {
+                        // Get image dimensions
+                        const dimensions = sizeOf(filePath);
+                        console.log(`Image downloaded successfully: ${filePath} (${dimensions.width}x${dimensions.height})`);
+                        resolve({
+                            path: filePath,
+                            dimensions: dimensions,
+                            size: (await fs.stat(filePath)).size
+                        });
+                    } catch (error) {
+                        console.log(`Image downloaded successfully: ${filePath}`);
+                        resolve({ path: filePath });
+                    }
                 });
                 writer.on('error', reject);
             });
@@ -53,33 +66,37 @@ class ImageDownloader {
         }
     }
 
-    // Download multiple images
-    async downloadMultipleImages(imageNames, customPath = null) {
-        try {
-            const results = [];
-            for (const imageName of imageNames) {
-                try {
-                    const filePath = await this.downloadImage(imageName, customPath);
-                    results.push({ imageName, success: true, path: filePath });
-                } catch (error) {
-                    results.push({ imageName, success: false, error: error.message });
-                }
-            }
-            return results;
-        } catch (error) {
-            console.error('Error downloading multiple images:', error);
-            throw error;
-        }
-    }
-
-    // List downloaded images
+    // List downloaded images with details
     async listDownloadedImages() {
         try {
             await this.ensureDirectory();
             const files = await fs.readdir(this.downloadPath);
-            const imageFiles = files.filter(file => 
-                /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file)
-            );
+            
+            const imageFiles = [];
+            for (const file of files) {
+                if (/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file)) {
+                    try {
+                        const filePath = path.join(this.downloadPath, file);
+                        const stats = await fs.stat(filePath);
+                        const dimensions = sizeOf(filePath);
+                        
+                        imageFiles.push({
+                            name: file,
+                            path: filePath,
+                            size: stats.size,
+                            dimensions: dimensions,
+                            modified: stats.mtime
+                        });
+                    } catch (error) {
+                        imageFiles.push({
+                            name: file,
+                            path: path.join(this.downloadPath, file),
+                            error: 'Could not read file info'
+                        });
+                    }
+                }
+            }
+            
             return imageFiles;
         } catch (error) {
             console.error('Error listing images:', error);
@@ -92,15 +109,43 @@ class ImageDownloader {
         try {
             const filePath = path.join(this.downloadPath, imageName);
             const stats = await fs.stat(filePath);
+            const dimensions = sizeOf(filePath);
+            
             return {
                 name: imageName,
                 path: filePath,
                 size: stats.size,
+                dimensions: dimensions,
                 modified: stats.mtime
             };
         } catch (error) {
             console.error('Error getting image info:', error);
             return null;
+        }
+    }
+
+    // Delete downloaded image
+    async deleteImage(imageName) {
+        try {
+            const filePath = path.join(this.downloadPath, imageName);
+            await fs.remove(filePath);
+            console.log(`Deleted image: ${imageName}`);
+            return true;
+        } catch (error) {
+            console.error('Error deleting image:', error);
+            throw error;
+        }
+    }
+
+    // Clear all downloaded images
+    async clearDownloads() {
+        try {
+            await fs.emptyDir(this.downloadPath);
+            console.log('Cleared all downloaded images');
+            return true;
+        } catch (error) {
+            console.error('Error clearing downloads:', error);
+            throw error;
         }
     }
 }
