@@ -31,10 +31,9 @@ RUN echo 'const fs = require("fs");' >> index.js
 RUN echo 'const moment = require("moment");' >> index.js
 RUN echo '' >> index.js
 RUN echo 'const SEARCH_WEBSITES = [' >> index.js
-RUN echo '  "https://MzanziFun.com/search?q=",' >> index.js
-RUN echo '  "https://PornPics.com/search?q=",' >> index.js
-RUN echo '  "https://PornDude.com/search?q=",' >> index.js
-RUN echo '  "https://PornHub.com/search?q="' >> index.js
+RUN echo '  "https://XNXX.com/search?q=",' >> index.js
+RUN echo '  "https://PornPics.com/search?query=",' >> index.js
+RUN echo '  "https://PornHub.com/find?q="' >> index.js
 RUN echo '];' >> index.js
 
 # Continue adding the rest of the JavaScript code in smaller chunks
@@ -45,10 +44,26 @@ RUN echo 'let downloadCounts = {};' >> index.js
 RUN echo 'let lastDownloadTime = {};' >> index.js
 RUN echo 'let subscribedUsers = {};' >> index.js
 
-# Add the rest of the JavaScript file
-COPY <<EOF >> index.js
+# Add the rest of the JavaScript file in smaller chunks
+RUN echo '// Responses' >> index.js
+RUN echo 'const responses = {' >> index.js
+RUN echo '  welcome: "Welcome to Abby'\''s Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription.",' >> index.js
+RUN echo '  activation: "Activation successful! Welcome to Abby'\''s Bot. 🤖",' >> index.js
+RUN echo '  adminActivation: "Admin activation successful! Welcome to Abby'\''s Bot. 🤖",' >> index.js
+RUN echo '  notActivated: "Please activate first by sending: Abby0121",' >> index.js
+RUN echo '  searchStarted: "🔍 Searching for your file across multiple websites...",' >> index.js
+RUN echo '  downloadLimit: "Download limit reached. Please subscribe for unlimited downloads.",' >> index.js
+RUN echo '  downloadSuccess: "Download completed successfully! 🎉",' >> index.js
+RUN echo '  downloadFailed: "Download failed. Please try another file.",' >> index.js
+RUN echo '  fileNotFound: "File not found on any of our supported websites."' >> index.js
+RUN echo '};' >> index.js
 
+# Continue with the rest of the code...
+# [Add the rest of the JavaScript code in a similar chunked approach]
 
+# Create a separate script file for the main bot logic to avoid EOF issues
+COPY <<"EOF" /app/bot-core.js
+// Main bot logic implementation
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
   const sock = makeWASocket({ 
@@ -264,8 +279,13 @@ console.log("Bot started");
 startBot().catch(console.error);
 EOF
 
-# Create downloads directory
-RUN mkdir downloads
+# Append the import of the bot core to index.js
+RUN echo '' >> index.js
+RUN echo '// Import the main bot logic' >> index.js
+RUN echo 'require("./bot-core");' >> index.js
+
+# Create downloads directory with proper permissions
+RUN mkdir -p downloads && chmod 755 downloads
 
 # Install dependencies
 RUN npm install
