@@ -4,7 +4,7 @@ WORKDIR /app
 ENV TZ=Asia/Kolkata
 ENV ACTIVATION_KEY=123
 ENV BOT_NAME=Abby
-ENV WEBSITE_URL=https://your-website.com/images
+ENV WEBSITE_URL=https://PornPics.com/images
 ENV DOWNLOAD_PATH=./downloads
 
 # Create package.json
