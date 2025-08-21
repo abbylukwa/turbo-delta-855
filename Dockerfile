@@ -1,21 +1,39 @@
 FROM node:22-alpine
+
+# Install dependencies
 RUN apk add --no-cache git ffmpeg libwebp-tools python3 make g++ curl wget
+
+# Create app directory
 WORKDIR /app
 
 # Create package.json
-RUN echo '{"name":"abby-bot","version":"1.0.0","main":"index.js","dependencies":{"@whiskeysockets/baileys":"^6.4.0","axios":"^1.6.0","moment":"^2.29.4"},"scripts":{"start":"node index.js"}}' > package.json
+RUN echo '{\
+  "name": "abby-bot",\
+  "version": "1.0.0",\
+  "main": "index.js",\
+  "dependencies": {\
+    "@whiskeysockets/baileys": "^6.4.0",\
+    "axios": "^1.6.0",\
+    "moment": "^2.29.4",\
+    "qrcode-terminal": "^0.12.0"\
+  },\
+  "scripts": {\
+    "start": "node index.js"\
+  }\
+}' > package.json
 
-# Create the index.js file using a heredoc or multiple echo statements
-RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > index.js && \
-    echo 'let { useMultiFileAuthState } = require("@whiskeysockets/baileys");' >> index.js && \
-    echo 'let axios = require("axios");' >> index.js && \
-    echo 'let fs = require("fs");' >> index.js && \
-    echo 'let moment = require("moment");' >> index.js && \
+# Create index.js with proper QR code generation
+RUN echo 'const makeWASocket = require("@whiskeysockets/baileys").default;' > index.js && \
+    echo 'const { useMultiFileAuthState } = require("@whiskeysockets/baileys");' >> index.js && \
+    echo 'const qrcode = require("qrcode-terminal");' >> index.js && \
+    echo 'const axios = require("axios");' >> index.js && \
+    echo 'const fs = require("fs");' >> index.js && \
+    echo 'const moment = require("moment");' >> index.js && \
     echo '' >> index.js && \
-    echo 'let ALLOWED_WEBSITES = [' >> index.js && \
+    echo 'const ALLOWED_WEBSITES = [' >> index.js && \
+    echo '  "https://MzansiFun.com",' >> index.js && \
     echo '  "https://XNXX.com",' >> index.js && \
-    echo '  "https://YouPorn.com",' >> index.js && \
-    echo '  "https://Tube8.com",' >> index.js && \
+    echo '  "https://PornPics.com",' >> index.js && \
     echo '  "https://PornHat.com"' >> index.js && \
     echo '];' >> index.js && \
     echo '' >> index.js && \
@@ -27,16 +45,17 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo 'let subscribedUsers = {};' >> index.js && \
     echo '' >> index.js && \
     echo 'async function startBot() {' >> index.js && \
-    echo '  let { state, saveCreds } = await useMultiFileAuthState("auth_info");' >> index.js && \
-    echo '  let sock = makeWASocket({ ' >> index.js && \
+    echo '  const { state, saveCreds } = await useMultiFileAuthState("auth_info");' >> index.js && \
+    echo '  const sock = makeWASocket({ ' >> index.js && \
     echo '    auth: state,' >> index.js && \
-    echo '    printQRInTerminal: true' >> index.js && \
+    echo '    printQRInTerminal: false' >> index.js && \
     echo '  });' >> index.js && \
     echo '' >> index.js && \
     echo '  sock.ev.on("connection.update", (update) => {' >> index.js && \
-    echo '    let { connection, lastDisconnect, qr } = update;' >> index.js && \
+    echo '    const { connection, lastDisconnect, qr } = update;' >> index.js && \
     echo '    if (qr) {' >> index.js && \
-    echo '      console.log("Scan the QR code above to connect");' >> index.js && \
+    echo '      console.log("Scan the QR code below to connect:");' >> index.js && \
+    echo '      qrcode.generate(qr, { small: true });' >> index.js && \
     echo '    }' >> index.js && \
     echo '    if (connection === "close") {' >> index.js && \
     echo '      console.log("Connection closed, reconnecting...");' >> index.js && \
@@ -49,11 +68,11 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '  sock.ev.on("creds.update", saveCreds);' >> index.js && \
     echo '' >> index.js && \
     echo '  sock.ev.on("messages.upsert", async (m) => {' >> index.js && \
-    echo '    let message = m.messages[0];' >> index.js && \
+    echo '    const message = m.messages[0];' >> index.js && \
     echo '    if (!message.message) return;' >> index.js && \
-    echo '    let text = message.message.conversation || message.message.extendedTextMessage?.text || "";' >> index.js && \
-    echo '    let sender = message.key.remoteJid;' >> index.js && \
-    echo '    let senderNumber = sender.split("@")[0];' >> index.js && \
+    echo '    const text = message.message.conversation || message.message.extendedTextMessage?.text || "";' >> index.js && \
+    echo '    const sender = message.key.remoteJid;' >> index.js && \
+    echo '    const senderNumber = sender.split("@")[0];' >> index.js && \
     echo '' >> index.js && \
     echo '    if (text === "Abby0121") {' >> index.js && \
     echo '      activatedUsers.add(senderNumber);' >> index.js && \
@@ -69,13 +88,13 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '    }' >> index.js && \
     echo '' >> index.js && \
     echo '    if (adminUsers.has(senderNumber) && text.startsWith("addsub ")) {' >> index.js && \
-    echo '      let parts = text.replace("addsub ", "").split(" ");' >> index.js && \
+    echo '      const parts = text.replace("addsub ", "").split(" ");' >> index.js && \
     echo '      if (parts.length >= 2) {' >> index.js && \
-    echo '        let number = parts[0];' >> index.js && \
-    echo '        let days = parseInt(parts[1]);' >> index.js && \
+    echo '        const number = parts[0];' >> index.js && \
+    echo '        const days = parseInt(parts[1]);' >> index.js && \
     echo '        ' >> index.js && \
     echo '        if (number.startsWith("+") && !isNaN(days)) {' >> index.js && \
-    echo '          let expiryDate = moment().add(days, "days").toDate();' >> index.js && \
+    echo '          const expiryDate = moment().add(days, "days").toDate();' >> index.js && \
     echo '          subscribedUsers[number] = {' >> index.js && \
     echo '            expiry: expiryDate,' >> index.js && \
     echo '            downloads: 0' >> index.js && \
@@ -90,13 +109,13 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '      return;' >> index.js && \
     echo '    }' >> index.js && \
     echo '' >> index.js && \
-    echo '    let hasSubscription = subscribedUsers[senderNumber] && new Date() < new Date(subscribedUsers[senderNumber].expiry);' >> index.js && \
+    echo '    const hasSubscription = subscribedUsers[senderNumber] && new Date() < new Date(subscribedUsers[senderNumber].expiry);' >> index.js && \
     echo '    ' >> index.js && \
     echo '    if (text.startsWith("!download ")) {' >> index.js && \
-    echo '      let url = text.replace("!download ", "");' >> index.js && \
+    echo '      const url = text.replace("!download ", "");' >> index.js && \
     echo '      ' >> index.js && \
     echo '      let allowed = false;' >> index.js && \
-    echo '      for (let site of ALLOWED_WEBSITES) {' >> index.js && \
+    echo '      for (const site of ALLOWED_WEBSITES) {' >> index.js && \
     echo '        if (url.includes(site)) {' >> index.js && \
     echo '          allowed = true;' >> index.js && \
     echo '          break;' >> index.js && \
@@ -108,7 +127,7 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '        return;' >> index.js && \
     echo '      }' >> index.js && \
     echo '      ' >> index.js && \
-    echo '      let now = Date.now();' >> index.js && \
+    echo '      const now = Date.now();' >> index.js && \
     echo '      ' >> index.js && \
     echo '      if (!hasSubscription && !adminUsers.has(senderNumber)) {' >> index.js && \
     echo '        if (!downloadCounts[senderNumber]) downloadCounts[senderNumber] = 0;' >> index.js && \
@@ -120,7 +139,7 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '        }' >> index.js && \
     echo '        ' >> index.js && \
     echo '        if (downloadCounts[senderNumber] >= 5) {' >> index.js && \
-    echo '          let paymentMessage = "Download limit reached.";' >> index.js && \
+    echo '          const paymentMessage = "Download limit reached.";' >> index.js && \
     echo '          await sock.sendMessage(sender, { text: paymentMessage });' >> index.js && \
     echo '          return;' >> index.js && \
     echo '        }' >> index.js && \
@@ -133,7 +152,7 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '      }' >> index.js && \
     echo '      ' >> index.js && \
     echo '      try {' >> index.js && \
-    echo '        let result = await downloadFile(url, senderNumber);' >> index.js && \
+    echo '        const result = await downloadFile(url, senderNumber);' >> index.js && \
     echo '        await sock.sendMessage(sender, { text: result });' >> index.js && \
     echo '      } catch (error) {' >> index.js && \
     echo '        await sock.sendMessage(sender, { text: "Download failed: " + error.message });' >> index.js && \
@@ -143,15 +162,15 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '' >> index.js && \
     echo '    if (text === "!mystatus") {' >> index.js && \
     echo '      if (hasSubscription) {' >> index.js && \
-    echo '        let expiryDate = new Date(subscribedUsers[senderNumber].expiry);' >> index.js && \
-    echo '        let daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));' >> index.js && \
+    echo '        const expiryDate = new Date(subscribedUsers[senderNumber].expiry);' >> index.js && \
+    echo '        const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));' >> index.js && \
     echo '        await sock.sendMessage(sender, { ' >> index.js && \
     echo '          text: `Your subscription is active.\\nExpiry: ${expiryDate.toDateString()}\\nDays left: ${daysLeft}\\nDownloads used: ${subscribedUsers[senderNumber].downloads || 0}` ' >> index.js && \
     echo '        });' >> index.js && \
     echo '      } else if (adminUsers.has(senderNumber)) {' >> index.js && \
     echo '        await sock.sendMessage(sender, { text: "You are an admin with unlimited access." });' >> index.js && \
     echo '      } else {' >> index.js && \
-    echo '        let remaining = 5 - (downloadCounts[senderNumber] || 0);' >> index.js && \
+    echo '        const remaining = 5 - (downloadCounts[senderNumber] || 0);' >> index.js && \
     echo '        await sock.sendMessage(sender, { ' >> index.js && \
     echo '          text: `You are on free tier.\\nRemaining free downloads: ${remaining}` ' >> index.js && \
     echo '        });' >> index.js && \
@@ -162,21 +181,21 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '    if (adminUsers.has(senderNumber)) {' >> index.js && \
     echo '      if (text === "!stats") {' >> index.js && \
     echo '        let activeSubs = 0;' >> index.js && \
-    echo '        for (let num in subscribedUsers) {' >> index.js && \
+    echo '        for (const num in subscribedUsers) {' >> index.js && \
     echo '          if (new Date() < new Date(subscribedUsers[num].expiry)) activeSubs++;' >> index.js && \
     echo '        }' >> index.js && \
     echo '        ' >> index.js && \
-    echo '        let stats = `Active users: ${activatedUsers.size}\\nAdmin users: ${adminUsers.size}\\nActive subscriptions: ${activeSubs}`;' >> index.js && \
+    echo '        const stats = `Active users: ${activatedUsers.size}\\nAdmin users: ${adminUsers.size}\\nActive subscriptions: ${activeSubs}`;' >> index.js && \
     echo '        await sock.sendMessage(sender, { text: stats });' >> index.js && \
     echo '        return;' >> index.js && \
     echo '      }' >> index.js && \
     echo '      ' >> index.js && \
     echo '      if (text === "!subs") {' >> index.js && \
     echo '        let subsList = "Active Subscriptions:\\n";' >> index.js && \
-    echo '        for (let num in subscribedUsers) {' >> index.js && \
+    echo '        for (const num in subscribedUsers) {' >> index.js && \
     echo '          if (new Date() < new Date(subscribedUsers[num].expiry)) {' >> index.js && \
-    echo '            let expiry = new Date(subscribedUsers[num].expiry);' >> index.js && \
-    echo '            let daysLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24));' >> index.js && \
+    echo '            const expiry = new Date(subscribedUsers[num].expiry);' >> index.js && \
+    echo '            const daysLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24));' >> index.js && \
     echo '            subsList += `${num}: Expires ${expiry.toDateString()} (${daysLeft} days left), Downloads: ${subscribedUsers[num].downloads || 0}\\n`;' >> index.js && \
     echo '          }' >> index.js && \
     echo '        }' >> index.js && \
@@ -186,7 +205,7 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '    }' >> index.js && \
     echo '' >> index.js && \
     echo '    if (text === "!payments") {' >> index.js && \
-    echo '      let paymentMessage = "Payment Information:";' >> index.js && \
+    echo '      const paymentMessage = "Payment Information:";' >> index.js && \
     echo '      await sock.sendMessage(sender, { text: paymentMessage });' >> index.js && \
     echo '      return;' >> index.js && \
     echo '    }' >> index.js && \
@@ -200,7 +219,7 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo 'async function downloadFile(url, senderNumber) {' >> index.js && \
     echo '  try {' >> index.js && \
     echo '    let allowed = false;' >> index.js && \
-    echo '    for (let site of ALLOWED_WEBSITES) {' >> index.js && \
+    echo '    for (const site of ALLOWED_WEBSITES) {' >> index.js && \
     echo '      if (url.includes(site)) {' >> index.js && \
     echo '        allowed = true;' >> index.js && \
     echo '        break;' >> index.js && \
@@ -211,20 +230,20 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '      throw new Error("Website not allowed for downloads");' >> index.js && \
     echo '    }' >> index.js && \
     echo '    ' >> index.js && \
-    echo '    let timestamp = new Date().getTime();' >> index.js && \
-    echo '    let filename = `downloads/${senderNumber}_${timestamp}.download`;' >> index.js && \
+    echo '    const timestamp = new Date().getTime();' >> index.js && \
+    echo '    const filename = `downloads/${senderNumber}_${timestamp}.download`;' >> index.js && \
     echo '    ' >> index.js && \
     echo '    if (!fs.existsSync("downloads")) {' >> index.js && \
     echo '      fs.mkdirSync("downloads");' >> index.js && \
     echo '    }' >> index.js && \
     echo '    ' >> index.js && \
-    echo '    let response = await axios({' >> index.js && \
+    echo '    const response = await axios({' >> index.js && \
     echo '      method: "GET",' >> index.js && \
     echo '      url: url,' >> index.js && \
     echo '      responseType: "stream"' >> index.js && \
     echo '    });' >> index.js && \
     echo '    ' >> index.js && \
-    echo '    let writer = fs.createWriteStream(filename);' >> index.js && \
+    echo '    const writer = fs.createWriteStream(filename);' >> index.js && \
     echo '    response.data.pipe(writer);' >> index.js && \
     echo '    ' >> index.js && \
     echo '    return new Promise((resolve, reject) => {' >> index.js && \
@@ -244,6 +263,8 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
 # Create downloads directory
 RUN mkdir downloads
 
+# Install dependencies
 RUN npm install
 
+# Start the bot
 CMD ["node", "index.js"]
