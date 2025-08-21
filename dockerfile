@@ -465,7 +465,7 @@ RUN echo '  handleAdminSubscriptionCommands,' >> commands/index.js
 # Create commands/qrcode.js using a script approach
 RUN mkdir -p commands && cat > /tmp/create_qrcode.sh << 'EOS'
 #!/bin/sh
-cat > commands/qrcode.js << 'EOF'
+cmd > commands/qrcode.js << 'EOF'
         // Generate QR code in terminal (for debugging)
         console.log("\n📱 QR Code generated for ${senderNumber}:");
         qrcode.generate(qrData, { small: true });
