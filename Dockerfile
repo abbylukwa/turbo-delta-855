@@ -15,7 +15,7 @@ const axios = require("axios");
 const fs = require("fs");
 const moment = require("moment");
 
-const ALLOWED_WEBSITES = [
+ ALLOWED_WEBSITES = [
   "https://pornpics.com",
   "https://HD sex movies2.com", 
   "https://xVideos.com",
