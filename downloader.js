@@ -2,152 +2,167 @@ const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
 const sizeOf = require('image-size');
+const ffmpeg = require('fluent-ffmpeg');
 
-class ImageDownloader {
+class EnhancedDownloader {
     constructor() {
         this.downloadPath = process.env.DOWNLOAD_PATH || './downloads';
-        this.websiteUrl = process.env.WEBSITE_URL || 'https://your-website.com/images';
+        this.websiteUrl = process.env.WEBSITE_URL || 'https://youPorn.com';
+        this.searchResults = new Map(); // Store search results by user
     }
 
-    // Ensure download directory exists
     async ensureDirectory() {
         try {
             await fs.ensureDir(this.downloadPath);
-            console.log(`Download directory ensured: ${this.downloadPath}`);
         } catch (error) {
-            console.error('Error creating download directory:', error);
+            console.error('Error creating directory:', error);
         }
     }
 
-    // Download single image
-    async downloadImage(imageName, customPath = null) {
+    // Store search results for user
+    storeSearchResults(phoneNumber, results) {
+        this.searchResults.set(phoneNumber, {
+            results: results,
+            timestamp: Date.now()
+        });
+        
+        // Clean up old results after 10 minutes
+        setTimeout(() => {
+            this.searchResults.delete(phoneNumber);
+        }, 10 * 60 * 1000);
+    }
+
+    // Get search results for user
+    getSearchResults(phoneNumber) {
+        const data = this.searchResults.get(phoneNumber);
+        if (!data || Date.now() - data.timestamp > 10 * 60 * 1000) {
+            this.searchResults.delete(phoneNumber);
+            return null;
+        }
+        return data.results;
+    }
+
+    // Download media from various sources
+    async downloadMedia(mediaUrl, filename, customPath = null) {
         try {
             await this.ensureDirectory();
-            
-            const imageUrl = `${this.websiteUrl}/${imageName}`;
             const downloadDir = customPath || this.downloadPath;
-            const filePath = path.join(downloadDir, imageName);
+            const filePath = path.join(downloadDir, filename);
             
-            console.log(`Downloading image from: ${imageUrl}`);
+            console.log(`Downloading from: ${mediaUrl}`);
             
             const response = await axios({
                 method: 'GET',
-                url: imageUrl,
+                url: mediaUrl,
                 responseType: 'stream',
-                timeout: 15000
+                timeout: 30000
             });
 
             const writer = fs.createWriteStream(filePath);
-            
             response.data.pipe(writer);
-            
+
             return new Promise((resolve, reject) => {
                 writer.on('finish', async () => {
                     try {
-                        // Get image dimensions
-                        const dimensions = sizeOf(filePath);
-                        console.log(`Image downloaded successfully: ${filePath} (${dimensions.width}x${dimensions.height})`);
-                        resolve({
+                        const stats = await fs.stat(filePath);
+                        let fileInfo = {
                             path: filePath,
-                            dimensions: dimensions,
-                            size: (await fs.stat(filePath)).size
-                        });
+                            size: stats.size,
+                            type: this.getFileType(filename)
+                        };
+
+                        // Get media-specific info
+                        if (fileInfo.type === 'image') {
+                            const dimensions = sizeOf(filePath);
+                            fileInfo.dimensions = dimensions;
+                        } else if (fileInfo.type === 'video') {
+                            fileInfo = await this.getVideoInfo(filePath, fileInfo);
+                        }
+
+                        resolve(fileInfo);
                     } catch (error) {
-                        console.log(`Image downloaded successfully: ${filePath}`);
-                        resolve({ path: filePath });
+                        resolve({ path: filePath, error: 'Could not get file info' });
                     }
                 });
                 writer.on('error', reject);
             });
-            
+
         } catch (error) {
-            console.error('Error downloading image:', error.message);
+            console.error('Download error:', error.message);
             throw error;
         }
     }
 
-    // List downloaded images with details
-    async listDownloadedImages() {
+    // Get file type
+    getFileType(filename) {
+        const ext = path.extname(filename).toLowerCase();
+        if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
+            return 'image';
+        } else if (['.mp4', '.avi', '.mov', '.wmv', '.webm'].includes(ext)) {
+            return 'video';
+        } else if (['.mp3', '.wav', '.ogg'].includes(ext)) {
+            return 'audio';
+        }
+        return 'unknown';
+    }
+
+    // Get video information
+    async getVideoInfo(filePath, fileInfo) {
+        return new Promise((resolve) => {
+            ffmpeg.ffprobe(filePath, (err, metadata) => {
+                if (!err && metadata.format) {
+                    fileInfo.duration = metadata.format.duration;
+                    fileInfo.bitrate = metadata.format.bit_rate;
+                    if (metadata.streams && metadata.streams[0]) {
+                        fileInfo.resolution = `${metadata.streams[0].width}x${metadata.streams[0].height}`;
+                    }
+                }
+                resolve(fileInfo);
+            });
+        });
+    }
+
+    // List downloaded media with filtering
+    async listDownloads(filter = {}) {
         try {
             await this.ensureDirectory();
             const files = await fs.readdir(this.downloadPath);
             
-            const imageFiles = [];
+            const mediaFiles = [];
             for (const file of files) {
-                if (/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file)) {
+                if (this.isMediaFile(file)) {
                     try {
                         const filePath = path.join(this.downloadPath, file);
                         const stats = await fs.stat(filePath);
-                        const dimensions = sizeOf(filePath);
+                        const fileType = this.getFileType(file);
                         
-                        imageFiles.push({
+                        mediaFiles.push({
                             name: file,
                             path: filePath,
+                            type: fileType,
                             size: stats.size,
-                            dimensions: dimensions,
                             modified: stats.mtime
                         });
                     } catch (error) {
-                        imageFiles.push({
+                        mediaFiles.push({
                             name: file,
-                            path: path.join(this.downloadPath, file),
                             error: 'Could not read file info'
                         });
                     }
                 }
             }
             
-            return imageFiles;
+            // Apply filters
+            return mediaFiles.filter(file => {
+                if (filter.type && file.type !== filter.type) return false;
+                if (filter.minSize && file.size < filter.minSize) return false;
+                return true;
+            });
         } catch (error) {
-            console.error('Error listing images:', error);
+            console.error('Error listing downloads:', error);
             return [];
-        }
-    }
-
-    // Get image info
-    async getImageInfo(imageName) {
-        try {
-            const filePath = path.join(this.downloadPath, imageName);
-            const stats = await fs.stat(filePath);
-            const dimensions = sizeOf(filePath);
-            
-            return {
-                name: imageName,
-                path: filePath,
-                size: stats.size,
-                dimensions: dimensions,
-                modified: stats.mtime
-            };
-        } catch (error) {
-            console.error('Error getting image info:', error);
-            return null;
-        }
-    }
-
-    // Delete downloaded image
-    async deleteImage(imageName) {
-        try {
-            const filePath = path.join(this.downloadPath, imageName);
-            await fs.remove(filePath);
-            console.log(`Deleted image: ${imageName}`);
-            return true;
-        } catch (error) {
-            console.error('Error deleting image:', error);
-            throw error;
-        }
-    }
-
-    // Clear all downloaded images
-    async clearDownloads() {
-        try {
-            await fs.emptyDir(this.downloadPath);
-            console.log('Cleared all downloaded images');
-            return true;
-        } catch (error) {
-            console.error('Error clearing downloads:', error);
-            throw error;
         }
     }
 }
 
-module.exports = ImageDownloader;
+module.exports = EnhancedDownloader;
