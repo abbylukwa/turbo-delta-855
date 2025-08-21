@@ -13,7 +13,10 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo 'let moment = require("moment");' >> index.js && \
     echo '' >> index.js && \
     echo 'let ALLOWED_WEBSITES = [' >> index.js && \
-    echo '  "https://pornpics.com"' >> index.js && \
+    echo '  "https://xVideos.com",' >> index.js && \
+    echo '  "https://YouPornn.com",' >> index.js && \
+    echo '  "https://Tube8.com",' >> index.js && \
+    echo '  "https://PornHat.com"' >> index.js && \
     echo '];' >> index.js && \
     echo '' >> index.js && \
     echo 'let activatedUsers = new Set();' >> index.js && \
