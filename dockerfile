@@ -101,7 +101,7 @@ RUN echo '      this.db.run(`CREATE TABLE IF NOT EXISTS admin_files (' >> databa
 RUN echo '        id INTEGER PRIMARY KEY AUTOINCREMENT,' >> database.js
 RUN echo '        filename TEXT,' >> database.js
 RUN echo '        file_url TEXT,' >> database.js
-UN echo '        file_size INTEGER,' >> database.js
+RUN echo '        file_size INTEGER,' >> database.js
 RUN echo '        category TEXT,' >> database.js
 RUN echo '        added_by TEXT,' >> database.js
 RUN echo '        added_at INTEGER' >> database.js
