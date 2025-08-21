@@ -358,33 +358,34 @@ RUN echo '        status TEXT DEFAULT '\''active'\'',' >> database.js
 RUN echo '        created_at INTEGER DEFAULT (strftime('\''%s'\'', '\''now'\'')),' >> database.js
 RUN echo '        FOREIGN KEY (phone_number) REFERENCES users (phone_number)' >> database.js
 RUN echo '      )`);' >> database.js
-# Create commands/index.js properly
-RUN echo 'const { handleActivation, isUserActivated, isUserAdmin, isGroupManager } = require("./activation");' > commands/index.js
-RUN echo 'const { handleFileDownload } = require("./download");' >> commands/index.js
-RUN echo 'const { handleStatusCommand } = require("./status");' >> commands/index.js
-RUN echo 'const { handleAdminCommands } = require("./admin");' >> commands/index.js
-RUN echo 'const { handlePaymentsCommand } = require("./payments");' >> commands/index.js
-RUN echo 'const { handleDatingCommand } = require("./dating");' >> commands/index.js
-RUN echo 'const { handleGroupActivation, handleGroupCommands, handleGroupInvite, shouldReplyToIndividual } = require("./group");' >> commands/index.js
-RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js
-RUN echo '' >> commands/index.js
-RUN echo 'module.exports = {' >> commands/index.js
-RUN echo '  handleActivation,' >> commands/index.js
-RUN echo '  isUserActivated,' >> commands/index.js
-RUN echo '  isUserAdmin,' >> commands/index.js
-RUN echo '  isGroupManager,' >> commands/index.js
-RUN echo '  handleFileDownload,' >> commands/index.js
-RUN echo '  handleStatusCommand,' >> commands/index.js
-RUN echo '  handleAdminCommands,' >> commands/index.js
-RUN echo '  handlePaymentsCommand,' >> commands/index.js
-RUN echo '  handleDatingCommand,' >> commands/index.js
-RUN echo '  handleGroupActivation,' >> commands/index.js
-RUN echo '  handleGroupCommands,' >> commands/index.js
-RUN echo '  handleGroupInvite,' >> commands/index.js
-RUN echo '  shouldReplyToIndividual,' >> commands/index.js
-RUN echo '  handleSubscriptionCommand,' >> commands/index.js
-RUN echo '  handleAdminSubscriptionCommands' >> commands/index.js
-RUN echo '};' >> commands/index.js
+# Create commands directory and index.js properly
+RUN mkdir -p commands && \
+    echo 'const { handleActivation, isUserActivated, isUserAdmin, isGroupManager } = require("./activation");' > commands/index.js && \
+    echo 'const { handleFileDownload } = require("./download");' >> commands/index.js && \
+    echo 'const { handleStatusCommand } = require("./status");' >> commands/index.js && \
+    echo 'const { handleAdminCommands } = require("./admin");' >> commands/index.js && \
+    echo 'const { handlePaymentsCommand } = require("./payments");' >> commands/index.js && \
+    echo 'const { handleDatingCommand } = require("./dating");' >> commands/index.js && \
+    echo 'const { handleGroupActivation, handleGroupCommands, handleGroupInvite, shouldReplyToIndividual } = require("./group");' >> commands/index.js && \
+    echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js && \
+    echo '' >> commands/index.js && \
+    echo 'module.exports = {' >> commands/index.js && \
+    echo '  handleActivation,' >> commands/index.js && \
+    echo '  isUserActivated,' >> commands/index.js && \
+    echo '  isUserAdmin,' >> commands/index.js && \
+    echo '  isGroupManager,' >> commands/index.js && \
+    echo '  handleFileDownload,' >> commands/index.js && \
+    echo '  handleStatusCommand,' >> commands/index.js && \
+    echo '  handleAdminCommands,' >> commands/index.js && \
+    echo '  handlePaymentsCommand,' >> commands/index.js && \
+    echo '  handleDatingCommand,' >> commands/index.js && \
+    echo '  handleGroupActivation,' >> commands/index.js && \
+    echo '  handleGroupCommands,' >> commands/index.js && \
+    echo '  handleGroupInvite,' >> commands/index.js && \
+    echo '  shouldReplyToIndividual,' >> commands/index.js && \
+    echo '  handleSubscriptionCommand,' >> commands/index.js && \
+    echo '  handleAdminSubscriptionCommands' >> commands/index.js && \
+    echo '};' >> commands/index.js
 # Update commands/index.js to include QR code handler
 RUN echo 'const { handleActivation, isUserActivated, isUserAdmin, isGroupManager } = require("./activation");' > commands/index.js
 RUN echo 'const { handleFileDownload } = require("./download");' >> commands/index.js
