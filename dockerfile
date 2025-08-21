@@ -463,12 +463,8 @@ RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } =
 RUN echo '  handleSubscriptionCommand,' >> commands/index.js
 RUN echo '  handleAdminSubscriptionCommands,' >> commands/index.js
 RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
-
-        // Generate QR code in terminal (for debugging)
         console.log(`\n📱 QR Code generated for ${senderNumber}:`);
         qrcode.generate(qrData, { small: true });
-
-        // Send QR code as text to user
         const message = `📱 *QR Code for Pairing*\n\n` +
             `🔢 *Pairing Code:* ${pairingCode}\n` +
             `⏰ *Expires:* 5 minutes\n\n` +
@@ -495,8 +491,6 @@ RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
         if (action === "scan") {
             return await this.initiatePairingScan(sock, sender, senderNumber);
         }
-
-        // Handle pairing code input
         const pairingCode = parts[1];
         return await this.processPairingCode(sock, sender, senderNumber, pairingCode);
     }
@@ -517,7 +511,6 @@ RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
     }
 
     async processPairingCode(sock, sender, senderNumber, pairingCode) {
-        // Find which user has this pairing code
         let targetUser = null;
         for (const [userNumber, qrInfo] of this.qrCodes.entries()) {
             if (qrInfo.code === pairingCode && qrInfo.expiresAt > Date.now()) {
@@ -530,8 +523,6 @@ RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
             await sock.sendMessage(sender, { text: "❌ Invalid or expired pairing code." });
             return true;
         }
-
-        // Pair the devices
         this.qrCodes.delete(targetUser);
 
         const message = `✅ *Pairing Successful!*\n\n` +
@@ -540,8 +531,6 @@ RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
             `📱 Both devices can now access your account.`;
 
         await sock.sendMessage(sender, { text: message });
-
-        // Notify the other user
         const notifyMessage = `📱 *New Device Paired*\n\n` +
             `A new device has been paired with your account:\n` +
             `📞 Phone: ${senderNumber}\n` +
@@ -554,7 +543,6 @@ RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
     }
 
     async showPairedDevices(sock, sender, senderNumber) {
-        // In a real implementation, you would store this in database
         const message = `📱 *Your Paired Devices*\n\n` +
             `1. 📞 ${senderNumber} (Primary)\n` +
             `   ✅ Active - Current device\n\n` +
@@ -569,7 +557,6 @@ RUN mkdir -p commands && cat << 'EOF' > commands/qrcode.js
     }
 
     generatePairingCode() {
-        // Generate a 6-digit pairing code
         return Math.floor(100000 + Math.random() * 900000).toString();
     }
 
