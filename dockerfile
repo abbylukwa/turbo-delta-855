@@ -31,7 +31,7 @@ RUN echo '{\
 # Create directory structure
 RUN mkdir -p downloads media temp data
 
-# Copy the bot scripts
+
 COPY index.js .
 COPY user-manager.js .
 COPY downloader.js .
@@ -39,7 +39,9 @@ COPY website-scraper.js .
 COPY web-searcher.js .
 COPY group-manager.js .
 COPY admin-commands.js .
-Copy the new Nicci commands file
 COPY nicci-commands.js .
+COPY dating-manager.js .
+COPY multi-website-manager.js .
+
 RUN npm install
 CMD ["node", "index.js"]
