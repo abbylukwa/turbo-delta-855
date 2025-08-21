@@ -15,8 +15,7 @@ RUN echo '{\
     "@whiskeysockets/baileys": "^6.4.0",\
     "axios": "^1.6.0",\
     "moment": "^2.29.4",\
-    "qrcode-terminal": "^0.12.0",\
-    "translate-google": "^1.5.0"\
+    "qrcode-terminal": "^0.12.0"\
   },\
   "scripts": {\
     "start": "node index.js"\
@@ -30,12 +29,11 @@ RUN echo 'const qrcode = require("qrcode-terminal");' >> index.js
 RUN echo 'const axios = require("axios");' >> index.js
 RUN echo 'const fs = require("fs");' >> index.js
 RUN echo 'const moment = require("moment");' >> index.js
-RUN echo 'const translate = require("translate-google");' >> index.js
 RUN echo '' >> index.js
 RUN echo 'const SEARCH_WEBSITES = [' >> index.js
-RUN echo '  "https://WonPorn.com/search?q=",' >> index.js
+RUN echo '  "https://MzanziFun.com/search?q=",' >> index.js
 RUN echo '  "https://PornPics.com/search?q=",' >> index.js
-RUN echo '  "https://XNXX.com/search?q=",' >> index.js
+RUN echo '  "https://PornDude.com/search?q=",' >> index.js
 RUN echo '  "https://PornHub.com/search?q="' >> index.js
 RUN echo '];' >> index.js
 
@@ -46,45 +44,22 @@ RUN echo 'let adminUsers = new Set();' >> index.js
 RUN echo 'let downloadCounts = {};' >> index.js
 RUN echo 'let lastDownloadTime = {};' >> index.js
 RUN echo 'let subscribedUsers = {};' >> index.js
-RUN echo 'let userLanguages = {};' >> index.js
 
-# Add the rest of the JavaScript file in a more manageable way
+# Add the rest of the JavaScript file
 COPY <<EOF >> index.js
 
-
+// Responses
 const responses = {
-  welcome: {
-    en: "Welcome to Abby's Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription."
-  },
-  activation: {
-    en: "Activation successful! Welcome to Abby's Bot. 🤖"
-  },
-  adminActivation: {
-    en: "Admin activation successful! Welcome to Abby's Bot. 🤖"
-  },
-  notActivated: {
-    en: "Please activate first by sending: Abby0121"
-  },
-  searchStarted: {
-    en: "🔍 Searching for your file across multiple websites..."
-  },
-  downloadLimit: {
-    en: "Download limit reached. Please subscribe for unlimited downloads."
-  },
-  downloadSuccess: {
-    en: "Download completed successfully! 🎉"
-  },
-  downloadFailed: {
-    en: "Download failed. Please try another file."
-  },
-  fileNotFound: {
-    en: "File not found on any of our supported websites."
-  }
+  welcome: "Welcome to Abby's Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription.",
+  activation: "Activation successful! Welcome to Abby's Bot. 🤖",
+  adminActivation: "Admin activation successful! Welcome to Abby's Bot. 🤖",
+  notActivated: "Please activate first by sending: Abby0121",
+  searchStarted: "🔍 Searching for your file across multiple websites...",
+  downloadLimit: "Download limit reached. Please subscribe for unlimited downloads.",
+  downloadSuccess: "Download completed successfully! 🎉",
+  downloadFailed: "Download failed. Please try another file.",
+  fileNotFound: "File not found on any of our supported websites."
 };
-
-async function getResponse(key, lang = "en") {
-  return responses[key][lang] || responses[key]["en"];
-}
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
@@ -116,33 +91,25 @@ async function startBot() {
     const sender = message.key.remoteJid;
     const senderNumber = sender.split("@")[0];
 
-   
-    }
-
     // Activation commands
     if (text === "Abby0121") {
       activatedUsers.add(senderNumber);
-      const welcomeMsg = await getResponse("welcome", userLang);
-      const activationMsg = await getResponse("activation", userLang);
-      await sock.sendMessage(sender, { text: activationMsg });
-      await sock.sendMessage(sender, { text: welcomeMsg });
+      await sock.sendMessage(sender, { text: responses.activation });
+      await sock.sendMessage(sender, { text: responses.welcome });
       return;
     }
 
     if (text === "Admin0121") {
       adminUsers.add(senderNumber);
       activatedUsers.add(senderNumber);
-      const welcomeMsg = await getResponse("welcome", userLang);
-      const adminMsg = await getResponse("adminActivation", userLang);
-      await sock.sendMessage(sender, { text: adminMsg });
-      await sock.sendMessage(sender, { text: welcomeMsg });
+      await sock.sendMessage(sender, { text: responses.adminActivation });
+      await sock.sendMessage(sender, { text: responses.welcome });
       return;
     }
 
     // Check if user is activated
     if (!activatedUsers.has(senderNumber) && !adminUsers.has(senderNumber)) {
-      const notActivatedMsg = await getResponse("notActivated", userLang);
-      await sock.sendMessage(sender, { text: notActivatedMsg });
+      await sock.sendMessage(sender, { text: responses.notActivated });
       return;
     }
 
@@ -169,8 +136,7 @@ async function startBot() {
     
     // File search and download - triggered by any message that is not a command
     if (!text.startsWith("!") && text.length > 2) {
-      const searchMsg = await getResponse("searchStarted", userLang);
-      await sock.sendMessage(sender, { text: searchMsg });
+      await sock.sendMessage(sender, { text: responses.searchStarted });
       
       const now = Date.now();
       
@@ -185,8 +151,7 @@ async function startBot() {
         }
         
         if (downloadCounts[senderNumber] >= 5) {
-          const limitMsg = await getResponse("downloadLimit", userLang);
-          await sock.sendMessage(sender, { text: limitMsg });
+          await sock.sendMessage(sender, { text: responses.downloadLimit });
           return;
         }
         
@@ -201,15 +166,12 @@ async function startBot() {
         // Search for the file across websites
         const result = await searchAndDownloadFile(text, senderNumber);
         if (result.success) {
-          const successMsg = await getResponse("downloadSuccess", userLang);
-          await sock.sendMessage(sender, { text: successMsg });
+          await sock.sendMessage(sender, { text: responses.downloadSuccess });
         } else {
-          const notFoundMsg = await getResponse("fileNotFound", userLang);
-          await sock.sendMessage(sender, { text: notFoundMsg });
+          await sock.sendMessage(sender, { text: responses.fileNotFound });
         }
       } catch (error) {
-        const failedMsg = await getResponse("downloadFailed", userLang);
-        await sock.sendMessage(sender, { text: failedMsg });
+        await sock.sendMessage(sender, { text: responses.downloadFailed });
       }
       return;
     }
@@ -269,14 +231,13 @@ async function startBot() {
     // Auto-reply to any other messages (free chatting)
     if (activatedUsers.has(senderNumber) && text.length > 1) {
       // Simple auto-reply for chatting
-      const replies = {
-        en: ["I'm here to help you find files!", "You can send me any filename to search.", "Need help finding something?"],
-        es: ["¡Estoy aquí para ayudarte a encontrar archivos!", "Puedes enviarme cualquier nombre de archivo para buscar.", "¿Necesitas ayuda para encontrar algo?"],
-        fr: ["Je suis là pour vous aider à trouver des fichiers !", "Vous pouvez m'envoyer n'importe quel nom de fichier à rechercher.", "Besoin d'aide pour trouver quelque chose ?"],
-        de: ["Ich bin hier, um Ihnen bei der Dateisuche zu helfen!", "Sie können mir jeden Dateinamen zum Suchen senden.", "Brauchen Sie Hilfe bei der Suche?"]
-      };
+      const replies = [
+        "I'm here to help you find files!",
+        "You can send me any filename to search.",
+        "Need help finding something?"
+      ];
       
-      const randomReply = replies[userLang][Math.floor(Math.random() * replies[userLang].length)];
+      const randomReply = replies[Math.floor(Math.random() * replies.length)];
       await sock.sendMessage(sender, { text: randomReply });
     }
   });
