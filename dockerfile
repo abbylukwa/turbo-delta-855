@@ -65,7 +65,67 @@ RUN echo '  terms: "📋 *Terms & Conditions*\\n\\n1. Your data is encrypted and
 RUN echo '};' >> config.js
 RUN echo '' >> config.js
 RUN echo 'module.exports = { ACTIVATION_CODES, DOWNLOAD_LIMITS, PRICING, EXCHANGE_RATES, responses };' >> config.js
-
+# Add after the existing config.js content
+RUN echo '// Subscription configuration' >> config.js
+RUN echo 'const SUBSCRIPTION_CONFIG = {' >> config.js
+RUN echo '  PLANS: {' >> config.js
+RUN echo '    "2weeks": { duration: 14, price: 0.75 },' >> config.js
+RUN echo '    "1month": { duration: 30, price: 1.35 },' >> config.js
+RUN echo '    "3months": { duration: 90, price: 3.50 },' >> config.js
+RUN echo '    "6months": { duration: 180, price: 6.00 },' >> config.js
+RUN echo '    "1year": { duration: 365, price: 10.00 }' >> config.js
+RUN echo '  },' >> config.js
+RUN echo '  PAYMENT_NUMBERS: {' >> config.js
+RUN echo '    ZIMBABWE: "+263776272102",' >> config.js
+RUN echo '    SOUTH_AFRICA: "+27614159817"' >> config.js
+RUN echo '  },' >> config.js
+RUN echo '  CURRENCY_RATES: {' >> config.js
+RUN echo '    USD_TO_ZAR: 18.5,' >> config.js
+RUN echo '    USD_TO_BWP: 13.2,' >> config.js
+RUN echo '    USD_TO_NAD: 18.5,' >> config.js
+RUN echo '    USD_TO_ZMW: 21.0' >> config.js
+RUN echo '  }' >> config.js
+RUN echo '};' >> config.js
+RUN echo '' >> config.js
+# Add subscription responses
+RUN echo '  subscriptionOptions: "💎 *Subscription Plans Available:*\\\\n\\\\n" +' >> config.js
+RUN echo '  "• 2 Weeks: R13.88 / \\\\$0.75\\\\n" +' >> config.js
+RUN echo '  "• 1 Month: R24.98 / \\\\$1.35\\\\n" +' >> config.js
+RUN echo '  "• 3 Months: R64.75 / \\\\$3.50\\\\n" +' >> config.js
+RUN echo '  "• 6 Months: R111.00 / \\\\$6.00\\\\n" +' >> config.js
+RUN echo '  "• 1 Year: R185.00 / \\\\$10.00\\\\n\\\\n" +' >> config.js
+RUN echo '  "📱 *Payment Numbers:*\\\\n" +' >> config.js
+RUN echo '  "• Zimbabwe: +263776272102\\\\n" +' >> config.js
+RUN echo '  "• South Africa: +27614159817\\\\n\\\\n" +' >> config.js
+RUN echo '  "💳 *To subscribe, send:*\\\\n!subscribe [plan]\\\\n\\\\n" +' >> config.js
+RUN echo '  "Example: !subscribe 2weeks",' >> config.js
+RUN echo '' >> config.js
+RUN echo '  paymentInstructions: "✅ *Subscription Confirmed: {plan}*\\\\n\\\\n" +' >> config.js
+RUN echo '  "💰 *Amount to Pay:* {amount}\\\\n\\\\n" +' >> config.js
+RUN echo '  "📱 *Send Payment to:*\\\\n" +' >> config.js
+RUN echo '  "• Zimbabwe: +263776272102\\\\n" +' >> config.js
+RUN echo '  "• South Africa: +27614159817\\\\n\\\\n" +' >> config.js
+RUN echo '  "📋 *Payment Instructions:*\\\\n" +' >> config.js
+RUN echo '  "1. Send exact amount to either number\\\\n" +' >> config.js
+RUN echo '  "2. Include your number as reference\\\\n" +' >> config.js
+RUN echo '  "3. Reply with: !paid [amount] [reference]\\\\n\\\\n" +' >> config.js
+RUN echo '  "Example: !paid R13.88 0771234567",' >> config.js
+RUN echo '' >> config.js
+RUN echo '  paymentReceived: "✅ *Payment Received!*\\\\n\\\\n" +' >> config.js
+RUN echo '  "We'\''ve received your payment of {amount}.\\\\n" +' >> config.js
+RUN echo '  "Your subscription will be activated shortly after verification.",' >> config.js
+RUN echo '' >> config.js
+RUN echo '  subscriptionActive: "🎉 *Subscription Activated!*\\\\n\\\\n" +' >> config.js
+RUN echo '  "Your {plan} subscription is now active!\\\\n" +' >> config.js
+RUN echo '  "✅ Unlimited downloads enabled\\\\n" +' >> config.js
+RUN echo '  "⏰ Expires: {expiryDate}\\\\n\\\\n" +' >> config.js
+RUN echo '  "Enjoy your premium access!",' >> config.js
+RUN echo '' >> config.js
+RUN echo '  adminSubStats: "📊 *Subscription Statistics:*\\\\n\\\\n" +' >> config.js
+RUN echo '  "• Total Subscribers: {total}\\\\n" +' >> config.js
+RUN echo '  "• Active Subscriptions: {active}\\\\n" +' >> config.js
+RUN echo '  "• Total Revenue: {currency}{revenue}\\\\n" +' >> config.js
+RUN echo '  "• Pending Payments: {pending}"' >> config.js
 # Create database.js
 RUN echo 'const sqlite3 = require("sqlite3").verbose();' > database.js
 RUN echo 'const fs = require("fs");' >> database.js
@@ -270,6 +330,19 @@ RUN echo '  }' >> database.js
 RUN echo '}' >> database.js
 RUN echo '' >> database.js
 RUN echo 'module.exports = new Database();' >> database.js
+# Add this after the existing database tables
+RUN echo '      // Subscriptions table' >> database.js
+RUN echo '      this.db.run(`CREATE TABLE IF NOT EXISTS subscriptions (' >> database.js
+RUN echo '        id INTEGER PRIMARY KEY AUTOINCREMENT,' >> database.js
+RUN echo '        phone_number TEXT,' >> database.js
+RUN echo '        plan TEXT,' >> database.js
+RUN echo '        amount_paid REAL,' >> database.js
+RUN echo '        start_date INTEGER,' >> database.js
+RUN echo '        end_date INTEGER,' >> database.js
+RUN echo '        status TEXT DEFAULT '\''active'\'',' >> database.js
+RUN echo '        created_at INTEGER DEFAULT (strftime('\''%s'\'', '\''now'\'')),' >> database.js
+RUN echo '        FOREIGN KEY (phone_number) REFERENCES users (phone_number)' >> database.js
+RUN echo '      )`);' >> database.js
 
 # Create utils.js
 RUN echo 'const fs = require("fs");' > utils.js
@@ -313,6 +386,12 @@ RUN echo '  return 10; // Average 10MB for other files' >> utils.js
 RUN echo '}' >> utils.js
 RUN echo '' >> utils.js
 RUN echo 'module.exports = { canDownloadMore, getFileType, estimateFileSize };' >> utils.js
+# Add subscription import
+RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js
+
+# Add to module exports
+RUN echo '  handleSubscriptionCommand,' >> commands/index.js
+RUN echo '  handleAdminSubscriptionCommands,' >> commands/index.js
 
 # Create commands/activation.js
 RUN mkdir -p commands
@@ -410,7 +489,10 @@ RUN echo '    } catch (error) {' >> commands/download.js
 RUN echo '      await sock.sendMessage(sender, { text: responses.downloadFailed });' >> commands/download.js
 RUN echo '    }' >> commands/download.js
 RUN echo '    return true;' >> commands/download.js
-RUN echo '  }' >> commands/download.js
+# Modify the download limit check to include subscription check
+RUN echo '    // Check download limits (admins and subscribers have no limits)' >> commands/download.js
+RUN echo '    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);' >> commands/download.js
+RUN echo '    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {' >> commands/download.js
 RUN echo '  return false;' >> commands/download.js
 RUN echo '}' >> commands/download.js
 RUN echo '' >> commands/download.js
@@ -570,10 +652,156 @@ RUN echo '    ];' >> handlers.js
 RUN echo '    ' >> handlers.js
 RUN echo '    const randomReply = replies[Math.floor(Math.random() * replies.length)];' >> handlers.js
 RUN echo '    await sock.sendMessage(sender, { text: randomReply });' >> handlers.js
+# Add subscription handling after admin commands
+RUN echo '  // Handle subscription commands' >> handlers.js
+RUN echo '  const subHandled = await handleSubscriptionCommand(sock, text, sender, senderNumber);' >> handlers.js
+RUN echo '  if (subHandled) return;' >> handlers.js
+RUN echo '' >> handlers.js
+RUN echo '  // Handle admin subscription commands' >> handlers.js
+RUN echo '  if (await isUserAdmin(senderNumber)) {' >> handlers.js
+RUN echo '    const adminSubHandled = await handleAdminSubscriptionCommands(sock, text, sender, senderNumber, true);' >> handlers.js
+RUN echo '    if (adminSubHandled) return;' >> handlers.js
 RUN echo '  }' >> handlers.js
 RUN echo '}' >> handlers.js
 RUN echo '' >> handlers.js
 RUN echo 'module.exports = { handleMessage };' >> handlers.js
+
+# Create the subscription commands file
+RUN echo 'const { responses, SUBSCRIPTION_CONFIG } = require("../config");' > commands/subscription.js
+RUN echo 'const db = require("../database");' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo 'class SubscriptionManager {' >> commands/subscription.js
+RUN echo '    constructor() {' >> commands/subscription.js
+RUN echo '        this.pendingSubscriptions = new Map();' >> commands/subscription.js
+RUN echo '    }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '    async handleSubscriptionCommand(sock, text, sender, senderNumber) {' >> commands/subscription.js
+RUN echo '        if (text === "!subscribe" || text === "!subscription") {' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: responses.subscriptionOptions });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        if (text.startsWith("!subscribe ")) {' >> commands/subscription.js
+RUN echo '            const plan = text.replace("!subscribe ", "").toLowerCase();' >> commands/subscription.js
+RUN echo '            return await this.handlePlanSelection(sock, sender, senderNumber, plan);' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        if (text.startsWith("!paid ")) {' >> commands/subscription.js
+RUN echo '            return await this.handlePaymentConfirmation(sock, text, sender, senderNumber);' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        if (text === "!mysubscription") {' >> commands/subscription.js
+RUN echo '            return await this.handleSubscriptionStatus(sock, sender, senderNumber);' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        return false;' >> commands/subscription.js
+RUN echo '    }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '    async handlePlanSelection(sock, sender, senderNumber, plan) {' >> commands/subscription.js
+RUN echo '        if (!SUBSCRIPTION_CONFIG.PLANS[plan]) {' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: "Invalid plan. Available plans: 2weeks, 1month, 3months, 6months, 1year" });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        const planInfo = SUBSCRIPTION_CONFIG.PLANS[plan];' >> commands/subscription.js
+RUN echo '        const amountZAR = (planInfo.price * SUBSCRIPTION_CONFIG.CURRENCY_RATES.USD_TO_ZAR).toFixed(2);' >> commands/subscription.js
+RUN echo '        ' >> commands/subscription.js
+RUN echo '        const message = responses.paymentInstructions' >> commands/subscription.js
+RUN echo '            .replace("{plan}", plan)' >> commands/subscription.js
+RUN echo '            .replace("{amount}", `R${amountZAR} / \\\\$${planInfo.price}`);' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        this.pendingSubscriptions.set(senderNumber, {' >> commands/subscription.js
+RUN echo '            plan,' >> commands/subscription.js
+RUN echo '            amount: planInfo.price,' >> commands/subscription.js
+RUN echo '            duration: planInfo.duration' >> commands/subscription.js
+RUN echo '        });' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        await sock.sendMessage(sender, { text: message });' >> commands/subscription.js
+RUN echo '        return true;' >> commands/subscription.js
+RUN echo '    }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '    async handlePaymentConfirmation(sock, text, sender, senderNumber) {' >> commands/subscription.js
+RUN echo '        const parts = text.replace("!paid ", "").split(" ");' >> commands/subscription.js
+RUN echo '        if (parts.length < 2) {' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: "Usage: !paid [amount] [reference]" });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        const pendingSub = this.pendingSubscriptions.get(senderNumber);' >> commands/subscription.js
+RUN echo '        if (!pendingSub) {' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: "No pending subscription. Use !subscribe first." });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        await db.createSubscription(senderNumber, pendingSub.plan, pendingSub.amount, pendingSub.duration);' >> commands/subscription.js
+RUN echo '        this.pendingSubscriptions.delete(senderNumber);' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        const expiryDate = new Date(Date.now() + pendingSub.duration * 24 * 60 * 60 * 1000);' >> commands/subscription.js
+RUN echo '        const successMessage = responses.subscriptionActive' >> commands/subscription.js
+RUN echo '            .replace("{plan}", pendingSub.plan)' >> commands/subscription.js
+RUN echo '            .replace("{expiryDate}", expiryDate.toLocaleDateString());' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        await sock.sendMessage(sender, { text: successMessage });' >> commands/subscription.js
+RUN echo '        return true;' >> commands/subscription.js
+RUN echo '    }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '    async handleSubscriptionStatus(sock, sender, senderNumber) {' >> commands/subscription.js
+RUN echo '        const subscription = await db.getActiveSubscription(senderNumber);' >> commands/subscription.js
+RUN echo '        ' >> commands/subscription.js
+RUN echo '        if (!subscription) {' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: "No active subscription found." });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        const expiryDate = new Date(subscription.end_date);' >> commands/subscription.js
+RUN echo '        const daysLeft = Math.ceil((expiryDate - Date.now()) / (1000 * 60 * 60 * 24));' >> commands/subscription.js
+RUN echo '        const amountZAR = (subscription.amount_paid * SUBSCRIPTION_CONFIG.CURRENCY_RATES.USD_TO_ZAR).toFixed(2);' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        const statusMessage = `📋 *Your Subscription:*\\\\n\\\\n` +' >> commands/subscription.js
+RUN echo '            `• Plan: ${subscription.plan}\\\\n` +' >> commands/subscription.js
+RUN echo '            `• Status: Active ✅\\\\n` +' >> commands/subscription.js
+RUN echo '            `• Expires: ${expiryDate.toLocaleDateString()}\\\\n` +' >> commands/subscription.js
+RUN echo '            `• Days left: ${daysLeft}\\\\n` +' >> commands/subscription.js
+RUN echo '            `• Amount paid: R${amountZAR}`;' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        await sock.sendMessage(sender, { text: statusMessage });' >> commands/subscription.js
+RUN echo '        return true;' >> commands/subscription.js
+RUN echo '    }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '    async handleAdminSubscriptionCommands(sock, text, sender, senderNumber, isAdmin) {' >> commands/subscription.js
+RUN echo '        if (!isAdmin) return false;' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        if (text === "!substats") {' >> commands/subscription.js
+RUN echo '            const stats = await db.getSubscriptionStats();' >> commands/subscription.js
+RUN echo '            const revenueZAR = (stats.revenue * SUBSCRIPTION_CONFIG.CURRENCY_RATES.USD_TO_ZAR).toFixed(2);' >> commands/subscription.js
+RUN echo '            ' >> commands/subscription.js
+RUN echo '            const message = responses.adminSubStats' >> commands/subscription.js
+RUN echo '                .replace("{total}", stats.total)' >> commands/subscription.js
+RUN echo '                .replace("{active}", stats.active)' >> commands/subscription.js
+RUN echo '                .replace("{revenue}", revenueZAR)' >> commands/subscription.js
+RUN echo '                .replace("{pending}", stats.pending)' >> commands/subscription.js
+RUN echo '                .replace("{currency}", "R");' >> commands/subscription.js
+RUN echo '            ' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: message });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        if (text === "!subscribers") {' >> commands/subscription.js
+RUN echo '            const subscribers = await db.getAllSubscribers();' >> commands/subscription.js
+RUN echo '            let message = "📋 *Active Subscribers:*\\\\n\\\\n";' >> commands/subscription.js
+RUN echo '            subscribers.forEach((sub, index) => {' >> commands/subscription.js
+RUN echo '                const expiry = new Date(sub.end_date);' >> commands/subscription.js
+RUN echo '                message += `${index + 1}. ${sub.phone_number}\\\\n   Plan: ${sub.plan}\\\\n   Expires: ${expiry.toLocaleDateString()}\\\\n\\\\n`;' >> commands/subscription.js
+RUN echo '            });' >> commands/subscription.js
+RUN echo '            await sock.sendMessage(sender, { text: message });' >> commands/subscription.js
+RUN echo '            return true;' >> commands/subscription.js
+RUN echo '        }' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo '        return false;' >> commands/subscription.js
+RUN echo '    }' >> commands/subscription.js
+RUN echo '}' >> commands/subscription.js
+RUN echo '' >> commands/subscription.js
+RUN echo 'module.exports = new SubscriptionManager();' >> commands/subscription.js
 
 # Create index.js
 RUN echo 'const makeWASocket = require("@whiskeysockets/baileys").default;' > index.js
