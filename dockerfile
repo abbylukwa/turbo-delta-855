@@ -39,6 +39,7 @@ COPY website-scraper.js .
 COPY web-searcher.js .
 COPY group-manager.js .
 COPY admin-commands.js .
-
+Copy the new Nicci commands file
+COPY nicci-commands.js .
 RUN npm install
 CMD ["node", "index.js"]
