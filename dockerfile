@@ -388,8 +388,6 @@ RUN echo '' >> utils.js
 RUN echo 'module.exports = { canDownloadMore, getFileType, estimateFileSize };' >> utils.js
 # Add subscription import
 RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js
-
-# Add to module exports
 RUN echo '  handleSubscriptionCommand,' >> commands/index.js
 RUN echo '  handleAdminSubscriptionCommands,' >> commands/index.js
 
