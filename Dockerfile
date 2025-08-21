@@ -5,12 +5,12 @@ ENV TZ=Africa/Harare
 ENV BOT_NAME=Abby
 ENV MAIN_DEVICE=+263717457592
 
-
+# Create package.json with additional dependencies
 RUN echo '{"name":"abby-bot","version":"1.0.0","main":"index.js","dependencies":{"@whiskeysockets/baileys":"^6.4.0","axios":"^1.6.0","moment":"^2.29.4"},"scripts":{"start":"node index.js"}}' > package.json
 
-
+# Create the index.js file with proper formatting
 RUN echo 'const makeWASocket = require("@whiskeysockets/baileys").default;
-const { useMultiFileAuthState, generatePairingCode } = require("@whiskeysockets/baileys");
+const { useMultiFileAuthState } = require("@whiskeysockets/baileys");
 const axios = require("axios");
 const fs = require("fs");
 const moment = require("moment");
@@ -27,22 +27,20 @@ const ALLOWED_WEBSITES = [
   "https://Tube8.com",
   "https://PornHat.com" 
 ];
-
 let activatedUsers = new Set();
 let adminUsers = new Set();
 let downloadCounts = {};
 let lastDownloadTime = {};
 let pairedDevices = new Set();
-let subscribedUsers = {}; // { number: { expiry: Date, downloads: number } }
+let subscribedUsers = {};
 
 pairedDevices.add("+263717457592");
 adminUsers.add("+263717457592");
 
-
 const paymentInfo = {
   zimbabwe: {
     number: "0777627210",
-    methods: ["EcoCash", "innbucks"]
+    methods: ["EcoCash", "Innbucks"]
   },
   southAfrica: {
     number: "+27614159817", 
@@ -59,27 +57,15 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
   const sock = makeWASocket({ 
     auth: state,
-    printQRInTerminal: false // Disable QR code generation
+    printQRInTerminal: false
   });
 
-  
-  try {
-    const pairingCode = await generatePairingCode(sock, {
-      name: "Abby Download Bot",
-      phoneNumber: "+263717457592"
-    });
-    
-    console.log("Pairing Code:", pairingCode);
-    console.log("To pair with WhatsApp:");
-    console.log("1. Open WhatsApp on your phone");
-    console.log("2. Go to Linked Devices > Link a Device");
-    console.log("3. Enter this code:", pairingCode);
-  } catch (error) {
-    console.error("Error generating pairing code:", error);
-  }
-
   sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+    if (qr) {
+      console.log("To pair with WhatsApp, use the pairing code from your phone");
+      console.log("Go to WhatsApp → Linked Devices → Link a Device → Use phone number pairing");
+    }
     if (connection === "close") {
       console.log("Connection closed, reconnecting...");
       startBot();
@@ -98,7 +84,7 @@ async function startBot() {
     const senderNumber = sender.split("@")[0];
 
     if (!pairedDevices.has(senderNumber)) {
-      await sock.sendMessage(sender, { text: "Device not paired. Contact main device +263717457592 for pairing code." });
+      await sock.sendMessage(sender, { text: "Device not paired. Contact main device +263717457592 for pairing." });
       return;
     }
 
@@ -127,7 +113,6 @@ async function startBot() {
       return;
     }
 
-    
     if (adminUsers.has(senderNumber) && text.startsWith("addsub ")) {
       const parts = text.replace("addsub ", "").split(" ");
       if (parts.length >= 2) {
@@ -142,7 +127,6 @@ async function startBot() {
           };
           
           await sock.sendMessage(sender, { text: `Subscription added for ${number} for ${days} days. Expiry: ${expiryDate.toDateString()}` });
-          
           
           if (pairedDevices.has(number)) {
             await sock.sendMessage(`${number}@s.whatsapp.net`, { 
@@ -163,12 +147,10 @@ async function startBot() {
       return;
     }
 
-    
     const hasSubscription = subscribedUsers[senderNumber] && new Date() < new Date(subscribedUsers[senderNumber].expiry);
     
     if (text.startsWith("!download ")) {
       const url = text.replace("!download ", "");
-      
       
       let allowed = false;
       for (const site of ALLOWED_WEBSITES) {
@@ -185,7 +167,6 @@ async function startBot() {
       
       const now = Date.now();
       
-      
       if (!hasSubscription && !adminUsers.has(senderNumber)) {
         if (!downloadCounts[senderNumber]) downloadCounts[senderNumber] = 0;
         if (!lastDownloadTime[senderNumber]) lastDownloadTime[senderNumber] = 0;
@@ -196,16 +177,16 @@ async function startBot() {
         }
         
         if (downloadCounts[senderNumber] >= 5) {
-          let paymentMessage = "Download limit reached. To continue downloading, please subscribe:\n\n";
-          paymentMessage += "Subscription Options:\n";
-          paymentMessage += "1. 10 days - 3 USD\n";
-          paymentMessage += "2. 2 days - 1 USD\n";
-          paymentMessage += "3. 1 day - 0.5 USD\n\n";
+          let paymentMessage = "Download limit reached. To continue downloading, please subscribe:\\n\\n";
+          paymentMessage += "Subscription Options:\\n";
+          paymentMessage += "1. 10 days - 3 USD\\n";
+          paymentMessage += "2. 2 days - 1 USD\\n";
+          paymentMessage += "3. 1 day - 0.5 USD\\n\\n";
           
           paymentMessage += "For Zimbabwe, send payment to " + paymentInfo.zimbabwe.number + " via: " + 
-                            paymentInfo.zimbabwe.methods.join(", ") + "\n";
+                            paymentInfo.zimbabwe.methods.join(", ") + "\\n";
           paymentMessage += "For South Africa, send payment to " + paymentInfo.southAfrica.number + " via: " + 
-                            paymentInfo.southAfrica.methods.join(", ") + "\n\n";
+                            paymentInfo.southAfrica.methods.join(", ") + "\\n\\n";
           paymentMessage += "After payment, send your number to the admin for activation.";
           
           await sock.sendMessage(sender, { text: paymentMessage });
@@ -214,7 +195,6 @@ async function startBot() {
         
         downloadCounts[senderNumber]++;
       }
-      
       
       if (hasSubscription) {
         subscribedUsers[senderNumber].downloads++;
@@ -234,14 +214,14 @@ async function startBot() {
         const expiryDate = new Date(subscribedUsers[senderNumber].expiry);
         const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
         await sock.sendMessage(sender, { 
-          text: `Your subscription is active.\nExpiry: ${expiryDate.toDateString()}\nDays left: ${daysLeft}\nDownloads used: ${subscribedUsers[senderNumber].downloads || 0}` 
+          text: `Your subscription is active.\\nExpiry: ${expiryDate.toDateString()}\\nDays left: ${daysLeft}\\nDownloads used: ${subscribedUsers[senderNumber].downloads || 0}` 
         });
       } else if (adminUsers.has(senderNumber)) {
         await sock.sendMessage(sender, { text: "You are an admin with unlimited access." });
       } else {
         const remaining = 5 - (downloadCounts[senderNumber] || 0);
         await sock.sendMessage(sender, { 
-          text: `You are on free tier.\nRemaining free downloads: ${remaining}\nSubscribe for uninterrupted access.` 
+          text: `You are on free tier.\\nRemaining free downloads: ${remaining}\\nSubscribe for uninterrupted access.` 
         });
       }
       return;
@@ -254,18 +234,18 @@ async function startBot() {
           if (new Date() < new Date(subscribedUsers[num].expiry)) activeSubs++;
         }
         
-        const stats = `Active users: ${activatedUsers.size}\nAdmin users: ${adminUsers.size}\nPaired devices: ${pairedDevices.size}\nActive subscriptions: ${activeSubs}`;
+        const stats = `Active users: ${activatedUsers.size}\\nAdmin users: ${adminUsers.size}\\nPaired devices: ${pairedDevices.size}\\nActive subscriptions: ${activeSubs}`;
         await sock.sendMessage(sender, { text: stats });
         return;
       }
       
       if (text === "!subs") {
-        let subsList = "Active Subscriptions:\n";
+        let subsList = "Active Subscriptions:\\n";
         for (const num in subscribedUsers) {
           if (new Date() < new Date(subscribedUsers[num].expiry)) {
             const expiry = new Date(subscribedUsers[num].expiry);
             const daysLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24));
-            subsList += `${num}: Expires ${expiry.toDateString()} (${daysLeft} days left), Downloads: ${subscribedUsers[num].downloads || 0}\n`;
+            subsList += `${num}: Expires ${expiry.toDateString()} (${daysLeft} days left), Downloads: ${subscribedUsers[num].downloads || 0}\\n`;
           }
         }
         await sock.sendMessage(sender, { text: subsList });
@@ -274,16 +254,16 @@ async function startBot() {
     }
 
     if (text === "!payments") {
-      let paymentMessage = "Payment Information:\n\n";
-      paymentMessage += "Subscription Options:\n";
-      paymentMessage += "1. 10 days - 3 USD\n";
-      paymentMessage += "2. 2 days - 1 USD\n";
-      paymentMessage += "3. 1 day - 0.5 USD\n\n";
+      let paymentMessage = "Payment Information:\\n\\n";
+      paymentMessage += "Subscription Options:\\n";
+      paymentMessage += "1. 10 days - 3 USD\\n";
+      paymentMessage += "2. 2 days - 1 USD\\n";
+      paymentMessage += "3. 1 day - 0.5 USD\\n\\n";
       
       paymentMessage += "For Zimbabwe, send payment to " + paymentInfo.zimbabwe.number + " via: " + 
-                        paymentInfo.zimbabwe.methods.join(", ") + "\n";
+                        paymentInfo.zimbabwe.methods.join(", ") + "\\n";
       paymentMessage += "For South Africa, send payment to " + paymentInfo.southAfrica.number + " via: " + 
-                        paymentInfo.southAfrica.methods.join(", ") + "\n\n";
+                        paymentInfo.southAfrica.methods.join(", ") + "\\n\\n";
       paymentMessage += "After payment, send your number to the admin for activation.";
       
       await sock.sendMessage(sender, { text: paymentMessage });
@@ -291,14 +271,13 @@ async function startBot() {
     }
 
     if (activatedUsers.has(senderNumber)) {
-      await sock.sendMessage(sender, { text: "Bot is active. Commands:\n!download [url] - Download file\n!mystatus - Check your status\n!payments - Payment information" });
+      await sock.sendMessage(sender, { text: "Bot is active. Commands:\\n!download [url] - Download file\\n!mystatus - Check your status\\n!payments - Payment information" });
     }
   });
 }
 
 async function downloadFile(url, senderNumber) {
   try {
-    
     let allowed = false;
     for (const site of ALLOWED_WEBSITES) {
       if (url.includes(site)) {
@@ -311,15 +290,12 @@ async function downloadFile(url, senderNumber) {
       throw new Error("Website not allowed for downloads");
     }
     
-    
     const timestamp = new Date().getTime();
     const filename = `downloads/${senderNumber}_${timestamp}.download`;
-    
     
     if (!fs.existsSync("downloads")) {
       fs.mkdirSync("downloads");
     }
-    
     
     const response = await axios({
       method: "GET",
@@ -341,10 +317,10 @@ async function downloadFile(url, senderNumber) {
   }
 }
 
-console.log("Abby Bot started - Using pairing code authentication");
+console.log("Abby Bot started - Pair with your phone number");
 startBot().catch(console.error);' > index.js
 
-
+# Create downloads directory
 RUN mkdir downloads
 
 RUN npm install
