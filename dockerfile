@@ -569,6 +569,8 @@ RUN echo '    // Check download limits (admins and subscribers have no limits)' 
     echo '' >> commands/download.js && \
 # First ensure the commands directory exists
 RUN mkdir -p commands
+# Create commands directory first
+RUN mkdir -p commands
 
 # Create commands/download.js with proper single commands
 RUN echo 'const { searchAndDownloadFile } = require("../utils");' > commands/download.js
@@ -632,7 +634,6 @@ RUN echo '  return false;' >> commands/download.js
 RUN echo '}' >> commands/download.js
 RUN echo '' >> commands/download.js
 RUN echo 'module.exports = { handleFileDownload };' >> commands/download.js
-
 # Create commands/admin.js
 RUN echo 'const db = require("../database");' > commands/admin.js
 RUN echo '' >> commands/admin.js
