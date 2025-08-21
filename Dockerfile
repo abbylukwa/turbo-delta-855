@@ -7,14 +7,14 @@ RUN echo '{"name":"abby-bot","version":"1.0.0","main":"index.js","dependencies":
 
 # Create the index.js file using a heredoc or multiple echo statements
 RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > index.js && \
-    echo 'let { useMultiFileAuthState, generatePairingCode } = require("@whiskeysockets/baileys");' >> index.js && \
+    echo 'let { useMultiFileAuthState } = require("@whiskeysockets/baileys");' >> index.js && \
     echo 'let axios = require("axios");' >> index.js && \
     echo 'let fs = require("fs");' >> index.js && \
     echo 'let moment = require("moment");' >> index.js && \
     echo '' >> index.js && \
     echo 'let ALLOWED_WEBSITES = [' >> index.js && \
-    echo '  "https://xVideos.com",' >> index.js && \
-    echo '  "https://YouPornn.com",' >> index.js && \
+    echo '  "https://XNXX.com",' >> index.js && \
+    echo '  "https://YouPorn.com",' >> index.js && \
     echo '  "https://Tube8.com",' >> index.js && \
     echo '  "https://PornHat.com"' >> index.js && \
     echo '];' >> index.js && \
@@ -30,22 +30,14 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '  let { state, saveCreds } = await useMultiFileAuthState("auth_info");' >> index.js && \
     echo '  let sock = makeWASocket({ ' >> index.js && \
     echo '    auth: state,' >> index.js && \
-    echo '    printQRInTerminal: false' >> index.js && \
+    echo '    printQRInTerminal: true' >> index.js && \
     echo '  });' >> index.js && \
     echo '' >> index.js && \
-    echo '  try {' >> index.js && \
-    echo '    let pairingCode = await generatePairingCode(sock, {' >> index.js && \
-    echo '      name: "Download Bot",' >> index.js && \
-    echo '      phoneNumber: ""' >> index.js && \
-    echo '    });' >> index.js && \
-    echo '    ' >> index.js && \
-    echo '    console.log("Pairing Code:", pairingCode);' >> index.js && \
-    echo '  } catch (error) {' >> index.js && \
-    echo '    console.error("Error generating pairing code:", error);' >> index.js && \
-    echo '  }' >> index.js && \
-    echo '' >> index.js && \
     echo '  sock.ev.on("connection.update", (update) => {' >> index.js && \
-    echo '    let { connection, lastDisconnect } = update;' >> index.js && \
+    echo '    let { connection, lastDisconnect, qr } = update;' >> index.js && \
+    echo '    if (qr) {' >> index.js && \
+    echo '      console.log("Scan the QR code above to connect");' >> index.js && \
+    echo '    }' >> index.js && \
     echo '    if (connection === "close") {' >> index.js && \
     echo '      console.log("Connection closed, reconnecting...");' >> index.js && \
     echo '      startBot();' >> index.js && \
@@ -63,11 +55,6 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '    let sender = message.key.remoteJid;' >> index.js && \
     echo '    let senderNumber = sender.split("@")[0];' >> index.js && \
     echo '' >> index.js && \
-    echo '    if (!pairedDevices.has(senderNumber)) {' >> index.js && \
-    echo '      await sock.sendMessage(sender, { text: "Device not paired." });' >> index.js && \
-    echo '      return;' >> index.js && \
-    echo '    }' >> index.js && \
-    echo '' >> index.js && \
     echo '    if (text === "Abby0121") {' >> index.js && \
     echo '      activatedUsers.add(senderNumber);' >> index.js && \
     echo '      await sock.sendMessage(sender, { text: "Activation successful!" });' >> index.js && \
@@ -78,17 +65,6 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '      adminUsers.add(senderNumber);' >> index.js && \
     echo '      activatedUsers.add(senderNumber);' >> index.js && \
     echo '      await sock.sendMessage(sender, { text: "Admin activation successful!" });' >> index.js && \
-    echo '      return;' >> index.js && \
-    echo '    }' >> index.js && \
-    echo '' >> index.js && \
-    echo '    if (adminUsers.has(senderNumber) && text.startsWith("pair ")) {' >> index.js && \
-    echo '      let newNumber = text.replace("pair ", "").trim();' >> index.js && \
-    echo '      if (newNumber.startsWith("+")) {' >> index.js && \
-    echo '        pairedDevices.add(newNumber);' >> index.js && \
-    echo '        await sock.sendMessage(sender, { text: `Device ${newNumber} paired successfully.` });' >> index.js && \
-    echo '      } else {' >> index.js && \
-    echo '        await sock.sendMessage(sender, { text: "Invalid number format." });' >> index.js && \
-    echo '      }' >> index.js && \
     echo '      return;' >> index.js && \
     echo '    }' >> index.js && \
     echo '' >> index.js && \
@@ -190,7 +166,7 @@ RUN echo 'let makeWASocket = require("@whiskeysockets/baileys").default;' > inde
     echo '          if (new Date() < new Date(subscribedUsers[num].expiry)) activeSubs++;' >> index.js && \
     echo '        }' >> index.js && \
     echo '        ' >> index.js && \
-    echo '        let stats = `Active users: ${activatedUsers.size}\\nAdmin users: ${adminUsers.size}\\nPaired devices: ${pairedDevices.size}\\nActive subscriptions: ${activeSubs}`;' >> index.js && \
+    echo '        let stats = `Active users: ${activatedUsers.size}\\nAdmin users: ${adminUsers.size}\\nActive subscriptions: ${activeSubs}`;' >> index.js && \
     echo '        await sock.sendMessage(sender, { text: stats });' >> index.js && \
     echo '        return;' >> index.js && \
     echo '      }' >> index.js && \
