@@ -1,77 +1,60 @@
-FROM node:18-alpine
+FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install dependencies
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    procps \
-    && npm install -g npm@latest
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
-COPY package*.json ./
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install node dependencies
-RUN npm install
-
-# Copy bot source code
+# Copy application code
 COPY . .
 
-# Create session directory
-RUN mkdir -p sessions
+# Create a simple QR code generator script if not provided
+RUN if [ ! -f qr_generator.py ]; then \
+    echo '#!/usr/bin/env python3\n\
+import qrcode\n\
+import argparse\n\
+import sys\n\
+\n\
+def generate_qr(data, output_file="qrcode.png", version=1, box_size=10, border=4):\n\
+    """Generate QR code from provided data"""\n\
+    qr = qrcode.QRCode(\n\
+        version=version,\n\
+        error_correction=qrcode.constants.ERROR_CORRECT_L,\n\
+        box_size=box_size,\n\
+        border=border,\n\
+    )\n\
+    qr.add_data(data)\n\
+    qr.make(fit=True)\n\
+    \n\
+    img = qr.make_image(fill_color="black", back_color="white")\n\
+    img.save(output_file)\n\
+    print(f"QR code saved as {output_file}")\n\
+\n\
+if __name__ == "__main__":\n\
+    parser = argparse.ArgumentParser(description="Generate QR code")\n\
+    parser.add_argument("data", help="Data to encode in QR code")\n\
+    parser.add_argument("-o", "--output", default="qrcode.png", help="Output file name")\n\
+    parser.add_argument("-v", "--version", type=int, default=1, help="QR code version")\n\
+    parser.add_argument("-s", "--size", type=int, default=10, help="Box size")\n\
+    parser.add_argument("-b", "--border", type=int, default=4, help="Border size")\n\
+    \n\
+    args = parser.parse_args()\n\
+    \n\
+    generate_qr(args.data, args.output, args.version, args.size, args.border)' > qr_generator.py; \
+fi
 
-# Create simple WhatsApp bot that only generates QR code
-RUN echo 'const { Client, LocalAuth } = require("whatsapp-web.js");' > index.js && \
-    echo 'const qrcode = require("qrcode-terminal");' >> index.js && \
-    echo '' >> index.js && \
-    echo 'const client = new Client({' >> index.js && \
-    echo '    authStrategy: new LocalAuth({ dataPath: "./sessions" }),' >> index.js && \
-    echo '    puppeteer: {' >> index.js && \
-    echo '        headless: true,' >> index.js && \
-    echo '        args: ["--no-sandbox", "--disable-setuid-sandbox"]' >> index.js && \
-    echo '    }' >> index.js && \
-    echo '});' >> index.js && \
-    echo '' >> index.js && \
-    echo 'client.on("qr", (qr) => {' >> index.js && \
-    echo '    console.log("QR Code received! Scan it with your phone:");' >> index.js && \
-    echo '    qrcode.generate(qr, { small: true });' >> index.js && \
-    echo '    console.log("QR code generated. Waiting for scan...");' >> index.js && \
-    echo '});' >> index.js && \
-    echo '' >> index.js && \
-    echo 'client.on("ready", () => {' >> index.js && \
-    echo '    console.log("WhatsApp bot linked successfully!");' >> index.js && \
-    echo '    console.log("Bot is ready and connected");' >> index.js && \
-    echo '});' >> index.js && \
-    echo '' >> index.js && \
-    echo 'client.on("authenticated", () => {' >> index.js && \
-    echo '    console.log("Authentication successful!");' >> index.js && \
-    echo '});' >> index.js && \
-    echo '' >> index.js && \
-    echo 'client.initialize();' >> index.js && \
-    echo '' >> index.js && \
-    echo '// Handle graceful shutdown' >> index.js && \
-    echo 'process.on("SIGINT", () => {' >> index.js && \
-    echo '    console.log("Shutting down...");' >> index.js && \
-    echo '    client.destroy();' >> index.js && \
-    echo '    process.exit(0);' >> index.js && \
-    echo '});' >> index.js
+# Make the script executable
+RUN chmod +x qr_generator.py
 
-# Create uptime command
-RUN echo '#!/bin/sh' > /usr/local/bin/bot-uptime && \
-    echo 'echo "Bot container has been running for: $(ps -o etime= -p 1 | tr -d " ")"' >> /usr/local/bin/bot-uptime && \
-    chmod +x /usr/local/bin/bot-uptime
-
-# Set environment variables for Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
-# Expose port if needed for web interface (optional)
-# EXPOSE 3000
-
-CMD ["node", "index.js"]
+# Set default command
+CMD ["python", "qr_generator.py", "--help"]
