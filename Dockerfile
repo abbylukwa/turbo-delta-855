@@ -22,7 +22,7 @@ RUN echo '{\
   }\
 }' > package.json
 
-# Create index.js in multiple steps to avoid line length issues
+# Create the complete index.js file
 RUN echo 'const makeWASocket = require("@whiskeysockets/baileys").default;' > index.js
 RUN echo 'const { useMultiFileAuthState } = require("@whiskeysockets/baileys");' >> index.js
 RUN echo 'const qrcode = require("qrcode-terminal");' >> index.js
@@ -31,20 +31,17 @@ RUN echo 'const fs = require("fs");' >> index.js
 RUN echo 'const moment = require("moment");' >> index.js
 RUN echo '' >> index.js
 RUN echo 'const SEARCH_WEBSITES = [' >> index.js
-RUN echo '  "https://WonPorn.com/search?q=",' >> index.js
-RUN echo '  "https://PornPics.com/search?query=",' >> index.js
+RUN echo '  "https://PornPics.com/search?q=",' >> index.js
+RUN echo '  "https://YuouPorn.com/search?query=",' >> index.js
 RUN echo '  "https://PornHub.com/find?q="' >> index.js
 RUN echo '];' >> index.js
-
-# Continue adding the rest of the JavaScript code in smaller chunks
 RUN echo '' >> index.js
 RUN echo 'let activatedUsers = new Set();' >> index.js
 RUN echo 'let adminUsers = new Set();' >> index.js
 RUN echo 'let downloadCounts = {};' >> index.js
 RUN echo 'let lastDownloadTime = {};' >> index.js
 RUN echo 'let subscribedUsers = {};' >> index.js
-
-# Add the rest of the JavaScript file in smaller chunks
+RUN echo '' >> index.js
 RUN echo '// Responses' >> index.js
 RUN echo 'const responses = {' >> index.js
 RUN echo '  welcome: "Welcome to Abby'\''s Bot! 🤖\\n\\nAvailable commands:\\n• Send any filename to search and download\\n• !mystatus - Check your download status\\n• !payments - Payment information\\n\\nChatting is free, downloads have limits based on your subscription.",' >> index.js
@@ -58,20 +55,19 @@ RUN echo '  downloadFailed: "Download failed. Please try another file.",' >> ind
 RUN echo '  fileNotFound: "File not found on any of our supported websites.",' >> index.js
 RUN echo '  paymentInfo: "📧 Payment Information:\\n\\nFor unlimited downloads, please contact the admin for subscription details.\\n\\nYou can send: !payments to see this information again."' >> index.js
 RUN echo '};' >> index.js
-
-# Continue with the rest of the code...
 RUN echo '' >> index.js
 RUN echo 'async function startBot() {' >> index.js
 RUN echo '  const { state, saveCreds } = await useMultiFileAuthState("auth_info");' >> index.js
 RUN echo '  const sock = makeWASocket({ ' >> index.js
 RUN echo '    auth: state,' >> index.js
-RUN echo '    printQRInTerminal: false' >> index.js
+RUN echo '    printQRInTerminal: true,' >> index.js
+RUN echo '    browser: ["Ubuntu", "Chrome", "20.0.04"]' >> index.js
 RUN echo '  });' >> index.js
 RUN echo '' >> index.js
 RUN echo '  sock.ev.on("connection.update", (update) => {' >> index.js
 RUN echo '    const { connection, lastDisconnect, qr } = update;' >> index.js
 RUN echo '    if (qr) {' >> index.js
-RUN echo '      console.log("Scan the QR code below to connect:");' >> index.js
+RUN echo '      console.log("Scan the QR code below to connect to WhatsApp:");' >> index.js
 RUN echo '      qrcode.generate(qr, { small: true });' >> index.js
 RUN echo '    }' >> index.js
 RUN echo '    if (connection === "close") {' >> index.js
@@ -276,7 +272,8 @@ RUN echo '    return { success: false, error: error.message };' >> index.js
 RUN echo '  }' >> index.js
 RUN echo '}' >> index.js
 RUN echo '' >> index.js
-RUN echo 'console.log("Bot started");' >> index.js
+RUN echo 'console.log("Starting Abby Bot...");' >> index.js
+RUN echo 'console.log("If this is your first time running, scan the QR code to connect to WhatsApp");' >> index.js
 RUN echo 'startBot().catch(console.error);' >> index.js
 
 # Create downloads directory with proper permissions
