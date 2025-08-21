@@ -585,8 +585,6 @@ RUN echo '    }' >> commands/qrcode.js
 RUN echo '}' >> commands/qrcode.js
 RUN echo '' >> commands/qrcode.js
 RUN echo 'module.exports = new QRCodeHandler();' >> commands/qrcode.js
-module.exports = new QRCodeHandler();
-EOF
 # Create commands/activation.js
 RUN mkdir -p commands
 RUN echo 'const { responses, ACTIVATION_CODES } = require("../config");' > commands/activation.js
