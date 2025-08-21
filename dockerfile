@@ -567,108 +567,111 @@ RUN echo '    // Check download limits (admins and subscribers have no limits)' 
     echo '    return true;' >> commands/download.js && \
     echo '}' >> commands/download.js && \
     echo '' >> commands/download.js && \
-    echo 'module.exports = { handleFileDownload };' >> commands/download.js
-# Update download.js to check for subscriptions
-RUN echo 'const { searchAndDownloadFile } = require("../utils");' > commands/download.js
-RUN echo 'const { responses } = require("../config");' >> commands/download.js
-RUN echo 'const db = require("../database");' >> commands/download.js
-RUN echo 'const { canDownloadMore, estimateFileSize, getFileType } = require("../utils");' >> commands/download.js
-RUN echo '' >> commands/download.js
-RUN echo 'async function handleFileDownload(sock, text, sender, senderNumber) {' >> commands/download.js
-RUN echo '  if (!text.startsWith("!") && text.length > 2) {' >> commands/download.js
-RUN echo '    const user = await db.getUser(senderNumber);' >> commands/download.js
-RUN echo '    if (!user) {' >> commands/download.js
-RUN echo '      await sock.sendMessage(sender, { text: responses.notActivated });' >> commands/download.js
-RUN echo '      return true;' >> commands/download.js
-RUN echo '    }' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    const fileType = getFileType(text);' >> commands/download.js
-RUN echo '    const isVideo = fileType === "video";' >> commands/download.js
-RUN echo '    const isImage = fileType === "image";' >> commands/download.js
-RUN echo '    const estimatedSize = estimateFileSize(text);' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    // Check if user has active subscription' >> commands/download.js
-RUN echo '    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    // Check download limits (admins and subscribers have no limits)' >> commands/download.js
-RUN echo '    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {' >> commands/download.js
-RUN echo '      const limitMessage = responses.downloadLimit' >> commands/download.js
-RUN echo '        .replace("{videosUsed}", user.video_downloads)' >> commands/download.js
-RUN echo '        .replace("{picturesUsed}", user.picture_downloads);' >> commands/download.js
-RUN echo '      ' >> commands/download.js
-RUN echo '      await sock.sendMessage(sender, { text: limitMessage });' >> commands/download.js
-RUN echo '      return true;' >> commands/download.js
-RUN echo '    }' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    await sock.sendMessage(sender, { text: responses.searchStarted });' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    // Reset counts if needed' >> commands/download.js
-RUN echo '    const now = Date.now();' >> commands/download.js
-RUN echo '    const resetTime = 9 * 60 * 60 * 1000;' >> commands/download.js
-RUN echo '    if (user.last_download_time && (now - user.last_download_time) > resetTime) {' >> commands/download.js
-RUN echo '      await db.resetDownloadCounts(senderNumber);' >> commands/download.js
-RUN echo '    }' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    // Update download stats (only for non-subscribers)' >> commands/download.js
-RUN echo '    if (!hasActiveSubscription) {' >> commands/download.js
-RUN echo '      await db.updateDownloadStats(senderNumber, isVideo, estimatedSize);' >> commands/download.js
-RUN echo '    }' >> commands/download.js
-RUN echo '    ' >> commands/download.js
-RUN echo '    try {' >> commands/download.js
-RUN echo '      const result = await searchAndDownloadFile(text, senderNumber);' >> commands/download.js
-RUN echo '      if (result.success) {' >> commands/download.js
-RUN echo '        await sock.sendMessage(sender, { text: responses.downloadSuccess });' >> commands/download.js
-RUN echo '      } else {' >> commands/download.js
-RUN echo '        await sock.sendMessage(sender, { text: responses.fileNotFound });' >> commands/download.js
-RUN echo '      }' >> commands/download.js
-RUN echo '    } catch (error) {' >> commands/download.js
-RUN echo '      await sock.sendMessage(sender, { text: responses.downloadFailed });' >> commands/download.js
-RUN echo '    }' >> commands/download.js
-RUN echo '    return true;' >> commands/download.js
-RUN echo '  }' >> commands/download.js
-RUN echo '  return false;' >> commands/download.js
-RUN echo '}' >> commands/download.js
-RUN echo '' >> commands/download.js
-RUN echo 'module.exports = { handleFileDownload };' >> commands/download.js
+# Create commands/download.js in a single RUN command
+RUN mkdir -p commands && cat > commands/download.js << 'EOF'
+const { searchAndDownloadFile } = require("../utils");
+const { responses } = require("../config");
+const db = require("../database");
+const { canDownloadMore, estimateFileSize, getFileType } = require("../utils");
 
-# Create commands/admin.js
-RUN echo 'const db = require("../database");' > commands/admin.js
-RUN echo '' >> commands/admin.js
-RUN echo 'async function handleAdminCommands(sock, text, sender, senderNumber) {' >> commands/admin.js
-RUN echo '  if (!await isUserAdmin(senderNumber)) return false;' >> commands/admin.js
-RUN echo '' >> commands/admin.js
-RUN echo '  if (text.startsWith("!addfile ")) {' >> commands/admin.js
-RUN echo '    const parts = text.replace("!addfile ", "").split("|");' >> commands/admin.js
-RUN echo '    if (parts.length >= 3) {' >> commands/admin.js
-RUN echo '      const [filename, fileUrl, category] = parts;' >> commands/admin.js
-RUN echo '      const fileSize = parts[3] || 0;' >> commands/admin.js
-RUN echo '      ' >> commands/admin.js
-RUN echo '      await db.addAdminFile(filename.trim(), fileUrl.trim(), parseInt(fileSize), category.trim(), senderNumber);' >> commands/admin.js
-RUN echo '      await sock.sendMessage(sender, { text: `✅ File "${filename}" added to admin database!` });' >> commands/admin.js
-RUN echo '      return true;' >> commands/admin.js
-RUN echo '    }' >> commands/admin.js
-RUN echo '  }' >> commands/admin.js
-RUN echo '' >> commands/admin.js
-RUN echo '  if (text.startsWith("!searchfiles ")) {' >> commands/admin.js
-RUN echo '    const query = text.replace("!searchfiles ", "");' >> commands/admin.js
-RUN echo '    const files = await db.searchAdminFiles(query);' >> commands/admin.js
-RUN echo '    ' >> commands/admin.js
-RUN echo '    if (files.length === 0) {' >> commands/admin.js
-RUN echo '      await sock.sendMessage(sender, { text: "No files found matching your search." });' >> commands/admin.js
-RUN echo '    } else {' >> commands/admin.js
-RUN echo '      let fileList = "📁 *Admin Files Found:*\\n\\n";' >> commands/admin.js
-RUN echo '      files.slice(0, 10).forEach((file, index) => {' >> commands/admin.js
-RUN echo '        fileList += `${index + 1}. ${file.filename}\\n   📂 ${file.category}\\n   📊 ${Math.round(file.file_size / 1024 / 1024)}MB\\n   🔗 ${file.file_url}\\n\\n`;' >> commands/admin.js
-RUN echo '      });' >> commands/admin.js
-RUN echo '      await sock.sendMessage(sender, { text: fileList });' >> commands/admin.js
-RUN echo '    }' >> commands/admin.js
-RUN echo '    return true;' >> commands/admin.js
-RUN echo '  }' >> commands/admin.js
-RUN echo '' >> commands/admin.js
-RUN echo '  return false;' >> commands/admin.js
-RUN echo '}' >> commands/admin.js
-RUN echo '' >> commands/admin.js
-RUN echo 'module.exports = { handleAdminCommands };' >> commands/admin.js
+async function handleFileDownload(sock, text, sender, senderNumber) {
+  if (!text.startsWith("!") && text.length > 2) {
+    const user = await db.getUser(senderNumber);
+    if (!user) {
+      await sock.sendMessage(sender, { text: responses.notActivated });
+      return true;
+    }
+    
+    const fileType = getFileType(text);
+    const isVideo = fileType === "video";
+    const isImage = fileType === "image";
+    const estimatedSize = estimateFileSize(text);
+    
+    // Check if user has active subscription
+    const hasActiveSubscription = await db.getActiveSubscription(senderNumber);
+    
+    // Check download limits (admins and subscribers have no limits)
+    if (!user.is_admin && !hasActiveSubscription && !canDownloadMore(user, isVideo, estimatedSize)) {
+      const limitMessage = responses.downloadLimit
+        .replace("{videosUsed}", user.video_downloads)
+        .replace("{picturesUsed}", user.picture_downloads);
+      
+      await sock.sendMessage(sender, { text: limitMessage });
+      return true;
+    }
+    
+    await sock.sendMessage(sender, { text: responses.searchStarted });
+    
+    // Reset counts if needed
+    const now = Date.now();
+    const resetTime = 9 * 60 * 60 * 1000;
+    if (user.last_download_time && (now - user.last_download_time) > resetTime) {
+      await db.resetDownloadCounts(senderNumber);
+    }
+    
+    // Update download stats (only for non-subscribers)
+    if (!hasActiveSubscription) {
+      await db.updateDownloadStats(senderNumber, isVideo, estimatedSize);
+    }
+    
+    try {
+      const result = await searchAndDownloadFile(text, senderNumber);
+      if (result.success) {
+        await sock.sendMessage(sender, { text: responses.downloadSuccess });
+      } else {
+        await sock.sendMessage(sender, { text: responses.fileNotFound });
+      }
+    } catch (error) {
+      await sock.sendMessage(sender, { text: responses.downloadFailed });
+    }
+    return true;
+  }
+  return false;
+}
+
+module.exports = { handleFileDownload };
+EOF
+
+# Create commands/admin.js in a single RUN command
+RUN cat > commands/admin.js << 'EOF'
+const db = require("../database");
+
+async function handleAdminCommands(sock, text, sender, senderNumber) {
+  if (!await isUserAdmin(senderNumber)) return false;
+
+  if (text.startsWith("!addfile ")) {
+    const parts = text.replace("!addfile ", "").split("|");
+    if (parts.length >= 3) {
+      const [filename, fileUrl, category] = parts;
+      const fileSize = parts[3] || 0;
+      
+      await db.addAdminFile(filename.trim(), fileUrl.trim(), parseInt(fileSize), category.trim(), senderNumber);
+      await sock.sendMessage(sender, { text: `✅ File "${filename}" added to admin database!` });
+      return true;
+    }
+  }
+
+  if (text.startsWith("!searchfiles ")) {
+    const query = text.replace("!searchfiles ", "");
+    const files = await db.searchAdminFiles(query);
+    
+    if (files.length === 0) {
+      await sock.sendMessage(sender, { text: "No files found matching your search." });
+    } else {
+      let fileList = "📁 *Admin Files Found:*\\n\\n";
+      files.slice(0, 10).forEach((file, index) => {
+        fileList += `${index + 1}. ${file.filename}\\n   📂 ${file.category}\\n   📊 ${Math.round(file.file_size / 1024 / 1024)}MB\\n   🔗 ${file.file_url}\\n\\n`;
+      });
+      await sock.sendMessage(sender, { text: fileList });
+    }
+    return true;
+  }
+
+  return false;
+}
+
+module.exports = { handleAdminCommands };
+EOF
 
 # Add subscription handling after admin commands
 RUN echo '  // Handle subscription commands' >> handlers.js
