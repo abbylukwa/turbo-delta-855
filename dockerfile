@@ -462,43 +462,6 @@ RUN echo 'module.exports = { canDownloadMore, getFileType, estimateFileSize };' 
 RUN echo 'const { handleSubscriptionCommand, handleAdminSubscriptionCommands } = require("./subscription");' >> commands/index.js
 RUN echo '  handleSubscriptionCommand,' >> commands/index.js
 RUN echo '  handleAdminSubscriptionCommands,' >> commands/index.js
-# Create commands/qrcode.js using a script approach
-RUN mkdir -p commands && cat > /tmp/create_qrcode.sh << 'EOS'
-#!/bin/sh
-cmd > commands/qrcode.js << 'EOF'
-        console.log("\n📱 QR Code generated for ${senderNumber}:");
-        qrcode.generate(qrData, { small: true });
-        const message = "📱 *QR Code for Pairing*\n\n" +
-            "🔢 *Pairing Code:* ${pairingCode}\n" +
-            "⏰ *Expires:* 5 minutes\n\n" +
-            "📋 *To pair another device:*\n" +
-            "1. Open WhatsApp on new device\n" +
-            "2. Go to Settings → Linked Devices\n" +
-            "3. Scan this QR code or enter code:\n" +
-            "`${pairingCode}`\n\n" +
-            "💡 *QR Data:* ${qrData}";
-
-        await sock.sendMessage(sender, { text: message });
-        return true;
-    }
-
-    async showPairedDevices(sock, sender, senderNumber) {
-        const message = "📱 *Your Paired Devices*\n\n" +
-            "1. 📞 ${senderNumber} (Primary)\n" +
-            "   ✅ Active - Current device\n\n" +
-            "💡 *QR Pairing Commands:*\n" +
-            "• !qrcode - Generate pairing QR code\n" +
-            "• !pair [code] - Pair with code\n" +
-            "• !pair scan - Wait for QR scan\n" +
-            "• !mypaireddevices - Show this list";
-
-        await sock.sendMessage(sender, { text: message });
-        return true;
-    }
-EOF
-EOS
-
-RUN chmod +x /tmp/create_qrcode.sh && /tmp/create_qrcode.sh
 # Create commands/activation.js
 RUN mkdir -p commands
 RUN echo 'const { responses, ACTIVATION_CODES } = require("../config");' > commands/activation.js
