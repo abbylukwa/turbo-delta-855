@@ -4,12 +4,11 @@ FROM python:3.11-alpine
 RUN apk add --no-cache python3 py3-pip
 RUN pip install --no-cache-dir qrcode
 
-# Create a simple QR code generator script
-RUN echo '#!/usr/bin/env python3\n\
+# Create the QR code script using printf to handle newlines properly
+RUN printf '#!/usr/bin/env python3\n\
 import qrcode\n\
 import sys\n\
-\n\
-def main():\n\
+\ndef main():\n\
     if len(sys.argv) < 2:\n\
         print("Usage: qr-cli <text> [output_file]")\n\
         print("Example: qr-cli \\\"Hello World\\\" output.png")\n\
@@ -39,10 +38,11 @@ def main():\n\
         qr.print_ascii()\n\
 \n\
 if __name__ == "__main__":\n\
-    main()' > /usr/local/bin/qr-cli
+    main()\n' > /usr/local/bin/qr-cli
 
 # Make the script executable
 RUN chmod +x /usr/local/bin/qr-cli
 
 # Set default command
-CMD ["qr-cli", "--help"]
+ENTRYPOINT ["/usr/local/bin/qr-cli"]
+CMD ["--help"]
