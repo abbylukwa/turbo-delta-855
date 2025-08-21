@@ -12,18 +12,6 @@ RUN echo 'const {useMultiFileAuthState}=require("@whiskeysockets/baileys");' >> 
 RUN echo 'const qrcode=require("qrcode-terminal");' >> index.js
 RUN echo 'const axios=require("axios");' >> index.js
 RUN echo 'const fs=require("fs");' >> index.js
-const ALLOWED_WEBSITES = [
-  "https://wonporn.com",
-  "https://HD sex movies2.com", 
-  "https://xVideos.com",
-  "https://PornHub.com",
-  "https://xHamster.com",
-  "https://XNXX.com",
-  "https://YouPorn.com",
-  "https://Porn.com",
-  "https://Tube8.com",
-  "https://PornHat.com" 
-];
 RUN echo 'let activatedUsers=new Set();' >> index.js
 RUN echo 'let adminUsers=new Set();' >> index.js
 RUN echo 'let downloadCounts={};' >> index.js
