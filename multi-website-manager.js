@@ -4,7 +4,7 @@ class MultiWebsiteManager {
             {
                 id: 'website1',
                 name: 'MediaHub Pro',
-                url: 'https://mediahub-pro.com/media',
+                url: 'https://PornHub.com/media',
                 categories: ['images', 'videos', 'music'],
                 requiresSubscription: false,
                 searchable: true
@@ -12,7 +12,7 @@ class MultiWebsiteManager {
             {
                 id: 'website2',
                 name: 'Video Paradise',
-                url: 'https://videoparadise.com/videos',
+                url: 'https://wonporn.com/videos',
                 categories: ['videos'],
                 requiresSubscription: true,
                 searchable: true
@@ -20,7 +20,7 @@ class MultiWebsiteManager {
             {
                 id: 'website3',
                 name: 'Image Gallery',
-                url: 'https://imagegallery.com/images',
+                url: 'https://PornPics.com/images',
                 categories: ['images'],
                 requiresSubscription: false,
                 searchable: true
@@ -28,7 +28,7 @@ class MultiWebsiteManager {
             {
                 id: 'website4',
                 name: 'Music World',
-                url: 'https://musicworld.com/music',
+                url: 'https://porndude.com',
                 categories: ['music'],
                 requiresSubscription: true,
                 searchable: true
@@ -36,7 +36,7 @@ class MultiWebsiteManager {
             {
                 id: 'website5',
                 name: 'Anime Central',
-                url: 'https://animecentral.com/anime',
+                url: 'https://Mzanzifun.com',
                 categories: ['videos', 'images'],
                 requiresSubscription: false,
                 searchable: true
@@ -44,7 +44,7 @@ class MultiWebsiteManager {
             {
                 id: 'website6',
                 name: 'Movie Library',
-                url: 'https://movielibrary.com/movies',
+                url: 'https://broporn.com',
                 categories: ['videos'],
                 requiresSubscription: true,
                 searchable: true
