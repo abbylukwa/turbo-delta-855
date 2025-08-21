@@ -567,8 +567,10 @@ RUN echo '    // Check download limits (admins and subscribers have no limits)' 
     echo '    return true;' >> commands/download.js && \
     echo '}' >> commands/download.js && \
     echo '' >> commands/download.js && \
-# Create commands/download.js with simple echo commands
+# First ensure the commands directory exists
 RUN mkdir -p commands
+
+# Create commands/download.js with proper single commands
 RUN echo 'const { searchAndDownloadFile } = require("../utils");' > commands/download.js
 RUN echo 'const { responses } = require("../config");' >> commands/download.js
 RUN echo 'const db = require("../database");' >> commands/download.js
@@ -631,6 +633,44 @@ RUN echo '}' >> commands/download.js
 RUN echo '' >> commands/download.js
 RUN echo 'module.exports = { handleFileDownload };' >> commands/download.js
 
+# Create commands/admin.js
+RUN echo 'const db = require("../database");' > commands/admin.js
+RUN echo '' >> commands/admin.js
+RUN echo 'async function handleAdminCommands(sock, text, sender, senderNumber) {' >> commands/admin.js
+RUN echo '  if (!await isUserAdmin(senderNumber)) return false;' >> commands/admin.js
+RUN echo '' >> commands/admin.js
+RUN echo '  if (text.startsWith("!addfile ")) {' >> commands/admin.js
+RUN echo '    const parts = text.replace("!addfile ", "").split("|");' >> commands/admin.js
+RUN echo '    if (parts.length >= 3) {' >> commands/admin.js
+RUN echo '      const [filename, fileUrl, category] = parts;' >> commands/admin.js
+RUN echo '      const fileSize = parts[3] || 0;' >> commands/admin.js
+RUN echo '      ' >> commands/admin.js
+RUN echo '      await db.addAdminFile(filename.trim(), fileUrl.trim(), parseInt(fileSize), category.trim(), senderNumber);' >> commands/admin.js
+RUN echo '      await sock.sendMessage(sender, { text: "File added to admin database!" });' >> commands/admin.js
+RUN echo '      return true;' >> commands/admin.js
+RUN echo '    }' >> commands/admin.js
+RUN echo '  }' >> commands/admin.js
+RUN echo '' >> commands/admin.js
+RUN echo '  if (text.startsWith("!searchfiles ")) {' >> commands/admin.js
+RUN echo '    const query = text.replace("!searchfiles ", "");' >> commands/admin.js
+RUN echo '    const files = await db.searchAdminFiles(query);' >> commands/admin.js
+RUN echo '    ' >> commands/admin.js
+RUN echo '    if (files.length === 0) {' >> commands/admin.js
+RUN echo '      await sock.sendMessage(sender, { text: "No files found matching your search." });' >> commands/admin.js
+RUN echo '    } else {' >> commands/admin.js
+RUN echo '      let fileList = "Admin Files Found:";' >> commands/admin.js
+RUN echo '      files.slice(0, 10).forEach((file, index) => {' >> commands/admin.js
+RUN echo '        fileList += index + 1 + ". " + file.filename + " Category: " + file.category;' >> commands/admin.js
+RUN echo '      });' >> commands/download.js
+RUN echo '      await sock.sendMessage(sender, { text: fileList });' >> commands/admin.js
+RUN echo '    }' >> commands/admin.js
+RUN echo '    return true;' >> commands/admin.js
+RUN echo '  }' >> commands/admin.js
+RUN echo '' >> commands/admin.js
+RUN echo '  return false;' >> commands/admin.js
+RUN echo '}' >> commands/admin.js
+RUN echo '' >> commands/admin.js
+RUN echo 'module.exports = { handleAdminCommands };' >> commands/admin.js
 # Create commands/admin.js with simple echo commands
 RUN echo 'const db = require("../database");' > commands/admin.js
 RUN echo '' >> commands/admin.js
