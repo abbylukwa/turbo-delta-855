@@ -568,12 +568,6 @@ RUN echo '    // Check download limits (admins and subscribers have no limits)' 
     echo '}' >> commands/download.js && \
     echo '' >> commands/download.js && \
 
-
-
-# Create downloads directory with proper permissions
-RUN mkdir -p downloads && chmod 755 downloads
-RUN mkdir -p data && chmod 755 data
-
 # Install dependencies
 RUN npm install
 
