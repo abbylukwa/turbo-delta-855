@@ -48,5 +48,4 @@ COPY *.js ./
 # Install dependencies
 RUN npm install
 
-# Set the startup command
 CMD ["node", "index.js"]
