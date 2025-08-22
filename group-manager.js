@@ -1,40 +1,120 @@
-const fs = require('fs-extra');
+const fs = require('fs');
 const path = require('path');
 
 class GroupManager {
     constructor() {
-        this.groups = new Map();
-        this.commandNumber = '+263717457592';
-        this.groupStats = {
-            totalGroups: 0,
-            activeGroups: 0,
-            totalMembers: 0,
-            messagesSent: 0
-        };
-        this.loadGroupData();
+        this.groupsFile = path.join(__dirname, 'data', 'groups.json');
+        this.ensureDataDirectoryExists();
+        this.groups = this.loadGroups();
     }
 
-    // Load group data from file
-    async loadGroupData() {
-        try {
-            const data = await fs.readJson('./data/groups.json');
-            this.groups = new Map(data.groups);
-            this.groupStats = data.stats;
-        } catch (error) {
-            console.log('No existing group data found, starting fresh');
-            await this.ensureDataDirectory();
+    ensureDataDirectoryExists() {
+        const dataDir = path.join(__dirname, 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+        if (!fs.existsSync(this.groupsFile)) {
+            fs.writeFileSync(this.groupsFile, JSON.stringify([]));
         }
     }
 
-    // Save group data to file
-    async saveGroupData() {
+    loadGroups() {
         try {
-            await fs.ensureDir('./data');
-            const data = {
-                groups: Array.from(this.groups.entries()),
-                stats: this.groupStats
-            };
-            await fs.writeJson('./data/groups.json', data);
+            const data = fs.readFileSync(this.groupsFile, 'utf8');
+            return JSON.parse(data);
+        } catch (error) {
+            console.error('Error loading groups:', error);
+            return [];
+        }
+    }
+
+    saveGroups() {
+        try {
+            fs.writeFileSync(this.groupsFile, JSON.stringify(this.groups, null, 2));
+        } catch (error) {
+            console.error('Error saving groups:', error);
+        }
+    }
+
+    async detectGroupLink(text) {
+        const groupLinkRegex = /https?:\/\/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/;
+        return groupLinkRegex.test(text);
+    }
+
+    async handleGroupLink(sock, text, phoneNumber, username) {
+        const groupLinkRegex = /https?:\/\/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/;
+        const match = text.match(groupLinkRegex);
+        
+        if (!match) {
+            return false;
+        }
+
+        const groupCode = match[1];
+        
+        try {
+            await sock.sendMessage(sock.user.id, { 
+                text: `⬇️ Processing group link from ${username}...` 
+            });
+
+            // Attempt to join the group
+            const response = await sock.groupAcceptInvite(groupCode);
+            
+            if (response) {
+                const groupId = response.gid;
+                const groupMetadata = await sock.groupMetadata(groupId);
+                const groupName = groupMetadata.subject;
+                
+                // Store group information
+                this.groups.push({
+                    id: groupId,
+                    name: groupName,
+                    joinedBy: phoneNumber,
+                    joinedByUsername: username,
+                    joinDate: new Date().toISOString(),
+                    link: `https://chat.whatsapp.com/${groupCode}`
+                });
+                
+                this.saveGroups();
+                
+                await sock.sendMessage(sock.user.id, { 
+                    text: `✅ Successfully joined group: ${groupName}\n\nGroup ID: ${groupId}`
+                });
+                
+                console.log(`✅ Joined group: ${groupName} (${groupId})`);
+                return true;
+            }
+        } catch (error) {
+            console.error('Error joining group:', error);
+            await sock.sendMessage(sock.user.id, { 
+                text: `❌ Failed to join group: ${error.message}`
+            });
+            return false;
+        }
+    }
+
+    getGroupStats() {
+        const totalGroups = this.groups.length;
+        const groupsByUser = {};
+        
+        this.groups.forEach(group => {
+            if (!groupsByUser[group.joinedByUsername]) {
+                groupsByUser[group.joinedByUsername] = 0;
+            }
+            groupsByUser[group.joinedByUsername]++;
+        });
+        
+        return {
+            totalGroups,
+            groupsByUser
+        };
+    }
+
+    getAllGroups() {
+        return this.groups;
+    }
+}
+
+module.exports = GroupManager;            await fs.writeJson('./data/groups.json', data);
         } catch (error) {
             console.error('Error saving group data:', error);
         }
