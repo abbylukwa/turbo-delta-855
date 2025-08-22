@@ -117,4 +117,34 @@ class SubscriptionManager {
     }
 }
 
+module.exports = SubscriptionManager;    }
+
+    activateSubscription(phoneNumber, durationWeeks = 2) {
+        this.initializeUser(phoneNumber);
+        
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + (durationWeeks * 7));
+        
+        this.subscriptions[phoneNumber] = {
+            ...this.subscriptions[phoneNumber],
+            subscriptionActive: true,
+            subscriptionExpiry: expiryDate.toISOString(),
+            paymentPending: false
+        };
+        
+        this.saveSubscriptions();
+    }
+
+    setPaymentPending(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        this.subscriptions[phoneNumber].paymentPending = true;
+        this.saveSubscriptions();
+    }
+
+    isPaymentPending(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        return this.subscriptions[phoneNumber].paymentPending === true;
+    }
+}
+
 module.exports = SubscriptionManager;
