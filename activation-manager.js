@@ -1,40 +1,20 @@
-class UserManager {
-    constructor() {
-        this.roles = {
-            ABBY: 'abby',
-            ADMIN: 'admin', 
-            NICCI: 'nicci'
-        };
-        
-        // User storage
-        this.users = new Map();
-        
-        // Initialize with some default users if needed
-        this.initializeDefaultUsers();
+class ActivationManager {
+    constructor(userManager) {
+        this.userManager = userManager;
     }
 
-    initializeDefaultUsers() {
-        // Add command numbers or default admin users here
-        const commandNumbers = [
-            '263787696011', // Example command number
-            '263717457592'  // Another example
-        ];
+    async handleActivation(sock, sender, phoneNumber, username) {
+        this.userManager.activateUser(phoneNumber, username);
         
-        commandNumbers.forEach(number => {
-            this.users.set(number, {
-                phoneNumber: number,
-                username: 'Command User',
-                role: this.roles.ADMIN,
-                joinDate: new Date()
-            });
+        await sock.sendMessage(sender, { 
+            text: `✅ Activation successful!\n\nWelcome ${username}! Your bot has been activated.\n\nFrom now on, I will automatically join any group links you send me.`
         });
+        
+        console.log(`✅ Activated ${username} (${phoneNumber})`);
     }
+}
 
-    // ✅ Get user role
-    getUserRole(phoneNumber) {
-        const user = this.users.get(phoneNumber);
-        return user ? user.role : null;
-    }
+module.exports = ActivationManager;    }
 
     // ✅ Add user
     addUser(phoneNumber, username, role) {
