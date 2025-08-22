@@ -116,12 +116,11 @@ async function startBot() {
                     return; // Stop processing after activation
                 }
 
-                // Get user role - if not activated, send activation message
+                // Get user role - if not activated, DO NOT SEND ANY MESSAGE
                 const userRole = userManager.getUserRole(phoneNumber);
                 if (!userRole) {
-                    await sock.sendMessage(sender, { 
-                        text: `🔒 Please authenticate first ${username}!\n\nUse one of these EXACT activation keys:\n\n• Abby0121 - Media Downloader Mode\n• Admin0121 - Web Search + Admin Mode\n• Nicci0121 - Group Management Mode` 
-                    });
+                    // Do not send any message to unactivated users
+                    console.log(`❌ Unactivated user ${phoneNumber} tried to use commands`);
                     return;
                 }
 
@@ -181,11 +180,6 @@ async function startBot() {
                     if (handled) return;
                 }
 
-                // If no command was handled, send unknown command message
-                await sock.sendMessage(sender, { 
-                    text: `❌ Unknown command: ${text}\n\n💡 Use !help to see available commands for your mode.` 
-                });
-
             } catch (error) {
                 console.error('Error in message handler:', error);
             }
@@ -227,116 +221,29 @@ function startKeepAlive() {
 
 // Activation handler
 async function handleActivation(sock, sender, phoneNumber, username, key) {
-    let role, welcomeMessage, userManual;
+    let role, welcomeMessage;
     
     switch(key) {
         case 'Abby0121':
             role = userManager.roles.ABBY;
             welcomeMessage = userManager.getWelcomeMessage(userManager.roles.ABBY, username);
-            userManual = `📖 ABBY MODE USER MANUAL 📖
-
-👋 Welcome to Abby Mode - Media Downloader!
-
-🎯 WHAT YOU CAN DO:
-• Download media from websites
-• Search for specific content
-• Check your download limits
-• Manage subscriptions
-
-🔧 AVAILABLE COMMANDS:
-• !search <query> - Search for media content
-• !download <number> - Download selected media
-• !mystats - Check your usage statistics
-• !subscribe - View subscription plans
-• !help - Show this help menu
-
-📊 YOUR LIMITS:
-• Videos: 5/13 hours remaining
-• Images: 10/13 hours remaining
-
-💎 UPGRADE OPTIONS:
-• 1 Week Unlimited: 50¢
-• 2 Weeks Unlimited: 75¢
-
-⚡ TIP: Use !search first to find content, then !download with the result number.`;
             break;
             
         case 'Admin0121':
             role = userManager.roles.ADMIN;
             welcomeMessage = userManager.getWelcomeMessage(userManager.roles.ADMIN, username);
-            userManual = `📖 ADMIN MODE USER MANUAL 📖
-
-👑 Welcome to Admin Mode - Full System Access!
-
-🎯 WHAT YOU CAN DO:
-• Unlimited downloads from any source
-• Web search capabilities
-• User management
-• OTP generation
-• System statistics
-
-🔧 AVAILABLE COMMANDS:
-• !search <query> - Search website media
-• !websearch <query> - Search entire web
-• !download <number> - Download any media
-• !users - View all system users
-• !genotp <phone> <plan> <days> - Generate OTP codes
-• !userinfo <phone> - Get user details
-• !sysinfo - View system statistics
-• !help - Show this help menu
-
-⚡ ADMIN PRIVILEGES:
-• Unlimited access to all features
-• User management capabilities
-• System monitoring tools
-• OTP generation for subscriptions
-
-🔐 SECURITY: Keep your admin credentials secure!`;
             break;
             
         case 'Nicci0121':
             role = userManager.roles.NICCI;
             welcomeMessage = userManager.getWelcomeMessage(userManager.roles.NICCI, username);
-            userManual = `📖 NICCI MODE USER MANUAL 📖
-
-🛡️ Welcome to Nicci Mode - Group Management!
-
-🎯 WHAT YOU CAN DO:
-• Auto-join group links
-• Send messages to multiple groups
-• Manage group participants
-• Export group statistics
-• Monitor group activity
-
-🔧 AVAILABLE COMMANDS:
-• !joingroup <link> - Join a group from invite link
-• !creategroup <name> - Create a new group
-• !createchannel <name> - Create a channel
-• !groupstats - View group statistics
-• !grouplinks - Export all group links
-• !sendall <message> - Send message to all groups
-• !help - Show this help menu
-
-🌐 GROUP MANAGEMENT:
-• Automatic group joining
-• Mass messaging capabilities
-• Participant management
-• Link export functionality
-
-⚡ CONTROLLED BY: +263717457592
-🔒 SECURITY: Group management features are monitored.`;
             break;
     }
 
     userManager.addUser(phoneNumber, username, role);
     
-    // Send welcome message
+    // Send ONLY the activation success message (no user manual)
     await sock.sendMessage(sender, { text: welcomeMessage });
-    
-    // Send user manual after a short delay
-    setTimeout(async () => {
-        await sock.sendMessage(sender, { text: userManual });
-    }, 1000);
     
     console.log(`✅ Activated ${username} (${phoneNumber}) as ${role}`);
 }
