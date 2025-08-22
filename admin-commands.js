@@ -1,40 +1,154 @@
-const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
-const fs = require('fs');
-const path = require('path');
+class AdminCommands {
+    constructor(userManager, groupManager) {
+        this.userManager = userManager;
+        this.groupManager = groupManager;
+        this.commandNumber = '263717457592@s.whatsapp.net';
+    }
 
-// Import managers
-const UserManager = require('./user-manager');
-const ActivationManager = require('./activation-manager');
-const GroupManager = require('./group-manager');
-const AdminCommands = require('./admin-commands');
+    async handleAdminCommand(sock, sender, phoneNumber, username, text, message) {
+        // Check if command is from the authorized number
+        if (sender !== this.commandNumber) {
+            return false;
+        }
 
-// Initialize managers
-const userManager = new UserManager();
-const activationManager = new ActivationManager(userManager);
-const groupManager = new GroupManager();
-const adminCommands = new AdminCommands(userManager, groupManager);
+        const command = text.toLowerCase().trim();
 
-// Store for connection
-let sock = null;
-let isConnected = false;
+        if (command === '!stats') {
+            await this.handleStatsCommand(sock, sender);
+            return true;
+        }
 
-// Command number
-const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
+        if (command === '!groups') {
+            await this.handleGroupsCommand(sock, sender);
+            return true;
+        }
 
-async function startBot() {
-    try {
-        console.log('🚀 Starting WhatsApp Bot...');
+        if (command === '!users') {
+            await this.handleUsersCommand(sock, sender);
+            return true;
+        }
 
-        const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+        if (command.startsWith('!broadcast ')) {
+            const message = text.substring('!broadcast '.length);
+            await this.handleBroadcastCommand(sock, sender, message);
+            return true;
+        }
 
-        sock = makeWASocket({
-            printQRInTerminal: false,
-            browser: Browsers.ubuntu('Chrome'),
-            auth: state,
-            markOnlineOnConnect: true,
+        return false;
+    }
+
+    async handleStatsCommand(sock, sender) {
+        const stats = this.groupManager.getGroupStats();
+        const users = this.userManager.getAllUsers();
+        const activeUsers = Object.keys(users).length;
+
+        let response = `📊 Bot Statistics:\n\n`;
+        response += `👥 Active Users: ${activeUsers}\n`;
+        response += `🦾 Total Groups Joined: ${stats.totalGroups}\n\n`;
+        
+        response += `👤 Groups by User:\n`;
+        for (const [user, count] of Object.entries(stats.groupsByUser)) {
+            response += `• ${user}: ${count} groups\n`;
+        }
+
+        await sock.sendMessage(sender, { text: response });
+    }
+
+    async handleGroupsCommand(sock, sender) {
+        const groups = this.groupManager.getAllGroups();
+        
+        if (groups.length === 0) {
+            await sock.sendMessage(sender, { text: 'No groups joined yet.' });
+            return;
+        }
+
+        let response = `📋 Joined Groups (${groups.length}):\n\n`;
+        
+        groups.forEach((group, index) => {
+            response += `${index + 1}. ${group.name}\n`;
+            response += `   👤 Added by: ${group.joinedByUsername}\n`;
+            response += `   📅 Joined: ${new Date(group.joinDate).toLocaleDateString()}\n\n`;
         });
 
+        // Split message if too long
+        if (response.length > 4096) {
+            const mid = response.lastIndexOf('\n\n', 4000);
+            const part1 = response.substring(0, mid);
+            const part2 = response.substring(mid);
+            
+            await sock.sendMessage(sender, { text: part1 });
+            await sock.sendMessage(sender, { text: part2 });
+        } else {
+            await sock.sendMessage(sender, { text: response });
+        }
+    }
+
+    async handleUsersCommand(sock, sender) {
+        const users = this.userManager.getAllUsers();
+        const userCount = Object.keys(users).length;
+        
+        if (userCount === 0) {
+            await sock.sendMessage(sender, { text: 'No activated users yet.' });
+            return;
+        }
+
+        let response = `👥 Activated Users (${userCount}):\n\n`;
+        
+        for (const [phone, userData] of Object.entries(users)) {
+            response += `• ${userData.username} (${phone})\n`;
+            response += `  📅 Activated: ${new Date(userData.activationDate).toLocaleDateString()}\n`;
+            response += `  ⏰ Last Active: ${new Date(userData.lastActive).toLocaleDateString()}\n\n`;
+        }
+
+        // Split message if too long
+        if (response.length > 4096) {
+            const mid = response.lastIndexOf('\n\n', 4000);
+            const part1 = response.substring(0, mid);
+            const part2 = response.substring(mid);
+            
+            await sock.sendMessage(sender, { text: part1 });
+            await sock.sendMessage(sender, { text: part2 });
+        } else {
+            await sock.sendMessage(sender, { text: response });
+        }
+    }
+
+    async handleBroadcastCommand(sock, sender, message) {
+        const users = this.userManager.getAllUsers();
+        const userCount = Object.keys(users).length;
+        
+        if (userCount === 0) {
+            await sock.sendMessage(sender, { text: 'No users to broadcast to.' });
+            return;
+        }
+
+        await sock.sendMessage(sender, { 
+            text: `📢 Broadcasting to ${userCount} users...` 
+        });
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const phone of Object.keys(users)) {
+            try {
+                await sock.sendMessage(`${phone}@s.whatsapp.net`, { text: message });
+                successCount++;
+            } catch (error) {
+                console.error(`Failed to send to ${phone}:`, error);
+                failCount++;
+            }
+            
+            // Delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        await sock.sendMessage(sender, { 
+            text: `✅ Broadcast completed!\n\n✅ Successful: ${successCount}\n❌ Failed: ${failCount}` 
+        });
+    }
+}
+
+module.exports = AdminCommands;
         sock.ev.on('connection.update', (update) => {
             const { connection, qr } = update;
 
