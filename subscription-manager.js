@@ -1,6 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 
+class MyManager {
+    constructor() {
+        this.dataFile = path.join(__dirname, 'data', 'filename.json');
+        this.ensureDataDirectoryExists(); // ← This creates the directory
+        this.data = this.loadData();
+    }
+
+    ensureDataDirectoryExists() {
+        const dataDir = path.join(__dirname, 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+            console.log('📁 Created data directory:', dataDir);
+        }
+        if (!fs.existsSync(this.dataFile)) {
+            fs.writeFileSync(this.dataFile, JSON.stringify({}));
+            console.log('📄 Created data file:', this.dataFile);
+        }
+
 class SubscriptionManager {
     constructor() {
         this.subscriptionsFile = path.join(__dirname, 'data', 'subscriptions.json');
