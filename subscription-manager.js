@@ -1,40 +1,123 @@
-const fs = require('fs-extra');
+const fs = require('fs');
 const path = require('path');
 
-class DatingManager {
+class SubscriptionManager {
     constructor() {
-        this.profiles = new Map();
-        this.connections = new Map();
-        this.requests = new Map();
-        this.loadDatingData();
+        this.subscriptionsFile = path.join(__dirname, 'data', 'subscriptions.json');
+        this.ensureDataDirectoryExists();
+        this.subscriptions = this.loadSubscriptions();
     }
 
-    // Load dating data from file
-    async loadDatingData() {
-        try {
-            const data = await fs.readJson('./data/dating.json');
-            this.profiles = new Map(data.profiles);
-            this.connections = new Map(data.connections);
-            this.requests = new Map(data.requests);
-        } catch (error) {
-            console.log('No existing dating data found, starting fresh');
-            await this.ensureDataDirectory();
+    ensureDataDirectoryExists() {
+        const dataDir = path.join(__dirname, 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+        if (!fs.existsSync(this.subscriptionsFile)) {
+            fs.writeFileSync(this.subscriptionsFile, JSON.stringify({}));
         }
     }
 
-    // Save dating data to file
-    async saveDatingData() {
+    loadSubscriptions() {
         try {
-            await fs.ensureDir('./data');
-            const data = {
-                profiles: Array.from(this.profiles.entries()),
-                connections: Array.from(this.connections.entries()),
-                requests: Array.from(this.requests.entries())
+            const data = fs.readFileSync(this.subscriptionsFile, 'utf8');
+            return JSON.parse(data);
+        } catch (error) {
+            console.error('Error loading subscriptions:', error);
+            return {};
+        }
+    }
+
+    saveSubscriptions() {
+        try {
+            fs.writeFileSync(this.subscriptionsFile, JSON.stringify(this.subscriptions, null, 2));
+        } catch (error) {
+            console.error('Error saving subscriptions:', error);
+        }
+    }
+
+    initializeUser(phoneNumber) {
+        if (!this.subscriptions[phoneNumber]) {
+            this.subscriptions[phoneNumber] = {
+                downloadCount: 0,
+                subscriptionActive: false,
+                subscriptionExpiry: null,
+                paymentPending: false
             };
-            await fs.writeJson('./data/dating.json', data);
-        } catch (error) {
-            console.error('Error saving dating data:', error);
+            this.saveSubscriptions();
         }
+    }
+
+    recordDownload(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        this.subscriptions[phoneNumber].downloadCount++;
+        this.saveSubscriptions();
+    }
+
+    canUserDownload(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        const user = this.subscriptions[phoneNumber];
+        
+        // If user has active subscription, always allow
+        if (user.subscriptionActive && new Date(user.subscriptionExpiry) > new Date()) {
+            return true;
+        }
+        
+        // Allow up to 4 free downloads
+        return user.downloadCount < 4;
+    }
+
+    getDownloadCount(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        return this.subscriptions[phoneNumber].downloadCount;
+    }
+
+    getDownloadsLeft(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        const user = this.subscriptions[phoneNumber];
+        
+        if (user.subscriptionActive && new Date(user.subscriptionExpiry) > new Date()) {
+            return 'Unlimited';
+        }
+        
+        return Math.max(0, 4 - user.downloadCount);
+    }
+
+    hasActiveSubscription(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        const user = this.subscriptions[phoneNumber];
+        return user.subscriptionActive && new Date(user.subscriptionExpiry) > new Date();
+    }
+
+    activateSubscription(phoneNumber, durationWeeks = 2) {
+        this.initializeUser(phoneNumber);
+        
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + (durationWeeks * 7));
+        
+        this.subscriptions[phoneNumber] = {
+            ...this.subscriptions[phoneNumber],
+            subscriptionActive: true,
+            subscriptionExpiry: expiryDate.toISOString(),
+            paymentPending: false
+        };
+        
+        this.saveSubscriptions();
+    }
+
+    setPaymentPending(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        this.subscriptions[phoneNumber].paymentPending = true;
+        this.saveSubscriptions();
+    }
+
+    isPaymentPending(phoneNumber) {
+        this.initializeUser(phoneNumber);
+        return this.subscriptions[phoneNumber].paymentPending === true;
+    }
+}
+
+module.exports = SubscriptionManager;        }
     }
 
     async ensureDataDirectory() {
