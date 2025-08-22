@@ -126,7 +126,6 @@ async function startBot() {
 // Start the bot
 startBot();
 
-// Handle process termination
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down gracefully...');
     process.exit(0);
