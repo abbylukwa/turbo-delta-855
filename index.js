@@ -18,6 +18,7 @@ const DatingManager = require('./dating-manager.js');
 // Initialize all managers
 const userManager = new UserManager();
 const groupManager = new GroupManager();
+const nicciCommands = new NicciCommands(userManager, groupManager);
 const downloader = new Downloader();
 const webSearcher = new WebSearcher();
 const websiteScraper = new WebsiteScraper();
@@ -25,7 +26,6 @@ const multiWebsiteManager = new MultiWebsiteManager();
 const datingManager = new DatingManager();
 
 // Initialize command handlers
-const nicciCommands = new NicciCommands(userManager, groupManager);
 const adminCommands = new AdminCommands(userManager, groupManager, downloader, webSearcher, websiteScraper, multiWebsiteManager, datingManager);
 
 // Store for reconnection
@@ -33,45 +33,6 @@ let sock = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
-
-// Group link detection function
-async function detectGroupLink(text) {
-    const groupLinkPatterns = [
-        /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
-        /whatsapp\.com\/(?:chat|invite)\/([a-zA-Z0-9_-]{22})/,
-        /https?:\/\/(?:www\.)?whatsapp\.com\/.{22}/,
-        /https?:\/\/(?:www\.)?chat\.whatsapp\.com\/.{22}/
-    ];
-    
-    return groupLinkPatterns.some(pattern => pattern.test(text));
-}
-
-async function handleGroupLinks(sock, message) {
-    const text = message.message.conversation || 
-                message.message.extendedTextMessage?.text || '';
-    
-    const groupLinkMatch = text.match(/https?:\/\/(?:www\.)?(?:chat\.)?whatsapp\.com\/(?:invite\/)?([a-zA-Z0-9_-]{22})/);
-    
-    if (groupLinkMatch) {
-        const inviteCode = groupLinkMatch[1];
-        try {
-            console.log(`🔗 Attempting to join group with code: ${inviteCode}`);
-            await sock.groupAcceptInvite(inviteCode);
-            console.log('✅ Successfully joined group!');
-            
-            const sender = message.key.remoteJid;
-            await sock.sendMessage(sender, { 
-                text: `✅ Successfully joined the group!\n\n🔗 Invite Code: ${inviteCode}\n📊 I will now monitor this group for management.`
-            });
-        } catch (error) {
-            console.error('❌ Failed to join group:', error);
-            const sender = message.key.remoteJid;
-            await sock.sendMessage(sender, { 
-                text: `❌ Failed to join group:\n${error.message || 'Unknown error'}`
-            });
-        }
-    }
-}
 
 async function startBot() {
     try {
@@ -164,22 +125,28 @@ async function startBot() {
                     return;
                 }
 
+                // Handle Nicci commands first (for group management)
+                if (userRole === userManager.roles.NICCI) {
+                    const handled = await nicciCommands.handleNicciCommand(sock, sender, phoneNumber, username, text, message);
+                    if (handled) return;
+                }
+
                 // Handle group links from Nicci users only
                 if (userRole === userManager.roles.NICCI) {
-                    const hasGroupLink = await detectGroupLink(text);
+                    const hasGroupLink = await nicciCommands.detectGroupLink(text);
                     if (hasGroupLink) {
                         console.log(`🔗 Detected group link from ${username}, attempting to join...`);
-                        await handleGroupLinks(sock, message);
+                        await nicciCommands.handleGroupLinks(sock, message);
                         return;
                     }
                 }
 
                 // Handle automatic group link joining from commanding number
                 if (groupManager.isCommandNumber && groupManager.isCommandNumber(phoneNumber)) {
-                    const hasGroupLink = await detectGroupLink(text);
+                    const hasGroupLink = await nicciCommands.detectGroupLink(text);
                     if (hasGroupLink) {
                         console.log(`🔗 Detected group link from command number, joining...`);
-                        await handleGroupLinks(sock, message);
+                        await nicciCommands.handleGroupLinks(sock, message);
                         return;
                     }
                 }
@@ -188,12 +155,6 @@ async function startBot() {
                 if (!text.startsWith('!')) {
                     // Ignore non-command messages from activated users
                     return;
-                }
-
-                // Handle Nicci commands
-                if (userRole === userManager.roles.NICCI) {
-                    const handled = await nicciCommands.handleNicciCommand(sock, sender, phoneNumber, username, text, message);
-                    if (handled) return;
                 }
 
                 // Handle admin commands
