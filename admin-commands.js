@@ -40,9 +40,60 @@ class AdminCommands {
             await this.webSearch(sock, sender, phoneNumber, text);
         } else if (text.startsWith('!advanced ')) {
             await this.advancedSearch(sock, sender, phoneNumber, text);
-        }
-    }
+  
+  if (text.startsWith('!cleardownloads')) {
+    await this.clearDownloads(sock, sender);
+  } else if (text.startsWith('!downloadstats')) {
+    await this.downloadStats(sock, sender);
+  }
+}
 
+async clearDownloads(sock, sender) {
+  try {
+    const files = await fs.readdir(this.downloader.downloadPath);
+    let deletedCount = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(this.downloader.downloadPath, file);
+      await fs.remove(filePath);
+      deletedCount++;
+    }
+    
+    await sock.sendMessage(sender, { 
+      text: `✅ Cleared ${deletedCount} downloaded files.`
+    });
+  } catch (error) {
+    await sock.sendMessage(sender, { 
+      text: `❌ Error clearing downloads: ${error.message}`
+    });
+  }
+}
+
+async downloadStats(sock, sender) {
+  try {
+    const files = await this.downloader.listDownloads();
+    const stats = {
+      total: files.length,
+      images: files.filter(f => f.type === 'image').length,
+      videos: files.filter(f => f.type === 'video').length,
+      audio: files.filter(f => f.type === 'audio').length,
+      totalSize: files.reduce((sum, file) => sum + (file.size || 0), 0)
+    };
+    
+    await sock.sendMessage(sender, { 
+      text: `📊 Download Statistics:\n\n` +
+            `📁 Total Files: ${stats.total}\n` +
+            `🖼️ Images: ${stats.images}\n` +
+            `🎥 Videos: ${stats.videos}\n` +
+            `🎵 Audio: ${stats.audio}\n` +
+            `💾 Total Size: ${formatFileSize(stats.totalSize)}`
+    });
+  } catch (error) {
+    await sock.sendMessage(sender, { 
+      text: `❌ Error getting download stats: ${error.message}`
+    });
+  }
+}
     // List all users
     async listAllUsers(sock, sender) {
         const users = this.userManager.getAllUsers();
