@@ -5,6 +5,87 @@ class UserManager {
             ADMIN: 'admin', 
             NICCI: 'nicci'
         };
+        
+        // User storage
+        this.users = new Map();
+        
+        // Initialize with some default users if needed
+        this.initializeDefaultUsers();
+    }
+
+    initializeDefaultUsers() {
+        // Add command numbers or default admin users here
+        const commandNumbers = [
+            '263787696011', // Example command number
+            '263717457592'  // Another example
+        ];
+        
+        commandNumbers.forEach(number => {
+            this.users.set(number, {
+                phoneNumber: number,
+                username: 'Command User',
+                role: this.roles.ADMIN,
+                joinDate: new Date()
+            });
+        });
+    }
+
+    // ✅ Get user role
+    getUserRole(phoneNumber) {
+        const user = this.users.get(phoneNumber);
+        return user ? user.role : null;
+    }
+
+    // ✅ Add user
+    addUser(phoneNumber, username, role) {
+        this.users.set(phoneNumber, {
+            phoneNumber,
+            username,
+            role,
+            joinDate: new Date(),
+            lastActive: new Date()
+        });
+        console.log(`✅ User added: ${phoneNumber} as ${role}`);
+        return true;
+    }
+
+    // ✅ Check if user exists
+    userExists(phoneNumber) {
+        return this.users.has(phoneNumber);
+    }
+
+    // ✅ Get user info
+    getUser(phoneNumber) {
+        return this.users.get(phoneNumber);
+    }
+
+    // ✅ Update user last active
+    updateLastActive(phoneNumber) {
+        const user = this.users.get(phoneNumber);
+        if (user) {
+            user.lastActive = new Date();
+            return true;
+        }
+        return false;
+    }
+
+    // ✅ Get all users (for admin)
+    getAllUsers() {
+        return Array.from(this.users.values());
+    }
+
+    // ✅ Remove user
+    removeUser(phoneNumber) {
+        return this.users.delete(phoneNumber);
+    }
+
+    // ✅ Check if user has permission
+    hasPermission(phoneNumber, permission) {
+        const user = this.users.get(phoneNumber);
+        if (!user) return false;
+        
+        const permissions = this.getPermissionsForRole(user.role);
+        return permissions.includes(permission);
     }
 
     getPermissionsForRole(role) {
@@ -37,5 +118,4 @@ class UserManager {
     }
 }
 
-// Make sure to export the class
 module.exports = UserManager;
