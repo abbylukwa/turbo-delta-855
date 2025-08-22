@@ -220,6 +220,163 @@ class GeneralCommands {
     }
 }
 
+module.exports = GeneralCommands;
+        if (text === '!subscription') {
+            await this.sendSubscriptionMessage(sock, sender, phoneNumber);
+            return true;
+        }
+
+        return false;
+    }
+
+    async handleSearchCommand(sock, sender, query, phoneNumber) {
+        try {
+            await sock.sendMessage(sender, { text: `🔍 Searching for "${query}"...` });
+
+            // Simulate search across different websites
+            const results = await this.searchWebsites(query);
+            
+            if (results.length === 0) {
+                await sock.sendMessage(sender, { text: "No results found for your search." });
+                return;
+            }
+
+            let response = `📋 Search Results for "${query}":\n\n`;
+            results.forEach((result, index) => {
+                response += `${index + 1}. ${result.title}\n`;
+                response += `   📁 Type: ${result.type}\n`;
+                response += `   🔗 Source: ${result.source}\n`;
+                response += `   ⬇️ Download: !download ${result.url}\n\n`;
+            });
+
+            response += `💡 Use !download <url> to download any of these files.`;
+
+            await sock.sendMessage(sender, { text: response });
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            await sock.sendMessage(sender, { text: "❌ Search failed. Please try again later." });
+        }
+    }
+
+    async searchWebsites(query) {
+        // Simulate searching across different websites
+        const websites = [
+            { name: "123.com", baseUrl: "https://123.com/search?q=" },
+            { name: "256.com", baseUrl: "https://256.com/search?q=" },
+            { name: "youtube.com", baseUrl: "https://youtube.com/results?q=" }
+        ];
+
+        const results = [];
+        const types = ['Video', 'Image', 'Audio', 'Document'];
+        
+        // Generate mock results
+        for (let i = 0; i < 5; i++) {
+            const website = websites[Math.floor(Math.random() * websites.length)];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            results.push({
+                title: `${query} ${type} ${i + 1}`,
+                type: type,
+                source: website.name,
+                url: `${website.baseUrl}${encodeURIComponent(query)}&result=${i + 1}`
+            });
+        }
+        
+        return results;
+    }
+
+    async handleDownloadCommand(sock, sender, url, phoneNumber) {
+        try {
+            await sock.sendMessage(sender, { text: "⬇️ Downloading file..." });
+            
+            // Check if user can download
+            if (!this.subscriptionManager.canUserDownload(phoneNumber)) {
+                await this.sendSubscriptionMessage(sock, sender, phoneNumber);
+                return;
+            }
+
+            // Download the file
+            const fileInfo = await this.downloadManager.downloadFile(url, phoneNumber);
+            
+            // Record the download
+            this.subscriptionManager.recordDownload(phoneNumber);
+            
+            // Send the file
+            if (fileInfo.type === 'image') {
+                await sock.sendMessage(sender, {
+                    image: { url: fileInfo.path },
+                    caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
+                });
+            } else if (fileInfo.type === 'video') {
+                await sock.sendMessage(sender, {
+                    video: { url: fileInfo.path },
+                    caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
+                });
+            } else {
+                await sock.sendMessage(sender, {
+                    document: { url: fileInfo.path },
+                    caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
+                });
+            }
+            
+            // Check if user needs subscription after this download
+            const downloadsLeft = this.subscriptionManager.getDownloadsLeft(phoneNumber);
+            if (downloadsLeft <= 2) {
+                await sock.sendMessage(sender, {
+                    text: `⚠️ You have ${downloadsLeft} download(s) left. Please subscribe to continue downloading.`
+                });
+            }
+            
+        } catch (error) {
+            console.error('Download error:', error);
+            await sock.sendMessage(sender, { 
+                text: `❌ Download failed: ${error.message}`
+            });
+        }
+    }
+
+    async handleMyDownloadsCommand(sock, sender, phoneNumber) {
+        const user = this.userManager.getUser(phoneNumber);
+        const downloadCount = this.subscriptionManager.getDownloadCount(phoneNumber);
+        const downloadsLeft = this.subscriptionManager.getDownloadsLeft(phoneNumber);
+        const hasSubscription = this.subscriptionManager.hasActiveSubscription(phoneNumber);
+        
+        let response = `📊 Your Download Statistics:\n\n`;
+        response += `📥 Total Downloads: ${downloadCount}\n`;
+        response += `⬇️ Downloads Left: ${downloadsLeft}\n`;
+        response += `📅 Subscription: ${hasSubscription ? 'Active' : 'Not Active'}\n\n`;
+        
+        if (!hasSubscription && downloadsLeft <= 2) {
+            response += `⚠️ You have limited downloads left. Please subscribe to continue.\n`;
+            response += `💳 Use !subscription for payment details.`;
+        }
+        
+        await sock.sendMessage(sender, { text: response });
+    }
+
+    async sendSubscriptionMessage(sock, sender, phoneNumber) {
+        const downloadCount = this.subscriptionManager.getDownloadCount(phoneNumber);
+        
+        let response = `💳 Subscription Information\n\n`;
+        response += `📊 Your downloads: ${downloadCount}/4 (free)\n\n`;
+        response += `To continue downloading after 4 free downloads, please subscribe:\n\n`;
+        response += `💰 Price: 75c per 2 weeks\n`;
+        response += `🇿🇼 Zimbabwe: 0777627210 (EcoCash)\n`;
+        response += `🇿🇦 South Africa: +27 61 415 9817\n\n`;
+        response += `After payment, send proof to this bot for verification.`;
+        
+        await sock.sendMessage(sender, { text: response });
+    }
+
+    formatFileSize(bytes) {
+        if (!bytes) return '0 B';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
+        return (bytes / 1048576).toFixed(2) + ' MB';
+    }
+}
+
 module.exports = GeneralCommands;}' > package.json
 
 # Create directory structure
