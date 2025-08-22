@@ -87,41 +87,7 @@ class DownloadManager {
     }
 }
 
-module.exports = DownloadManager;    }
-
-    getExtensionFromType(fileType) {
-        switch (fileType) {
-            case 'image': return '.jpg';
-            case 'video': return '.mp4';
-            case 'audio': return '.mp3';
-            default: return '.bin';
-        }
-    }
-
-    getUserDownloads(phoneNumber) {
-        const userDir = path.join(this.downloadsDir, phoneNumber);
-        if (!fs.existsSync(userDir)) return [];
-        
-        return fs.readdirSync(userDir).map(file => {
-            const filePath = path.join(userDir, file);
-            const stats = fs.statSync(filePath);
-            return {
-                name: file,
-                size: stats.size,
-                date: stats.mtime
-            };
-        });
-    }
-}
-
-module.exports = DownloadManager;const axios = require('axios');
-const fs = require('fs-extra');
-const path = require('path');
-const sizeOf = require('image-size');
-const ffmpeg = require('fluent-ffmpeg');
-
-class EnhancedDownloader {
-    constructor() {
+module.exports = DownloadManager;    constructor() {
         this.downloadPath = process.env.DOWNLOAD_PATH || './downloads';
         this.websiteUrl = process.env.WEBSITE_URL || 'https://youPorn.com';
         this.searchResults = new Map(); // Store search results by user
