@@ -18,8 +18,8 @@ const DatingManager = require('./dating-manager.js');
 // Initialize all managers
 const userManager = new UserManager();
 const groupManager = new GroupManager();
+const downloader = new Downloader(); // Initialize downloader first
 const nicciCommands = new NicciCommands(userManager, groupManager);
-const downloader = new Downloader();
 const webSearcher = new WebSearcher();
 const websiteScraper = new WebsiteScraper();
 const multiWebsiteManager = new MultiWebsiteManager();
@@ -33,6 +33,14 @@ let sock = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
+
+// Helper function to format file size
+function formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
+    return (bytes / 1048576).toFixed(2) + ' MB';
+}
 
 async function startBot() {
     try {
@@ -124,6 +132,18 @@ async function startBot() {
                     return;
                 }
 
+                // Handle download commands for all activated users
+                if (text.startsWith('!download') || text.startsWith('!dl')) {
+                    await handleDownloadCommand(sock, sender, text, username);
+                    return;
+                }
+
+                // Handle media listing commands
+                if (text.startsWith('!media') || text.startsWith('!files')) {
+                    await handleMediaListCommand(sock, sender, text);
+                    return;
+                }
+
                 // Handle Nicci commands first (for group management)
                 if (userRole === userManager.roles.NICCI) {
                     const handled = await nicciCommands.handleNicciCommand(sock, sender, phoneNumber, username, text, message);
@@ -204,6 +224,71 @@ async function startBot() {
         reconnectAttempts++;
         const delayTime = Math.min(5000 * reconnectAttempts, 30000);
         setTimeout(startBot, delayTime);
+    }
+}
+
+// Download command handler
+async function handleDownloadCommand(sock, sender, text, username) {
+    const urlMatch = text.match(/!download\s+(.+)/) || text.match(/!dl\s+(.+)/);
+    if (!urlMatch) {
+        await sock.sendMessage(sender, { text: "Usage: !download <url> [filename]" });
+        return;
+    }
+    
+    const parts = urlMatch[1].split(' ');
+    const url = parts[0];
+    const filename = parts[1] || `download_${Date.now()}`;
+    
+    try {
+        await sock.sendMessage(sender, { text: "⬇️ Downloading file..." });
+        const fileInfo = await downloader.downloadMedia(url, filename);
+        
+        await sock.sendMessage(sender, { 
+            text: `✅ Download complete!\n📁 File: ${fileInfo.path}\n📊 Size: ${formatFileSize(fileInfo.size)}${fileInfo.dimensions ? `\n📐 Dimensions: ${fileInfo.dimensions.width}x${fileInfo.dimensions.height}` : ''}${fileInfo.duration ? `\n⏱️ Duration: ${Math.round(fileInfo.duration)}s` : ''}`
+        });
+        
+        // Notify admin if a regular user downloaded something
+        const phoneNumber = sender.split('@')[0];
+        const userRole = userManager.getUserRole(phoneNumber);
+        if (userRole !== userManager.roles.ADMIN) {
+            await adminCommands.notifyAdmins(sock, `📥 ${username} downloaded: ${filename} (${formatFileSize(fileInfo.size)})`);
+        }
+    } catch (error) {
+        await sock.sendMessage(sender, { 
+            text: `❌ Download failed: ${error.message}`
+        });
+    }
+}
+
+// Media list command handler
+async function handleMediaListCommand(sock, sender, text) {
+    const filter = {};
+    if (text.includes('image')) filter.type = 'image';
+    if (text.includes('video')) filter.type = 'video';
+    if (text.includes('audio')) filter.type = 'audio';
+    
+    try {
+        const files = await downloader.listDownloads(filter);
+        
+        if (files.length === 0) {
+            await sock.sendMessage(sender, { text: "No media files found." });
+            return;
+        }
+        
+        let response = `📁 Media Files (${files.length}):\n\n`;
+        files.slice(0, 10).forEach((file, index) => {
+            response += `${index + 1}. ${file.name} (${formatFileSize(file.size)})\n`;
+        });
+        
+        if (files.length > 10) {
+            response += `\n... and ${files.length - 10} more files`;
+        }
+        
+        await sock.sendMessage(sender, { text: response });
+    } catch (error) {
+        await sock.sendMessage(sender, { 
+            text: `❌ Error listing files: ${error.message}`
+        });
     }
 }
 
