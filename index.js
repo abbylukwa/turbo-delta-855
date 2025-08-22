@@ -1,3 +1,10 @@
+// CRYPTO POLYFILL - ADD THIS AT THE VERY TOP
+globalThis.crypto = require('crypto').webcrypto;
+
+const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
+
+// ... rest of your existing code
 const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 
