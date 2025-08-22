@@ -1,4 +1,34 @@
-const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
+// Add these imports at the top
+const GeneralCommands = require('./general-commands');
+const DownloadManager = require('./download-manager');
+const SubscriptionManager = require('./subscription-manager');
+const PaymentHandler = require('./payment-handler');
+
+// Initialize the new managers
+const downloadManager = new DownloadManager();
+const subscriptionManager = new SubscriptionManager();
+const generalCommands = new GeneralCommands(userManager, downloadManager, subscriptionManager);
+const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
+
+// In the message handler, add these checks:
+// After activation check but before group link detection
+const isGeneralActivated = await generalCommands.handleActivation(sock, sender, phoneNumber, username, text);
+if (isGeneralActivated) return;
+
+// After checking if user is activated
+const handledGeneral = await generalCommands.handleGeneralCommand(sock, sender, phoneNumber, username, text, message);
+if (handledGeneral) return;
+
+// Handle payment messages
+const handledPayment = await paymentHandler.handlePaymentMessage(sock, sender, phoneNumber, username, message);
+if (handledPayment) return;
+
+// Add admin command for subscription activation
+if (text.startsWith('!activatesub ')) {
+    const targetPhone = text.substring('!activatesub '.length).trim();
+    await paymentHandler.activateSubscription(sock, sender, targetPhone);
+    return;
+}const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
