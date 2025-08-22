@@ -8,6 +8,54 @@ class UserManager {
         this.users = this.loadUsers();
     }
 
+setUserState(phoneNumber, state) {
+    if (this.users[phoneNumber]) {
+        if (!this.users[phoneNumber].state) {
+            this.users[phoneNumber].state = {};
+        }
+        this.users[phoneNumber].state.current = state;
+        this.saveUsers();
+    }
+}
+
+getUserState(phoneNumber) {
+    return this.users[phoneNumber] && this.users[phoneNumber].state 
+           ? this.users[phoneNumber].state.current : null;
+}
+
+setUserData(phoneNumber, key, value) {
+    if (this.users[phoneNumber]) {
+        if (!this.users[phoneNumber].data) {
+            this.users[phoneNumber].data = {};
+        }
+        this.users[phoneNumber].data[key] = value;
+        this.saveUsers();
+    }
+}
+
+getUserData(phoneNumber) {
+    return this.users[phoneNumber] && this.users[phoneNumber].data 
+           ? this.users[phoneNumber].data : {};
+}
+
+clearUserState(phoneNumber) {
+    if (this.users[phoneNumber] && this.users[phoneNumber].state) {
+        delete this.users[phoneNumber].state.current;
+        this.saveUsers();
+    }
+}
+
+clearUserData(phoneNumber, prefix = '') {
+    if (this.users[phoneNumber] && this.users[phoneNumber].data) {
+        Object.keys(this.users[phoneNumber].data).forEach(key => {
+            if (key.startsWith(prefix)) {
+                delete this.users[phoneNumber].data[key];
+            }
+        });
+        this.saveUsers();
+    }
+}
+
     ensureDataDirectoryExists() {
         const dataDir = path.join(__dirname, 'data');
         if (!fs.existsSync(dataDir)) {
