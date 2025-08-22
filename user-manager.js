@@ -185,6 +185,104 @@ class UserManager {
     }
 }
 
+module.exports = UserManager;            this.saveUsers();
+        }
+    }
+
+    getUserData(phoneNumber) {
+        return this.users[phoneNumber] && this.users[phoneNumber].data 
+               ? this.users[phoneNumber].data : {};
+    }
+
+    clearUserState(phoneNumber) {
+        if (this.users[phoneNumber] && this.users[phoneNumber].state) {
+            delete this.users[phoneNumber].state.current;
+            this.saveUsers();
+        }
+    }
+
+    clearUserData(phoneNumber, prefix = '') {
+        if (this.users[phoneNumber] && this.users[phoneNumber].data) {
+            Object.keys(this.users[phoneNumber].data).forEach(key => {
+                if (key.startsWith(prefix)) {
+                    delete this.users[phoneNumber].data[key];
+                }
+            });
+            this.saveUsers();
+        }
+    }
+
+    // Additional helper methods
+    getUserCount() {
+        return Object.keys(this.users).length;
+    }
+
+    getActiveUserCount() {
+        return Object.values(this.users).filter(user => user.activated).length;
+    }
+
+    deactivateUser(phoneNumber) {
+        if (this.users[phoneNumber]) {
+            this.users[phoneNumber].activated = false;
+            this.saveUsers();
+        }
+    }
+
+    updateUsername(phoneNumber, username) {
+        if (this.users[phoneNumber]) {
+            this.users[phoneNumber].username = username;
+            this.saveUsers();
+        }
+    }
+
+    // Get users by activation status
+    getUsersByStatus(activated = true) {
+        return Object.entries(this.users)
+            .filter(([_, user]) => user.activated === activated)
+            .reduce((acc, [phone, user]) => {
+                acc[phone] = user;
+                return acc;
+            }, {});
+    }
+
+    // Search users by username
+    searchUsers(query) {
+        return Object.entries(this.users)
+            .filter(([_, user]) => 
+                user.username && user.username.toLowerCase().includes(query.toLowerCase()))
+            .reduce((acc, [phone, user]) => {
+                acc[phone] = user;
+                return acc;
+            }, {});
+    }
+
+    // Clean up old inactive users (older than 30 days)
+    cleanupInactiveUsers(days = 30) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+        
+        let removedCount = 0;
+        
+        Object.keys(this.users).forEach(phoneNumber => {
+            const user = this.users[phoneNumber];
+            if (!user.activated && user.lastActive) {
+                const lastActiveDate = new Date(user.lastActive);
+                if (lastActiveDate < cutoffDate) {
+                    delete this.users[phoneNumber];
+                    removedCount++;
+                }
+            }
+        });
+        
+        if (removedCount > 0) {
+            this.saveUsers();
+            console.log(`Cleaned up ${removedCount} inactive users older than ${days} days`);
+        }
+        
+        return removedCount;
+    }
+}
+
 module.exports = UserManager;        }
     }
 
