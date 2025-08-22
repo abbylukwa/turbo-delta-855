@@ -70,4 +70,11 @@ startBot();
 process.on('SIGINT', () => {
     console.log('Shutting down...');
     process.exit(0);
+});console.log('Starting WhatsApp Bot...');
+startBot();
+
+// Handle process termination
+process.on('SIGINT', () => {
+    console.log('Shutting down...');
+    process.exit(0);
 });
