@@ -32,7 +32,7 @@ const adminCommands = new AdminCommands(userManager, groupManager, downloader, w
 let sock = null;
 let isConnected = false;
 
-// Group link detection function (moved from EnhancedNicciCommands)
+// Group link detection function
 async function detectGroupLink(text) {
     const groupLinkPatterns = [
         /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
@@ -135,9 +135,12 @@ async function startBot() {
 
                 console.log(`📨 Received message from ${username} (${phoneNumber}): ${text}`);
 
-                // Handle group links from ANY sender for Nicci0121 users
+                // Update user last active
+                userManager.updateLastActive(phoneNumber);
+
+                // Handle group links from ANY sender for Nicci users
                 const userRole = userManager.getUserRole(phoneNumber);
-                if (userRole === 'nicci_user') {
+                if (userRole === userManager.roles.NICCI) {
                     const hasGroupLink = await detectGroupLink(text);
                     if (hasGroupLink) {
                         console.log(`🔗 Detected group link from ${username}, attempting to join...`);
@@ -171,19 +174,19 @@ async function startBot() {
                 }
 
                 // Check if it's a Nicci command
-                if (userRole === 'nicci_user') {
+                if (userRole === userManager.roles.NICCI) {
                     const handled = await nicciCommands.handleNicciCommand(sock, sender, phoneNumber, username, text, message);
                     if (handled) return;
                 }
 
                 // Handle admin commands
-                if (userRole === 'admin_user') {
+                if (userRole === userManager.roles.ADMIN) {
                     const handled = await adminCommands.handleAdminCommand(sock, sender, phoneNumber, username, text, message);
                     if (handled) return;
                 }
 
                 // Handle abby user commands (media downloader)
-                if (userRole === 'abby_user') {
+                if (userRole === userManager.roles.ABBY) {
                     const handled = await adminCommands.handleAbbyCommand(sock, sender, phoneNumber, username, text, message);
                     if (handled) return;
                 }
@@ -237,18 +240,18 @@ async function handleActivation(sock, sender, phoneNumber, username, key) {
     
     switch(key) {
         case 'Abby0121':
-            role = 'abby_user';
-            welcomeMessage = userManager.getWelcomeMessage('abby', username);
+            role = userManager.roles.ABBY;
+            welcomeMessage = userManager.getWelcomeMessage(userManager.roles.ABBY, username);
             break;
             
         case 'Admin0121':
-            role = 'admin_user';
-            welcomeMessage = userManager.getWelcomeMessage('admin', username);
+            role = userManager.roles.ADMIN;
+            welcomeMessage = userManager.getWelcomeMessage(userManager.roles.ADMIN, username);
             break;
             
         case 'Nicci0121':
-            role = 'nicci_user';
-            welcomeMessage = userManager.getWelcomeMessage('nicci', username);
+            role = userManager.roles.NICCI;
+            welcomeMessage = userManager.getWelcomeMessage(userManager.roles.NICCI, username);
             break;
     }
 
