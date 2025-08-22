@@ -1,24 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 
-class MyManager {
-    constructor() {
-        this.dataFile = path.join(__dirname, 'data', 'filename.json');
-        this.ensureDataDirectoryExists(); // ← This creates the directory
-        this.data = this.loadData();
-    }
-
-    ensureDataDirectoryExists() {
-        const dataDir = path.join(__dirname, 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-            console.log('📁 Created data directory:', dataDir);
-        }
-        if (!fs.existsSync(this.dataFile)) {
-            fs.writeFileSync(this.dataFile, JSON.stringify({}));
-            console.log('📄 Created data file:', this.dataFile);
-        }
-
 class SubscriptionManager {
     constructor() {
         this.subscriptionsFile = path.join(__dirname, 'data', 'subscriptions.json');
@@ -30,9 +12,11 @@ class SubscriptionManager {
         const dataDir = path.join(__dirname, 'data');
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
+            console.log('📁 Created data directory:', dataDir);
         }
         if (!fs.existsSync(this.subscriptionsFile)) {
             fs.writeFileSync(this.subscriptionsFile, JSON.stringify({}));
+            console.log('📄 Created subscriptions file');
         }
     }
 
@@ -106,36 +90,6 @@ class SubscriptionManager {
         const user = this.subscriptions[phoneNumber];
         return user.subscriptionActive && new Date(user.subscriptionExpiry) > new Date();
     }
-
-    activateSubscription(phoneNumber, durationWeeks = 2) {
-        this.initializeUser(phoneNumber);
-        
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + (durationWeeks * 7));
-        
-        this.subscriptions[phoneNumber] = {
-            ...this.subscriptions[phoneNumber],
-            subscriptionActive: true,
-            subscriptionExpiry: expiryDate.toISOString(),
-            paymentPending: false
-        };
-        
-        this.saveSubscriptions();
-    }
-
-    setPaymentPending(phoneNumber) {
-        this.initializeUser(phoneNumber);
-        this.subscriptions[phoneNumber].paymentPending = true;
-        this.saveSubscriptions();
-    }
-
-    isPaymentPending(phoneNumber) {
-        this.initializeUser(phoneNumber);
-        return this.subscriptions[phoneNumber].paymentPending === true;
-    }
-}
-
-module.exports = SubscriptionManager;    }
 
     activateSubscription(phoneNumber, durationWeeks = 2) {
         this.initializeUser(phoneNumber);
