@@ -32,12 +32,51 @@ const adminCommands = new AdminCommands(userManager, groupManager, downloader, w
 let sock = null;
 let isConnected = false;
 
+// Group link detection function (moved from EnhancedNicciCommands)
+async function detectGroupLink(text) {
+    const groupLinkPatterns = [
+        /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
+        /whatsapp\.com\/(?:chat|invite)\/([a-zA-Z0-9_-]{22})/,
+        /https?:\/\/(?:www\.)?whatsapp\.com\/.{22}/,
+        /https?:\/\/(?:www\.)?chat\.whatsapp\.com\/.{22}/
+    ];
+    
+    return groupLinkPatterns.some(pattern => pattern.test(text));
+}
+
+async function handleGroupLinks(sock, message) {
+    const text = message.message.conversation || 
+                message.message.extendedTextMessage?.text || '';
+    
+    const groupLinkMatch = text.match(/https?:\/\/(?:www\.)?(?:chat\.)?whatsapp\.com\/(?:invite\/)?([a-zA-Z0-9_-]{22})/);
+    
+    if (groupLinkMatch) {
+        const inviteCode = groupLinkMatch[1];
+        try {
+            console.log(`🔗 Attempting to join group with code: ${inviteCode}`);
+            await sock.groupAcceptInvite(inviteCode);
+            console.log('✅ Successfully joined group!');
+            
+            const sender = message.key.remoteJid;
+            await sock.sendMessage(sender, { 
+                text: `✅ Successfully joined the group!\n\n🔗 Invite Code: ${inviteCode}\n📊 I will now monitor this group for management.`
+            });
+        } catch (error) {
+            console.error('❌ Failed to join group:', error);
+            const sender = message.key.remoteJid;
+            await sock.sendMessage(sender, { 
+                text: `❌ Failed to join group:\n${error.message || 'Unknown error'}`
+            });
+        }
+    }
+}
+
 async function startBot() {
     try {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
         
         sock = makeWASocket({
-            printQRInTerminal: false, // We'll handle QR display ourselves
+            printQRInTerminal: false,
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             markOnlineOnConnect: true,
@@ -47,7 +86,6 @@ async function startBot() {
         sock.ev.on('connection.update', (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            // Display QR code in the exact format requested
             if (qr) {
                 console.log('\n╔══════════════════════════════════════════════════╗');
                 console.log('║                WHATSAPP BOT QR CODE               ║');
@@ -98,21 +136,22 @@ async function startBot() {
                 console.log(`📨 Received message from ${username} (${phoneNumber}): ${text}`);
 
                 // Handle group links from ANY sender for Nicci0121 users
-                if (userManager.getUserRole(phoneNumber) === 'nicci_user') {
-                    const hasGroupLink = await nicciCommands.detectGroupLink(text);
+                const userRole = userManager.getUserRole(phoneNumber);
+                if (userRole === 'nicci_user') {
+                    const hasGroupLink = await detectGroupLink(text);
                     if (hasGroupLink) {
                         console.log(`🔗 Detected group link from ${username}, attempting to join...`);
-                        await nicciCommands.handleGroupLinks(sock, message);
+                        await handleGroupLinks(sock, message);
                         return;
                     }
                 }
 
                 // Handle automatic group link joining from commanding number
                 if (groupManager.isCommandNumber(phoneNumber)) {
-                    const hasGroupLink = await nicciCommands.detectGroupLink(text);
+                    const hasGroupLink = await detectGroupLink(text);
                     if (hasGroupLink) {
                         console.log(`🔗 Detected group link from command number, joining...`);
-                        await nicciCommands.handleGroupLinks(sock, message);
+                        await handleGroupLinks(sock, message);
                         return;
                     }
                 }
@@ -124,7 +163,6 @@ async function startBot() {
                 }
 
                 // Check authentication
-                const userRole = userManager.getUserRole(phoneNumber);
                 if (!userRole) {
                     await sock.sendMessage(sender, { 
                         text: `🔒 Please authenticate first ${username}!\nUse one of these keys:\n• Abby0121 - Media Downloader\n• Admin0121 - Web Search + Admin\n• Nicci0121 - Group Management` 
@@ -189,7 +227,7 @@ async function startBot() {
 
     } catch (error) {
         console.error('Error starting bot:', error);
-        setTimeout(startBot, 10000); // Retry after 10 seconds
+        setTimeout(startBot, 10000);
     }
 }
 
@@ -200,34 +238,17 @@ async function handleActivation(sock, sender, phoneNumber, username, key) {
     switch(key) {
         case 'Abby0121':
             role = 'abby_user';
-            welcomeMessage = `🎉 Welcome ${username} to Media Downloader mode!\n\n` +
-                           `📥 I can download media from various platforms\n\n` +
-                           `💡 Send me a link to get started!`;
+            welcomeMessage = userManager.getWelcomeMessage('abby', username);
             break;
             
         case 'Admin0121':
             role = 'admin_user';
-            welcomeMessage = `⚡ Welcome ${username} to Admin mode!\n\n` +
-                           `🔧 Available tools:\n` +
-                           `• Web search\n` +
-                           `• Website scraping\n` +
-                           `• Media downloading\n` +
-                           `• Group management\n\n` +
-                           `Type !help for command list`;
+            welcomeMessage = userManager.getWelcomeMessage('admin', username);
             break;
             
         case 'Nicci0121':
             role = 'nicci_user';
-            welcomeMessage = `🛡️ Welcome ${username} to Group Management mode!\n\n` +
-                           `👥 Group features:\n` +
-                           `• Auto-join ANY group links received\n` +
-                           `• Group statistics\n` +
-                           `• Group creation\n` +
-                           `• Broadcast messages\n` +
-                           `• Member management\n\n` +
-                           `⚡ I will automatically join any WhatsApp group links\n` +
-                           `   sent to me from any user or group!\n\n` +
-                           `Type !help for command list`;
+            welcomeMessage = userManager.getWelcomeMessage('nicci', username);
             break;
     }
 
@@ -245,58 +266,6 @@ async function getUsername(sock, jid) {
         return 'User';
     }
 }
-
-// Enhanced NicciCommands to handle group links from any source
-// Add this to your nicci-commands.js or modify existing one:
-class EnhancedNicciCommands {
-    constructor(userManager, groupManager) {
-        this.userManager = userManager;
-        this.groupManager = groupManager;
-    }
-
-    async detectGroupLink(text) {
-        const groupLinkPatterns = [
-            /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
-            /whatsapp\.com\/(?:chat|invite)\/([a-zA-Z0-9_-]{22})/,
-            /https?:\/\/(?:www\.)?whatsapp\.com\/.{22}/,
-            /https?:\/\/(?:www\.)?chat\.whatsapp\.com\/.{22}/
-        ];
-        
-        return groupLinkPatterns.some(pattern => pattern.test(text));
-    }
-
-    async handleGroupLinks(sock, message) {
-        const text = message.message.conversation || 
-                    message.message.extendedTextMessage?.text || '';
-        
-        const groupLinkMatch = text.match(/https?:\/\/(?:www\.)?(?:chat\.)?whatsapp\.com\/(?:invite\/)?([a-zA-Z0-9_-]{22})/);
-        
-        if (groupLinkMatch) {
-            const inviteCode = groupLinkMatch[1];
-            try {
-                console.log(`🔗 Attempting to join group with code: ${inviteCode}`);
-                await sock.groupAcceptInvite(inviteCode);
-                console.log('✅ Successfully joined group!');
-                
-                const sender = message.key.remoteJid;
-                await sock.sendMessage(sender, { 
-                    text: `✅ Successfully joined the group!\n\n🔗 Invite Code: ${inviteCode}\n📊 I will now monitor this group for management.`
-                });
-            } catch (error) {
-                console.error('❌ Failed to join group:', error);
-                const sender = message.key.remoteJid;
-                await sock.sendMessage(sender, { 
-                    text: `❌ Failed to join group:\n${error.message || 'Unknown error'}`
-                });
-            }
-        }
-    }
-
-    // ... rest of your existing NicciCommands methods
-}
-
-// Replace the original NicciCommands with enhanced version
-const enhancedNicciCommands = new EnhancedNicciCommands(userManager, groupManager);
 
 // Start the bot with auto-restart
 console.log('🚀 Starting WhatsApp Bot...');
