@@ -76,7 +76,7 @@ class MultiWebsiteManager {
             {
                 id: 'website10',
                 name: 'Documentary Plus',
-                url: 'https://documentaryplus.com/docs',
+                url: 'https://theporndude.com',
                 categories: ['videos'],
                 requiresSubscription: true,
                 searchable: true
@@ -84,7 +84,7 @@ class MultiWebsiteManager {
             {
                 id: 'website11',
                 name: 'Meme Central',
-                url: 'https://memedcentral.com/memes',
+                url: 'https://sxyprn.com',
                 categories: ['images'],
                 requiresSubscription: false,
                 searchable: true
@@ -92,7 +92,7 @@ class MultiWebsiteManager {
             {
                 id: 'website12',
                 name: 'Sports Highlights',
-                url: 'https://sportshighlights.com/sports',
+                url: 'https://ixxx.com',
                 categories: ['videos'],
                 requiresSubscription: true,
                 searchable: true
@@ -100,7 +100,7 @@ class MultiWebsiteManager {
             {
                 id: 'website13',
                 name: 'Art Gallery',
-                url: 'https://artgallery.com/art',
+                url: 'https://youjizz.com',
                 categories: ['images'],
                 requiresSubscription: false,
                 searchable: true
@@ -108,7 +108,7 @@ class MultiWebsiteManager {
             {
                 id: 'website14',
                 name: 'Music Videos',
-                url: 'https://musicvideos.com/mv',
+                url: 'https://redtube.com',
                 categories: ['videos', 'music'],
                 requiresSubscription: true,
                 searchable: true
@@ -116,7 +116,7 @@ class MultiWebsiteManager {
             {
                 id: 'website15',
                 name: 'Nature Photos',
-                url: 'https://naturephotos.com/nature',
+                url: 'https://xhamster.com',
                 categories: ['images'],
                 requiresSubscription: false,
                 searchable: true
