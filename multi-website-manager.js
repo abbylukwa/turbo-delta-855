@@ -4,7 +4,7 @@ class MultiWebsiteManager {
             {
                 id: 'website1',
                 name: 'MediaHub Pro',
-                url: 'https://PornHub.com/media',
+                url: 'https://18kit.com › media',
                 categories: ['images', 'videos', 'music'],
                 requiresSubscription: false,
                 searchable: true
