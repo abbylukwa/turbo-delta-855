@@ -1,14 +1,12 @@
 class UserManager {
     constructor() {
-        // existing constructor code
         this.roles = {
             ABBY: 'abby',
-            ADMIN: 'admin',
+            ADMIN: 'admin', 
             NICCI: 'nicci'
         };
     }
 
-    // Add this method inside the class
     getPermissionsForRole(role) {
         const permissions = {
             [this.roles.ABBY]: ['download_website_media', 'search_website', 'list_downloads', 'check_subscription'],
@@ -26,7 +24,6 @@ class UserManager {
         return permissions[role] || [];
     }
 
-    // Add this method inside the class
     getWelcomeMessage(role, username = 'User') {
         const messages = {
             [this.roles.ABBY]: `👋 Welcome ${username}! 🤖\n\n📊 Your Download Limits:\n• 🎥 Videos: 5/13 hours\n• 🖼️ Images: 10/13 hours\n\n💎 Subscription Plans:\n• 1 Week: 50¢ (Unlimited)\n• 2 Weeks: 75¢ (Unlimited)\n\n💡 Commands:\n• !search <query> - Find media\n• !download <number> - Download\n• !mystats - Your usage\n• !subscribe - Get premium\n• !help - Show help`,
@@ -39,3 +36,6 @@ class UserManager {
         return messages[role] || `Welcome ${username}! Use !help for commands.`;
     }
 }
+
+// Make sure to export the class
+module.exports = UserManager;
