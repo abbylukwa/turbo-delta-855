@@ -5,19 +5,18 @@ class NicciCommands {
         this.userManager = userManager;
         this.groupManager = groupManager;
         this.commandNumber = '+263717457592';
+        this.rateLimit = new Map(); // Track rate limiting
     }
 
-    // Group link detection function - enhanced to detect more patterns
+    // Enhanced group link detection with better patterns
     async detectGroupLink(text) {
+        if (!text || typeof text !== 'string') return false;
+        
         const groupLinkPatterns = [
-            /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
-            /whatsapp\.com\/(?:chat|invite)\/([a-zA-Z0-9_-]{22})/,
-            /https?:\/\/(?:www\.)?whatsapp\.com\/.{22}/,
-            /https?:\/\/(?:www\.)?chat\.whatsapp\.com\/.{22}/,
-            /https?:\/\/(?:www\.)?whatsapp\.com\/invite\/.{22}/,
-            /https?:\/\/(?:www\.)?whatsapp\.com\/g\/.{22}/,
-            /https?:\/\/(?:www\.)?whatsapp\.com\/.{22}\/invite/,
-            /invite\.whatsapp\.com\/.{22}/
+            /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/i,
+            /whatsapp\.com\/(?:chat|invite|g)\/([a-zA-Z0-9_-]{22})/i,
+            /invite\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/i,
+            /https?:\/\/(?:www\.)?(?:chat\.)?whatsapp\.com\/(?:invite\/)?([a-zA-Z0-9_-]{22})/i
         ];
         
         return groupLinkPatterns.some(pattern => pattern.test(text));
@@ -25,12 +24,13 @@ class NicciCommands {
 
     // Extract group invite code from various link formats
     extractInviteCode(text) {
+        if (!text || typeof text !== 'string') return null;
+        
         const patterns = [
-            /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
-            /whatsapp\.com\/(?:chat|invite)\/([a-zA-Z0-9_-]{22})/,
-            /whatsapp\.com\/invite\/([a-zA-Z0-9_-]{22})/,
-            /whatsapp\.com\/g\/([a-zA-Z0-9_-]{22})/,
-            /invite\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/
+            /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/i,
+            /whatsapp\.com\/(?:chat|invite|g)\/([a-zA-Z0-9_-]{22})/i,
+            /invite\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/i,
+            /https?:\/\/(?:www\.)?(?:chat\.)?whatsapp\.com\/(?:invite\/)?([a-zA-Z0-9_-]{22})/i
         ];
         
         for (const pattern of patterns) {
@@ -43,61 +43,90 @@ class NicciCommands {
         return null;
     }
 
+    // Check if user is rate limited
+    isRateLimited(phoneNumber) {
+        const now = Date.now();
+        const userLimit = this.rateLimit.get(phoneNumber) || 0;
+        
+        // Allow 1 join per minute per user
+        if (now - userLimit < 60000) {
+            return true;
+        }
+        
+        this.rateLimit.set(phoneNumber, now);
+        return false;
+    }
+
     // Enhanced group link handler for automatic joining
     async handleGroupLinks(sock, message, phoneNumber, username) {
-        const text = message.message.conversation || 
-                    message.message.extendedTextMessage?.text || 
-                    message.message.imageMessage?.caption || '';
-        
-        const inviteCode = this.extractInviteCode(text);
-        
-        if (inviteCode) {
-            try {
-                console.log(`🔗 Detected group link from ${username}, attempting to join...`);
-                
-                // Join the group
-                await sock.groupAcceptInvite(inviteCode);
-                console.log('✅ Successfully joined group!');
-                
-                // Get group info after joining
-                const groupJid = `${inviteCode}@g.us`;
-                const groupInfo = await sock.groupMetadata(groupJid);
-                
+        try {
+            const text = message.message?.conversation || 
+                        message.message?.extendedTextMessage?.text || 
+                        message.message?.imageMessage?.caption || 
+                        '';
+            
+            const inviteCode = this.extractInviteCode(text);
+            
+            if (!inviteCode) return false;
+
+            // Check rate limiting
+            if (this.isRateLimited(phoneNumber)) {
                 const sender = message.key.remoteJid;
                 await sock.sendMessage(sender, { 
-                    text: `✅ Successfully joined the group!\n\n🏷️ Name: ${groupInfo.subject}\n👥 Members: ${groupInfo.participants.length}\n🆔 ID: ${groupInfo.id}\n\n🌐 Group added to managed groups.`
+                    text: "⏳ Please wait a minute before joining another group."
                 });
-                
-                // Add to managed groups
-                this.groupManager.addGroup({
-                    id: groupInfo.id,
-                    name: groupInfo.subject,
-                    participants: groupInfo.participants.length,
-                    inviteCode: inviteCode,
-                    joinedAt: new Date()
-                });
-                
-                // Notify commanding number
-                await this.notifyCommandNumber(sock, `📥 ${username} joined group: ${groupInfo.subject}`);
-                
-                return true;
-            } catch (error) {
-                console.error('❌ Failed to join group:', error);
-                const sender = message.key.remoteJid;
-                
-                if (error.message.includes('already')) {
-                    await sock.sendMessage(sender, { 
-                        text: `ℹ️ Already a member of this group.`
-                    });
-                } else {
-                    await sock.sendMessage(sender, { 
-                        text: `❌ Failed to join group:\n${error.message || 'Invalid or expired invite link'}`
-                    });
-                }
                 return false;
             }
+
+            console.log(`🔗 Detected group link from ${username}, attempting to join...`);
+            
+            // Join the group
+            const response = await sock.groupAcceptInvite(inviteCode);
+            
+            // Get the actual group JID from response
+            const groupJid = response.gid || `${inviteCode}@g.us`;
+            
+            console.log('✅ Successfully joined group!');
+            
+            // Get group info after joining
+            const groupInfo = await sock.groupMetadata(groupJid);
+            
+            const sender = message.key.remoteJid;
+            await sock.sendMessage(sender, { 
+                text: `✅ Successfully joined the group!\n\n🏷️ Name: ${groupInfo.subject}\n👥 Members: ${groupInfo.participants.length}\n🆔 ID: ${groupInfo.id}\n\n🌐 Group added to managed groups.`
+            });
+            
+            // Add to managed groups
+            this.groupManager.addGroup({
+                id: groupInfo.id,
+                name: groupInfo.subject,
+                participants: groupInfo.participants.length,
+                inviteCode: inviteCode,
+                joinedAt: new Date()
+            });
+            
+            // Notify commanding number
+            await this.notifyCommandNumber(sock, `📥 ${username} joined group: ${groupInfo.subject}`);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to join group:', error);
+            const sender = message.key.remoteJid;
+            
+            let errorMessage = 'Failed to join group';
+            if (error.message.includes('already') || error.message.includes('exist')) {
+                errorMessage = 'Already a member of this group';
+            } else if (error.message.includes('invite') || error.message.includes('invalid')) {
+                errorMessage = 'Invalid or expired invite link';
+            } else if (error.message.includes('rate')) {
+                errorMessage = 'Rate limited. Please try again later';
+            }
+            
+            await sock.sendMessage(sender, { 
+                text: `❌ ${errorMessage}`
+            });
+            return false;
         }
-        return false;
     }
 
     // Enhanced to handle automatic group joining for Nicci users
@@ -119,8 +148,8 @@ class NicciCommands {
             const hasGroupLink = await this.detectGroupLink(text);
             if (hasGroupLink && !text.startsWith('!')) {
                 console.log(`🔗 Nicci user ${username} sent a group link, auto-joining...`);
-                await this.handleGroupLinks(sock, message, phoneNumber, username);
-                return true;
+                const joined = await this.handleGroupLinks(sock, message, phoneNumber, username);
+                if (joined) return true;
             }
         }
 
@@ -173,11 +202,22 @@ class NicciCommands {
             return;
         }
 
+        // Check rate limiting
+        const phoneNumber = sender.split('@')[0];
+        if (this.isRateLimited(phoneNumber)) {
+            await sock.sendMessage(sender, { 
+                text: "⏳ Please wait a minute before joining another group."
+            });
+            return;
+        }
+
         try {
-            await sock.groupAcceptInvite(inviteCode);
+            const response = await sock.groupAcceptInvite(inviteCode);
+            
+            // Get the actual group JID from response
+            const groupJid = response.gid || `${inviteCode}@g.us`;
             
             // Get group info
-            const groupJid = `${inviteCode}@g.us`;
             const groupInfo = await sock.groupMetadata(groupJid);
             
             await sock.sendMessage(sender, { 
@@ -194,12 +234,21 @@ class NicciCommands {
             });
             
             // Notify commanding number
-            if (!this.groupManager.isCommandNumber(sender.split('@')[0])) {
+            if (!this.groupManager.isCommandNumber(phoneNumber)) {
                 await this.notifyCommandNumber(sock, `📥 ${username} joined group: ${groupInfo.subject}`);
             }
         } catch (error) {
+            let errorMessage = 'Failed to join group';
+            if (error.message.includes('already') || error.message.includes('exist')) {
+                errorMessage = 'Already a member of this group';
+            } else if (error.message.includes('invite') || error.message.includes('invalid')) {
+                errorMessage = 'Invalid or expired invite link';
+            } else if (error.message.includes('rate')) {
+                errorMessage = 'Rate limited. Please try again later';
+            }
+            
             await sock.sendMessage(sender, { 
-                text: `❌ Failed to join group: ${error.message}\n💡 Make sure the invite link is valid and not expired.` 
+                text: `❌ ${errorMessage}`
             });
         }
     }
@@ -392,7 +441,7 @@ class NicciCommands {
 
     // Handle automatic group joining from messages for commanding number
     async handleAutoGroupLinks(sock, message) {
-        const text = message.message.conversation || '';
+        const text = message.message?.conversation || '';
         const phoneNumber = message.key.remoteJid.split('@')[0];
         
         // Only process group links from commanding number
@@ -410,8 +459,31 @@ class NicciCommands {
 
     // Detect WhatsApp group links in text
     detectGroupLinks(text) {
-        const linkRegex = /https?:\/\/(chat\.whatsapp\.com|whatsapp\.com\/chat|invite\.whatsapp\.com)\/[A-Za-z0-9_-]{22}/g;
+        if (!text || typeof text !== 'string') return [];
+        const linkRegex = /https?:\/\/(chat\.whatsapp\.com|whatsapp\.com\/chat|invite\.whatsapp\.com)\/[A-Za-z0-9_-]{22}/gi;
         return text.match(linkRegex) || [];
+    }
+
+    // Test function to verify auto-join works
+    async testAutoJoin(sock) {
+        // Test with various link formats
+        const testLinks = [
+            'https://chat.whatsapp.com/ABC123def456GHI789jklMN',
+            'https://whatsapp.com/chat/ABC123def456GHI789jklMN',
+            'https://whatsapp.com/invite/ABC123def456GHI789jklMN',
+            'Join my group: https://chat.whatsapp.com/ABC123def456GHI789jklMN'
+        ];
+        
+        console.log('🧪 Testing auto-join detection:');
+        for (const link of testLinks) {
+            const hasLink = await this.detectGroupLink(link);
+            const inviteCode = this.extractInviteCode(link);
+            
+            console.log(`Link: ${link}`);
+            console.log(`Detected: ${hasLink}`);
+            console.log(`Invite Code: ${inviteCode}`);
+            console.log('---');
+        }
     }
 }
 
