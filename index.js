@@ -1,5 +1,5 @@
 globalThis.crypto = require('crypto').webcrypto;
-const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const UserManager = require('./user-manager');
 const ActivationManager = require('./activation-manager');
@@ -10,6 +10,7 @@ const DownloadManager = require('./download-manager');
 const SubscriptionManager = require('./subscription-manager');
 const PaymentHandler = require('./payment-handler');
 const DatingManager = require('./dating-manager');
+const { Boom } = require('@hapi/boom');
 
 // Store for connection
 let sock = null;
@@ -34,6 +35,18 @@ async function startBot() {
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             markOnlineOnConnect: true,
+            // Add connection stability options
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 25000,
+            defaultQueryTimeoutMs: 60000,
+            // Enable retries
+            maxRetries: 10,
+            // Better mobile compatibility
+            syncFullHistory: false,
+            transactionOpts: {
+                maxCommitRetries: 10,
+                delayBetweenTriesMs: 3000
+            }
         });
 
         // Initialize managers
@@ -65,7 +78,7 @@ async function startBot() {
         const adminCommands = new AdminCommands(userManager, groupManager);
 
         sock.ev.on('connection.update', (update) => {
-            const { connection, qr } = update;
+            const { connection, qr, lastDisconnect } = update;
 
             if (qr) {
                 console.log('\n╔══════════════════════════════════════════════════╗');
@@ -81,24 +94,53 @@ async function startBot() {
             if (connection === 'open') {
                 isConnected = true;
                 console.log('✅ WhatsApp connected successfully!');
-            } else if (connection === 'close') {
+                console.log('🤖 Bot is now ready to receive messages');
+            } 
+            else if (connection === 'close') {
                 isConnected = false;
-                console.log('🔌 Connection closed');
+                const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+                
+                console.log(`🔌 Connection closed: ${lastDisconnect.error?.message || 'Unknown reason'}`);
+                
+                if (shouldReconnect) {
+                    console.log('🔄 Attempting to reconnect...');
+                    setTimeout(startBot, 5000);
+                } else {
+                    console.log('❌ Cannot reconnect, logged out from server');
+                }
+            }
+            else if (connection === 'connecting') {
+                console.log('🔄 Connecting to WhatsApp...');
             }
         });
 
         sock.ev.on('creds.update', saveCreds);
 
+        // Handle connection errors
+        sock.ev.on('connection.phone-change', (update) => {
+            console.log('📱 Phone number changed:', update);
+        });
+
+        sock.ev.on('connection.general-error', (error) => {
+            console.error('❌ General connection error:', error);
+        });
+
         // Message handler
         sock.ev.on("messages.upsert", async (m) => {
             try {
+                // Skip if not connected
+                if (!isConnected) return;
+
                 const message = m.messages[0];
-                if (!message.message) return;
+                if (!message.message || message.key.fromMe) return;
 
                 const text = message.message.conversation || 
-                            message.message.extendedTextMessage?.text || "";
+                            message.message.extendedTextMessage?.text ||
+                            message.message.buttonsResponseMessage?.selectedDisplayText || "";
                 
                 const sender = message.key.remoteJid;
+                if (!sender.endsWith('@s.whatsapp.net')) return; // Only handle personal chats
+                
                 const phoneNumber = sender.split('@')[0];
                 
                 // Get username
@@ -133,11 +175,14 @@ async function startBot() {
                 // If not activated and not admin, ignore all messages
                 if (!isActivated) {
                     console.log(`❌ Unactivated user ${phoneNumber} tried to send message`);
+                    await sock.sendMessage(sender, { 
+                        text: "❌ You are not activated. Please use the activation code '0121Abner' to activate your account."
+                    });
                     return;
                 }
 
                 // Handle admin commands (only for admins)
-                if (isAdmin) {
+                if (isAdmin && text.startsWith('!')) {
                     const handledAdmin = await adminCommands.handleAdminCommand(sock, sender, phoneNumber, username, text, message);
                     if (handledAdmin) return;
                 }
@@ -187,14 +232,37 @@ async function startBot() {
                     return;
                 }
 
+                // Default response for unhandled messages
+                if (text.trim() && !text.startsWith('!')) {
+                    await sock.sendMessage(sender, {
+                        text: `🤖 Hello ${username}! I'm your WhatsApp bot.\n\nUse !help to see available commands.`
+                    });
+                }
+
             } catch (error) {
                 console.error('Error in message handler:', error);
+                try {
+                    await sock.sendMessage(sender, {
+                        text: '❌ An error occurred while processing your message. Please try again.'
+                    });
+                } catch (sendError) {
+                    console.error('Failed to send error message:', sendError);
+                }
+            }
+        });
+
+        // Handle group messages
+        sock.ev.on('group-participants.update', async (update) => {
+            try {
+                await groupManager.handleGroupUpdate(sock, update);
+            } catch (error) {
+                console.error('Error handling group update:', error);
             }
         });
 
     } catch (error) {
         console.error('Error starting bot:', error);
-        setTimeout(startBot, 5000);
+        setTimeout(startBot, 10000); // Wait 10 seconds before retrying
     }
 }
 
@@ -204,5 +272,20 @@ startBot();
 // Handle process termination
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down gracefully...');
+    if (sock) {
+        sock.end();
+    }
     process.exit(0);
 });
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Export for testing
+module.exports = { startBot };
