@@ -1,317 +1,133 @@
-class AdminCommands {
-    constructor(userManager, imageDownloader, websiteScraper) {
-        this.userManager = userManager;
-        this.imageDownloader = imageDownloader;
-        this.websiteScraper = websiteScraper;
-    }
+const { default: makeWASocket, useMultiFileAuthState, Browsers } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
+const fs = require('fs');
+const path = require('path');
 
-    // Check if message is admin command
-    async handleAdminCommand(sock, sender, phoneNumber, username, text, message) {
-        if (!this.userManager.hasPermission(phoneNumber, 'manage_subscriptions')) {
-            return false;
-        }
+// Import managers
+const UserManager = require('./user-manager');
+const ActivationManager = require('./activation-manager');
+const GroupManager = require('./group-manager');
+const AdminCommands = require('./admin-commands');
 
-        const commands = [
-            '!users', '!userinfo', '!genotp', '!sysinfo', 
-            '!modifylimits', '!websearch', '!advanced'
-        ];
+// Initialize managers
+const userManager = new UserManager();
+const activationManager = new ActivationManager(userManager);
+const groupManager = new GroupManager();
+const adminCommands = new AdminCommands(userManager, groupManager);
 
-        if (commands.some(cmd => text.startsWith(cmd))) {
-            await this.processAdminCommand(sock, sender, phoneNumber, username, text, message);
-            return true;
-        }
+// Store for connection
+let sock = null;
+let isConnected = false;
 
-        return false;
-    }
+// Command number
+const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
 
-    // Process admin commands
-    async processAdminCommand(sock, sender, phoneNumber, username, text, message) {
-        if (text === '!users') {
-            await this.listAllUsers(sock, sender);
-        } else if (text.startsWith('!userinfo ')) {
-            await this.showUserInfo(sock, sender, text);
-        } else if (text.startsWith('!genotp ')) {
-            await this.generateOTP(sock, sender, text);
-        } else if (text === '!sysinfo') {
-            await this.showSystemInfo(sock, sender);
-        } else if (text.startsWith('!modifylimits ')) {
-            await this.modifyUserLimits(sock, sender, text);
-        } else if (text.startsWith('!websearch ')) {
-            await this.webSearch(sock, sender, phoneNumber, text);
-        } else if (text.startsWith('!advanced ')) {
-            await this.advancedSearch(sock, sender, phoneNumber, text);
-  
-  if (text.startsWith('!cleardownloads')) {
-    await this.clearDownloads(sock, sender);
-  } else if (text.startsWith('!downloadstats')) {
-    await this.downloadStats(sock, sender);
-  }
-}
+async function startBot() {
+    try {
+        console.log('🚀 Starting WhatsApp Bot...');
 
-async clearDownloads(sock, sender) {
-  try {
-    const files = await fs.readdir(this.downloader.downloadPath);
-    let deletedCount = 0;
-    
-    for (const file of files) {
-      const filePath = path.join(this.downloader.downloadPath, file);
-      await fs.remove(filePath);
-      deletedCount++;
-    }
-    
-    await sock.sendMessage(sender, { 
-      text: `✅ Cleared ${deletedCount} downloaded files.`
-    });
-  } catch (error) {
-    await sock.sendMessage(sender, { 
-      text: `❌ Error clearing downloads: ${error.message}`
-    });
-  }
-}
+        const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-async downloadStats(sock, sender) {
-  try {
-    const files = await this.downloader.listDownloads();
-    const stats = {
-      total: files.length,
-      images: files.filter(f => f.type === 'image').length,
-      videos: files.filter(f => f.type === 'video').length,
-      audio: files.filter(f => f.type === 'audio').length,
-      totalSize: files.reduce((sum, file) => sum + (file.size || 0), 0)
-    };
-    
-    await sock.sendMessage(sender, { 
-      text: `📊 Download Statistics:\n\n` +
-            `📁 Total Files: ${stats.total}\n` +
-            `🖼️ Images: ${stats.images}\n` +
-            `🎥 Videos: ${stats.videos}\n` +
-            `🎵 Audio: ${stats.audio}\n` +
-            `💾 Total Size: ${formatFileSize(stats.totalSize)}`
-    });
-  } catch (error) {
-    await sock.sendMessage(sender, { 
-      text: `❌ Error getting download stats: ${error.message}`
-    });
-  }
-}
-    // List all users
-    async listAllUsers(sock, sender) {
-        const users = this.userManager.getAllUsers();
-        
-        if (users.length === 0) {
-            await sock.sendMessage(sender, { text: "📊 No users registered yet." });
-            return;
-        }
+        sock = makeWASocket({
+            printQRInTerminal: false,
+            browser: Browsers.ubuntu('Chrome'),
+            auth: state,
+            markOnlineOnConnect: true,
+        });
 
-        let usersText = "📊 ALL REGISTERED USERS\n\n";
-        users.forEach((user, index) => {
-            usersText += `${index + 1}. ${user.phoneNumber}\n`;
-            usersText += `   👤 Role: ${user.role}\n`;
-            usersText += `   📅 Joined: ${user.activatedAt.toLocaleDateString()}\n`;
-            
-            if (user.usage) {
-                usersText += `   🎥 Videos: ${user.usage.videos?.used || 0}/${user.usage.videos?.limit || 0}\n`;
-                usersText += `   🖼️ Images: ${user.usage.images?.used || 0}/${user.usage.images?.limit || 0}\n`;
+        sock.ev.on('connection.update', (update) => {
+            const { connection, qr } = update;
+
+            if (qr) {
+                console.log('\n╔══════════════════════════════════════════════════╗');
+                console.log('║                WHATSAPP BOT QR CODE               ║');
+                console.log('╠══════════════════════════════════════════════════╣');
+                console.log('║ Scan this QR code with WhatsApp -> Linked Devices║');
+                console.log('║                                                  ║');
+                qrcode.generate(qr, { small: true });
+                console.log('║                                                  ║');
+                console.log('╚══════════════════════════════════════════════════╝\n');
             }
-            
-            if (user.subscription) {
-                const status = user.subscription.isActive ? '✅ Active' : '❌ Expired';
-                usersText += `   💎 Subscription: ${status}\n`;
-                if (user.subscription.isActive) {
-                    usersText += `   ⏰ Expires: ${user.subscription.expiresAt.toLocaleDateString()}\n`;
+
+            if (connection === 'open') {
+                isConnected = true;
+                console.log('✅ WhatsApp connected successfully!');
+            } else if (connection === 'close') {
+                isConnected = false;
+                console.log('🔌 Connection closed');
+            }
+        });
+
+        sock.ev.on('creds.update', saveCreds);
+
+        // Message handler
+        sock.ev.on("messages.upsert", async (m) => {
+            try {
+                const message = m.messages[0];
+                if (!message.message) return;
+
+                const text = message.message.conversation || 
+                            message.message.extendedTextMessage?.text || "";
+                
+                const sender = message.key.remoteJid;
+                const phoneNumber = sender.split('@')[0];
+                
+                // Get username
+                let username = "User";
+                try {
+                    const contact = await sock.onWhatsApp(sender);
+                    username = contact[0]?.exists ? contact[0].pushname || 'User' : 'User';
+                } catch (error) {
+                    console.error('Error getting username:', error);
                 }
+
+                console.log(`📨 Received message from ${username} (${phoneNumber}): ${text}`);
+
+                // Check if user is activated
+                const isActivated = userManager.isUserActivated(phoneNumber);
+                
+                // Handle activation
+                if (!isActivated && text.trim() === '0121Abner') {
+                    await activationManager.handleActivation(sock, sender, phoneNumber, username);
+                    return;
+                }
+
+                // If not activated, ignore all messages
+                if (!isActivated) {
+                    console.log(`❌ Unactivated user ${phoneNumber} tried to send message`);
+                    return;
+                }
+
+                // Handle group links from anyone (only if activated)
+                const hasGroupLink = await groupManager.detectGroupLink(text);
+                if (hasGroupLink) {
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
+                    await groupManager.handleGroupLink(sock, text, phoneNumber, username);
+                    return;
+                }
+
+                // Handle commands from command number
+                if (sender === COMMAND_NUMBER && text.startsWith('!')) {
+                    await adminCommands.handleAdminCommand(sock, sender, phoneNumber, username, text, message);
+                    return;
+                }
+
+            } catch (error) {
+                console.error('Error in message handler:', error);
             }
-            
-            usersText += "\n";
         });
 
-        usersText += `\n📈 Total Users: ${users.length}`;
-
-        await sock.sendMessage(sender, { text: usersText });
-    }
-
-    // Show user information
-    async showUserInfo(sock, sender, text) {
-        const targetPhone = text.replace('!userinfo ', '').trim();
-        const userInfo = this.userManager.getUserInfo(targetPhone);
-
-        if (!userInfo) {
-            await sock.sendMessage(sender, { text: "❌ User not found." });
-            return;
-        }
-
-        let infoText = `📋 USER INFORMATION\n\n`;
-        infoText += `📞 Phone: ${userInfo.phoneNumber}\n`;
-        infoText += `👤 Role: ${userInfo.role}\n`;
-        infoText += `📅 Activated: ${userInfo.activatedAt.toLocaleDateString()}\n\n`;
-
-        infoText += `📊 USAGE STATISTICS\n`;
-        infoText += `🎥 Videos: ${userInfo.usage.videos.used}/${userInfo.usage.videos.limit}\n`;
-        infoText += `🖼️ Images: ${userInfo.usage.images.used}/${userInfo.usage.images.limit}\n`;
-        infoText += `⏰ Reset: ${userInfo.usage.videos.resetTime.toLocaleTimeString()}\n\n`;
-
-        if (userInfo.subscription) {
-            infoText += `💎 SUBSCRIPTION\n`;
-            infoText += `📅 Plan: ${userInfo.subscription.plan}\n`;
-            infoText += `🎯 Status: ${userInfo.subscription.isActive ? 'Active' : 'Expired'}\n`;
-            if (userInfo.subscription.isActive) {
-                infoText += `⏰ Expires: ${userInfo.subscription.expiresAt.toLocaleDateString()}\n`;
-                infoText += `📆 Days left: ${userInfo.subscription.daysRemaining}\n`;
-            }
-        } else {
-            infoText += `💎 No active subscription\n`;
-        }
-
-        await sock.sendMessage(sender, { text: infoText });
-    }
-
-    // Generate OTP for user
-    async generateOTP(sock, sender, text) {
-        const parts = text.split(' ');
-        if (parts.length < 4) {
-            await sock.sendMessage(sender, { text: "❌ Usage: !genotp <phone> <plan> <days>\nExample: !genotp 263123456789 2weeks 14" });
-            return;
-        }
-
-        const targetPhone = parts[1];
-        const plan = parts[2];
-        const days = parseInt(parts[3]);
-
-        if (!['1week', '2weeks'].includes(plan) || isNaN(days) || days <= 0) {
-            await sock.sendMessage(sender, { text: "❌ Invalid plan or duration. Use: 1week or 2weeks, and valid days number." });
-            return;
-        }
-
-        const duration = days * 24 * 60 * 60 * 1000;
-        const otp = this.userManager.generateOTP(targetPhone, plan, duration);
-        
-        await sock.sendMessage(sender, { 
-            text: `✅ OTP GENERATED SUCCESSFULLY\n\n📞 For: ${targetPhone}\n🔑 OTP Code: ${otp}\n📅 Plan: ${plan}\n⏰ Duration: ${days} days\n💰 Value: $${this.userManager.subscriptionPlans[plan].price}\n\n💡 User must use: !otp ${otp}` 
-        });
-    }
-
-    // Show system information
-    async showSystemInfo(sock, sender) {
-        const stats = this.userManager.getSystemStats();
-        
-        let sysText = "🖥️ SYSTEM INFORMATION\n\n";
-        sysText += `👥 Total Users: ${stats.totalUsers}\n`;
-        sysText += `💎 Active Subscriptions: ${stats.activeSubscriptions}\n`;
-        sysText += `📥 Total Downloads: ${stats.totalDownloads}\n\n`;
-        
-        sysText += `📊 Users by Role:\n`;
-        sysText += `• Abby Users: ${stats.usersByRole.abby}\n`;
-        sysText += `• Admin Users: ${stats.usersByRole.admin}\n`;
-        sysText += `• Nicci Users: ${stats.usersByRole.nicci}\n\n`;
-        
-        sysText += `🔄 Last Updated: ${new Date().toLocaleString()}`;
-
-        await sock.sendMessage(sender, { text: sysText });
-    }
-
-    // Modify user limits
-    async modifyUserLimits(sock, sender, text) {
-        const parts = text.split(' ');
-        if (parts.length < 4) {
-            await sock.sendMessage(sender, { text: "❌ Usage: !modifylimits <phone> <videos> <images>\nExample: !modifylimits 263123456789 10 20" });
-            return;
-        }
-
-        const targetPhone = parts[1];
-        const videos = parseInt(parts[2]);
-        const images = parseInt(parts[3]);
-
-        if (isNaN(videos) || isNaN(images) || videos < 0 || images < 0) {
-            await sock.sendMessage(sender, { text: "❌ Invalid limits. Use positive numbers." });
-            return;
-        }
-
-        const success = this.userManager.modifyUserLimits(targetPhone, {
-            videos: videos,
-            images: images
-        });
-
-        if (success) {
-            await sock.sendMessage(sender, { 
-                text: `✅ LIMITS UPDATED\n\n📞 User: ${targetPhone}\n🎥 New Video Limit: ${videos}\n🖼️ New Image Limit: ${images}\n\n⚡ Changes applied immediately.` 
-            });
-        } else {
-            await sock.sendMessage(sender, { text: "❌ User not found or limits not updated." });
-        }
-    }
-
-    // Web search functionality
-    async webSearch(sock, sender, phoneNumber, text) {
-        const query = text.replace('!websearch ', '').trim();
-        if (!query) {
-            await sock.sendMessage(sender, { text: "❌ Please provide a search query." });
-            return;
-        }
-
-        await sock.sendMessage(sender, { text: `🌐 Searching the web for "${query}"...` });
-        
-        // This would integrate with a web search API
-        // For now, we'll use the website scraper
-        const results = await this.websiteScraper.scanWebsiteForImages();
-        const filteredResults = results.filter(item => 
-            item.filename.toLowerCase().includes(query.toLowerCase()) ||
-            item.alt.toLowerCase().includes(query.toLowerCase())
-        ).slice(0, 5);
-
-        if (filteredResults.length > 0) {
-            this.imageDownloader.storeSearchResults(phoneNumber, filteredResults);
-            
-            let resultText = `🌍 Web Results for "${query}":\n\n`;
-            filteredResults.forEach((result, index) => {
-                resultText += `${index + 1}. ${result.filename}\n`;
-                resultText += `   📝: ${result.alt}\n`;
-                resultText += `   🌐: ${result.url}\n\n`;
-            });
-            resultText += "💡 Reply with !download <number> to download";
-
-            await sock.sendMessage(sender, { text: resultText });
-        } else {
-            await sock.sendMessage(sender, { text: "❌ No web results found." });
-        }
-    }
-
-    // Advanced search
-    async advancedSearch(sock, sender, phoneNumber, text) {
-        const query = text.replace('!advanced ', '').trim();
-        if (!query) {
-            await sock.sendMessage(sender, { text: "❌ Please provide a search query." });
-            return;
-        }
-
-        await sock.sendMessage(sender, { text: `🔍 Advanced search for "${query}"...` });
-        
-        // Enhanced search with multiple criteria
-        const results = await this.websiteScraper.scanWebsiteForImages();
-        const filteredResults = results
-            .filter(item => 
-                item.filename.toLowerCase().includes(query.toLowerCase()) ||
-                item.alt.toLowerCase().includes(query.toLowerCase())
-            )
-            .sort((a, b) => b.filename.length - a.filename.length) // Sort by relevance
-            .slice(0, 5);
-
-        if (filteredResults.length > 0) {
-            this.imageDownloader.storeSearchResults(phoneNumber, filteredResults);
-            
-            let resultText = `🎯 Advanced Results for "${query}":\n\n`;
-            filteredResults.forEach((result, index) => {
-                resultText += `${index + 1}. ${result.filename}\n`;
-                resultText += `   📝: ${result.alt}\n`;
-                resultText += `   🔗: ${result.url}\n`;
-                resultText += `   ⭐ Relevance: High\n\n`;
-            });
-            resultText += "💡 Reply with !download <number> to download";
-
-            await sock.sendMessage(sender, { text: resultText });
-        } else {
-            await sock.sendMessage(sender, { text: "❌ No advanced results found." });
-        }
+    } catch (error) {
+        console.error('Error starting bot:', error);
+        setTimeout(startBot, 5000);
     }
 }
 
-module.exports = AdminCommands;
+// Start the bot
+startBot();
+
+// Handle process termination
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down gracefully...');
+    process.exit(0);
+});
