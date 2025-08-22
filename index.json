@@ -1,8 +1,27 @@
-// Add these imports at the top
+
 const GeneralCommands = require('./general-commands');
 const DownloadManager = require('./download-manager');
 const SubscriptionManager = require('./subscription-manager');
 const PaymentHandler = require('./payment-handler');
+// Add dating manager import
+const DatingManager = require('./dating-manager');
+
+// Initialize dating manager
+const datingManager = new DatingManager(userManager, subscriptionManager);
+
+// In the message handler, add these checks:
+
+// After handling general commands
+const handledDating = await datingManager.handleDatingCommand(sock, sender, phoneNumber, username, text, message);
+if (handledDating) return;
+
+// Handle profile creation steps
+const handledProfileCreation = await datingManager.handleProfileCreation(sock, sender, phoneNumber, username, text, message);
+if (handledProfileCreation) return;
+
+// Handle connect command
+const handledConnect = await datingManager.handleConnectCommand(sock, sender, phoneNumber, username, text);
+if (handledConnect) return;
 
 // Initialize the new managers
 const downloadManager = new DownloadManager();
