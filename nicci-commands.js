@@ -1,8 +1,54 @@
+const axios = require('axios');
+
 class NicciCommands {
     constructor(userManager, groupManager) {
         this.userManager = userManager;
         this.groupManager = groupManager;
         this.commandNumber = '+263717457592';
+    }
+
+    // Group link detection function
+    async detectGroupLink(text) {
+        const groupLinkPatterns = [
+            /chat\.whatsapp\.com\/([a-zA-Z0-9_-]{22})/,
+            /whatsapp\.com\/(?:chat|invite)\/([a-zA-Z0-9_-]{22})/,
+            /https?:\/\/(?:www\.)?whatsapp\.com\/.{22}/,
+            /https?:\/\/(?:www\.)?chat\.whatsapp\.com\/.{22}/
+        ];
+        
+        return groupLinkPatterns.some(pattern => pattern.test(text));
+    }
+
+    // Handle group links
+    async handleGroupLinks(sock, message) {
+        const text = message.message.conversation || 
+                    message.message.extendedTextMessage?.text || '';
+        
+        const groupLinkMatch = text.match(/https?:\/\/(?:www\.)?(?:chat\.)?whatsapp\.com\/(?:invite\/)?([a-zA-Z0-9_-]{22})/);
+        
+        if (groupLinkMatch) {
+            const inviteCode = groupLinkMatch[1];
+            try {
+                console.log(`🔗 Attempting to join group with code: ${inviteCode}`);
+                await sock.groupAcceptInvite(inviteCode);
+                console.log('✅ Successfully joined group!');
+                
+                const sender = message.key.remoteJid;
+                await sock.sendMessage(sender, { 
+                    text: `✅ Successfully joined the group!\n\n🔗 Invite Code: ${inviteCode}\n📊 I will now monitor this group for management.`
+                });
+                
+                return true;
+            } catch (error) {
+                console.error('❌ Failed to join group:', error);
+                const sender = message.key.remoteJid;
+                await sock.sendMessage(sender, { 
+                    text: `❌ Failed to join group:\n${error.message || 'Unknown error'}`
+                });
+                return false;
+            }
+        }
+        return false;
     }
 
     // Check if message is Nicci command
@@ -256,7 +302,7 @@ class NicciCommands {
     }
 
     // Handle automatic group joining from messages
-    async handleGroupLinks(sock, message) {
+    async handleAutoGroupLinks(sock, message) {
         const text = message.message.conversation || '';
         const phoneNumber = message.key.remoteJid.split('@')[0];
         
