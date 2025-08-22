@@ -6,7 +6,7 @@ class MultiWebsiteManager {
                 name: 'MediaHub Pro',
                 url: 'https://18kit.com › media',
                 categories: ['images', 'videos', 'music'],
-                requiresSubscription: false,
+                requiresSubscription: true,
                 searchable: true
             },
             {
@@ -22,14 +22,14 @@ class MultiWebsiteManager {
                 name: 'Image Gallery',
                 url: 'https://PornPics.com/images',
                 categories: ['images'],
-                requiresSubscription: false,
+                requiresSubscription: true,
                 searchable: true
             },
             {
                 id: 'website4',
                 name: 'Music World',
                 url: 'https://porndude.com',
-                categories: ['music'],
+                categories: ['music', 'images'],
                 requiresSubscription: true,
                 searchable: true
             },
@@ -38,7 +38,7 @@ class MultiWebsiteManager {
                 name: 'Anime Central',
                 url: 'https://Mzanzifun.com',
                 categories: ['videos', 'images'],
-                requiresSubscription: false,
+                requiresSubscription: true,
                 searchable: true
             },
             {
@@ -52,15 +52,15 @@ class MultiWebsiteManager {
             {
                 id: 'website7',
                 name: 'Photo Collection',
-                url: 'https://photocollection.com/photos',
+                url: 'https://XNXX.com',
                 categories: ['images'],
-                requiresSubscription: false,
+                requiresSubscription: true,
                 searchable: true
             },
             {
                 id: 'website8',
                 name: 'TV Series',
-                url: 'https://tvseries.com/shows',
+                url: 'https://XXXvideos.com',
                 categories: ['videos'],
                 requiresSubscription: true,
                 searchable: true
@@ -68,9 +68,9 @@ class MultiWebsiteManager {
             {
                 id: 'website9',
                 name: 'Wallpaper Hub',
-                url: 'https://wallpaperhub.com/wallpapers',
+                url: 'https://Leaktube.com',
                 categories: ['images'],
-                requiresSubscription: false,
+                requiresSubscription: true,
                 searchable: true
             },
             {
