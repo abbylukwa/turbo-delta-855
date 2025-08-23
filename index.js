@@ -347,7 +347,6 @@ module.exports = { startBot };                if (shouldReconnect) {
                 } else {
                     console.log('❌ Cannot reconnect, logged out from server');
                 }
-            }
             else if (connection === 'connecting') {
                 console.log('🔄 Connecting to WhatsApp...');
             }
