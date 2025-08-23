@@ -1,5 +1,5 @@
 globalThis.crypto = require('crypto').webcrypto;
-const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs').promises;
 const path = require('path');
@@ -51,6 +51,15 @@ async function checkAuthFiles() {
             return false;
         }
         
+        // Check if files have content
+        for (const file of files) {
+            const content = await fs.readFile(path.join(authDir, file), 'utf8');
+            if (!content || content.trim() === '') {
+                console.log(`❌ Empty auth file: ${file}`);
+                return false;
+            }
+        }
+        
         return true;
     } catch (error) {
         console.log('❌ Auth directory not found. Will create new one with QR scan');
@@ -62,28 +71,11 @@ async function checkAuthFiles() {
 async function clearAuthFiles() {
     try {
         const authDir = path.join(__dirname, 'auth_info_baileys');
-        const files = await fs.readdir(authDir);
-        
-        for (const file of files) {
-            await fs.unlink(path.join(authDir, file));
-        }
+        await fs.rm(authDir, { recursive: true, force: true });
         console.log('✅ Cleared invalid auth files');
+        await fs.mkdir(authDir, { recursive: true });
     } catch (error) {
         console.log('No auth files to clear or error clearing:', error.message);
-    }
-}
-
-// Force reauthentication
-async function forceReauthentication() {
-    try {
-        const authDir = path.join(__dirname, 'auth_info_baileys');
-        await fs.rm(authDir, { recursive: true, force: true });
-        console.log('🗑️  Cleared old authentication data');
-        console.log('🔄 Restarting bot for fresh QR code...');
-        setTimeout(startBot, 2000);
-    } catch (error) {
-        console.error('Error clearing auth data:', error);
-        setTimeout(startBot, 5000);
     }
 }
 
@@ -96,27 +88,43 @@ async function startBot() {
 
         // Check if we have existing auth files
         const hasAuthFiles = await checkAuthFiles();
+        if (!hasAuthFiles) {
+            console.log('🔄 No valid auth files found, will generate QR code');
+        }
 
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+        // Get latest version for better compatibility
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        console.log(`📦 Using Baileys version: ${version.join('.')}, Latest: ${isLatest}`);
 
         sock = makeWASocket({
             printQRInTerminal: true,
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
+            version: version,
             markOnlineOnConnect: true,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 25000,
+            connectTimeoutMs: 30000,
+            keepAliveIntervalMs: 10000,
             defaultQueryTimeoutMs: 60000,
-            maxRetries: 3, // Reduced retries to fail faster
+            maxRetries: 2,
             syncFullHistory: false,
             transactionOpts: {
-                maxCommitRetries: 5,
-                delayBetweenTriesMs: 3000
+                maxCommitRetries: 3,
+                delayBetweenTriesMs: 2000
             },
-            // Add these options to prevent registration attempts
+            // Critical: Disable registration completely
             registration: {
                 phoneCall: false,
                 codeMethod: 'none'
+            },
+            // Additional connection options
+            generateHighQualityLinkPreview: true,
+            linkPreviewImageThumbnailWidth: 192,
+            getMessage: async (key) => {
+                return {
+                    conversation: "hello"
+                }
             }
         });
 
@@ -150,11 +158,12 @@ async function startBot() {
 
         // Connection event handler
         sock.ev.on('connection.update', async (update) => {
-            const { connection, qr, lastDisconnect } = update;
+            const { connection, qr, lastDisconnect, isNewLogin } = update;
 
             if (qr) {
                 console.log('\n📱 QR Code generated successfully!');
                 console.log('👉 Scan with WhatsApp -> Linked Devices');
+                console.log('👉 Make sure to use the same phone number that was previously used');
                 console.log('──────────────────────────────────────────\n');
             }
 
@@ -175,10 +184,12 @@ async function startBot() {
                 isConnected = false;
                 
                 // Handle registration failures specifically
-                if (lastDisconnect?.error?.output?.statusCode === 515) {
-                    console.log('❌ Registration attempt blocked by WhatsApp');
-                    console.log('🔄 Clearing invalid auth files and restarting...');
-                    await forceReauthentication();
+                if (lastDisconnect?.error?.output?.statusCode === 515 || 
+                    lastDisconnect?.error?.message?.includes('registration')) {
+                    console.log('❌ Registration attempt detected and blocked');
+                    console.log('🔄 Clearing auth files and restarting for QR authentication...');
+                    await clearAuthFiles();
+                    setTimeout(startBot, 3000);
                     return;
                 }
                 
@@ -207,11 +218,20 @@ async function startBot() {
             // If it's a registration error, clear auth files
             if (error.message?.includes('registration') || error.message?.includes('515')) {
                 console.log('🔄 Detected registration error, clearing auth files...');
-                setTimeout(forceReauthentication, 2000);
+                setTimeout(async () => {
+                    await clearAuthFiles();
+                    startBot();
+                }, 2000);
             }
         });
 
-        // Main message handler with strict activation
+        // Handle authentication failures
+        sock.ev.on('connection.require_update', (update) => {
+            console.log('🔄 Connection requires update, likely need to reauthenticate');
+            console.log('Update required:', update);
+        });
+
+        // Main message handler (same as before)
         sock.ev.on("messages.upsert", async (m) => {
             try {
                 if (!isConnected) return;
@@ -369,6 +389,10 @@ async function startBot() {
 
     } catch (error) {
         console.error('Error starting bot:', error);
+        // Clear auth files on critical errors
+        if (error.message?.includes('registration') || error.message?.includes('515')) {
+            await clearAuthFiles();
+        }
         setTimeout(startBot, 10000);
     }
 }
