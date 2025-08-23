@@ -49,7 +49,7 @@ async function startBot() {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
         sock = makeWASocket({
-            printQRInTerminal: false,
+            printQRInTerminal: true,  // Use built-in QR code display
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             markOnlineOnConnect: true,
@@ -92,19 +92,14 @@ async function startBot() {
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
 
-        // Connection event handler - QR code only
+        // Connection event handler
         sock.ev.on('connection.update', async (update) => {
             const { connection, qr, lastDisconnect } = update;
 
             if (qr) {
-                console.log('\n╔══════════════════════════════════════════════════╗');
-                console.log('║                WHATSAPP BOT QR CODE               ║');
-                console.log('╠══════════════════════════════════════════════════╣');
-                console.log('║ Scan this QR code with WhatsApp -> Linked Devices║');
-                console.log('║                                                  ║');
-                qrcode.generate(qr, { small: true });
-                console.log('║                                                  ║');
-                console.log('╚══════════════════════════════════════════════════╝\n');
+                console.log('\n📱 QR Code generated successfully!');
+                console.log('👉 Scan with WhatsApp -> Linked Devices');
+                console.log('──────────────────────────────────────────\n');
             }
 
             if (connection === 'open') {
