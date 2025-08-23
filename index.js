@@ -4,7 +4,7 @@ const qrcode = require('qrcode-terminal');
 const fs = require('fs').promises;
 const path = require('path');
 
-// Import managers (make sure these files exist)
+// Import managers
 const UserManager = require('./user-manager');
 const ActivationManager = require('./activation-manager');
 const GroupManager = require('./group-manager');
@@ -49,7 +49,7 @@ async function startBot() {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
         sock = makeWASocket({
-            printQRInTerminal: true,  // Use built-in QR code display
+            printQRInTerminal: true,
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             markOnlineOnConnect: true,
@@ -183,7 +183,6 @@ async function startBot() {
                         console.log(`✅ User ${phoneNumber} activated successfully`);
                         await sock.sendMessage(sender, { text: activationResult.message });
                     }
-                    // No message sent for failed attempts
                     return;
                 }
 
