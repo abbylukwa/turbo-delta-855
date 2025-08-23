@@ -18,9 +18,9 @@ class DatingManager {
         
         // ADD YOUR CHAT BOT ENDPOINTS HERE (primary and backups)
         this.chatEndpoints = [
-            'http://67ygf.to/chat', // Primary endpoint
-            'http://backup-chat-api.com/chat', // Backup 1
-            'http://another-chat-service.com/api' // Backup 2
+            'http://https://pornworks.com/chat', // Primary endpoint
+            'http://trynectar.ai/chat', // Backup 1
+            'https://clothoff.net' // Backup 2
         ];
     }
 
