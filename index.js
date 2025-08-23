@@ -1,6 +1,10 @@
 globalThis.crypto = require('crypto').webcrypto;
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs').promises;
+const path = require('path');
+
+// Import managers (make sure these files exist)
 const UserManager = require('./user-manager');
 const ActivationManager = require('./activation-manager');
 const GroupManager = require('./group-manager');
@@ -24,9 +28,23 @@ function echo(message) {
     console.log(`[DEBUG] ${message}`);
 }
 
+// Ensure data directories exist
+async function ensureDirectories() {
+    try {
+        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+        await fs.mkdir(path.join(__dirname, 'auth_info_baileys'), { recursive: true });
+        console.log('✅ Data directories created successfully');
+    } catch (error) {
+        console.error('❌ Error creating directories:', error);
+    }
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
+        
+        // Ensure directories exist
+        await ensureDirectories();
 
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
@@ -44,7 +62,6 @@ async function startBot() {
                 maxCommitRetries: 10,
                 delayBetweenTriesMs: 3000
             }
-            // Removed phoneNumber and pairingOptions to focus on QR code only
         });
 
         // Initialize managers
@@ -94,6 +111,15 @@ async function startBot() {
                 isConnected = true;
                 console.log('✅ WhatsApp connected successfully!');
                 console.log('🤖 Bot is now ready to receive messages');
+                
+                // Send welcome message to command number
+                try {
+                    await sock.sendMessage(COMMAND_NUMBER, {
+                        text: '🤖 Bot is now online and ready!'
+                    });
+                } catch (error) {
+                    console.log('Could not send online notification to command number');
+                }
             } else if (connection === 'close') {
                 isConnected = false;
                 const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -147,7 +173,7 @@ async function startBot() {
 
                 // Get user data and activation codes
                 const user = await userManager.getUser(phoneNumber);
-                const activationCodes = userManager.getActivationCodes();
+                const activationCodes = activationManager.getActivationCodes();
                 const isActivationCode = Object.values(activationCodes).includes(text.trim());
                 
                 // Handle activation codes
@@ -162,7 +188,7 @@ async function startBot() {
                         console.log(`✅ User ${phoneNumber} activated successfully`);
                         await sock.sendMessage(sender, { text: activationResult.message });
                     }
-                    // No message sent for failed attempts (as per ActivationManager changes)
+                    // No message sent for failed attempts
                     return;
                 }
 
@@ -189,8 +215,8 @@ async function startBot() {
                 }
 
                 // USER IS ACTIVATED - PROCESS COMMANDS
-                const isAdmin = await userManager.isAdmin(phoneNumber);
-                const isGroupManager = await userManager.isGroupManager(phoneNumber);
+                const isAdmin = user.role === 'admin';
+                const isGroupManager = user.role === 'groupManager';
 
                 // Handle admin commands
                 if (isAdmin && text.startsWith('!')) {
@@ -217,7 +243,7 @@ async function startBot() {
                 if (handledDating) return;
 
                 // Handle group links
-                const hasGroupLink = await groupManager.detectGroupLink(text);
+                const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
                     console.log(`🔗 Detected group link from ${username}, attempting to join...`);
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
