@@ -12,6 +12,7 @@ RUN apk add --no-cache \
     git \
     curl \
     ffmpeg \
+    libc6-compat
     libwebp-tools
 
 # Copy package files
@@ -26,6 +27,10 @@ COPY . .
 # Create necessary directories for persistence
 RUN mkdir -p /app/data /app/auth_info_baileys
 
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:${PORT:-3000}/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+EXPOSE 3000
 # Create a non-root user to run the app
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S whatsappbot -u 1001
@@ -35,6 +40,5 @@ RUN chown -R whatsappbot:nodejs /app
 
 # Switch to the non-root user
 USER whatsappbot
-
 
 CMD ["node", "index.js"]
