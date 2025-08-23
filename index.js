@@ -154,6 +154,54 @@ class ConnectionManager {
 
 const connectionManager = new ConnectionManager();
 
+// Encryption error handler
+async function handleEncryptionError(remoteJid, participant) {
+    try {
+        if (participant && sock.authState.creds.sessions.get(participant)) {
+            sock.authState.creds.sessions.delete(participant);
+            console.log(`Cleared session for ${participant}`);
+        }
+        
+        // Request new prekeys if it's a specific participant
+        if (participant && !participant.includes('@g.us')) {
+            try {
+                await sock.requestNewPreKeys(participant);
+                console.log(`Requested new prekeys for ${participant}`);
+            } catch (preKeyError) {
+                console.error('Failed to request prekeys:', preKeyError);
+            }
+        }
+    } catch (recoveryError) {
+        console.error('Failed to recover session:', recoveryError);
+    }
+}
+
+// Auth state backup function
+function setupAuthStateBackup(authState) {
+    // Backup every hour
+    setInterval(() => {
+        try {
+            const backup = JSON.stringify(authState.creds);
+            fs.writeFileSync('./auth-backup.json', backup);
+            console.log('Auth state backed up');
+        } catch (backupError) {
+            console.error('Failed to backup auth state:', backupError);
+        }
+    }, 60 * 60 * 1000);
+    
+    // Restore if available
+    if (fs.existsSync('./auth-backup.json')) {
+        try {
+            const backup = fs.readFileSync('./auth-backup.json', 'utf8');
+            const creds = JSON.parse(backup);
+            Object.assign(authState.creds, creds);
+            console.log('Auth state restored from backup');
+        } catch (e) {
+            console.error('Failed to restore auth state:', e);
+        }
+    }
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
@@ -175,22 +223,20 @@ async function startBot() {
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             version: version,
-            markOnlineOnConnect: true,
-            connectTimeoutMs: 60000, // Increased timeout
-            keepAliveIntervalMs: 15000, // More frequent keep-alive
+            markOnlineOnConnect: false, // Changed to false to prevent issues
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 15000,
             defaultQueryTimeoutMs: 60000,
-            maxRetries: 5, // Increased retries
+            maxRetries: 5,
             syncFullHistory: false,
             transactionOpts: {
                 maxCommitRetries: 5,
                 delayBetweenTriesMs: 3000
             },
-            // Allow registration but prevent new registrations
             registration: {
                 phoneCall: false,
                 codeMethod: 'none'
             },
-            // Additional connection options
             generateHighQualityLinkPreview: true,
             linkPreviewImageThumbnailWidth: 192,
             getMessage: async (key) => {
@@ -228,6 +274,9 @@ async function startBot() {
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
 
+        // Setup auth state backup
+        setupAuthStateBackup(sock.authState);
+
         // Connection event handler
         sock.ev.on('connection.update', async (update) => {
             const { connection, qr, lastDisconnect, isNewLogin } = update;
@@ -260,6 +309,12 @@ async function startBot() {
                 
                 console.log(`🔌 Connection closed: ${lastDisconnect.error?.message || 'Unknown reason'}`);
                 
+                // Handle specific error types
+                if (lastDisconnect?.error?.message?.includes('PreKeyError') || 
+                    lastDisconnect?.error?.message?.includes('SenderKeyRecord')) {
+                    console.log('🔑 Encryption error detected, will attempt recovery on reconnect');
+                }
+                
                 // Don't clear auth for normal connection issues
                 if (statusCode === DisconnectReason.loggedOut || 
                     lastDisconnect?.error?.message?.includes('replaced')) {
@@ -287,7 +342,7 @@ async function startBot() {
             console.log('🔄 Connection requires update:', update);
         });
 
-        // Main message handler
+        // Enhanced message handler with encryption error recovery
         sock.ev.on("messages.upsert", async (m) => {
             try {
                 if (!isConnected) return;
@@ -330,6 +385,22 @@ async function startBot() {
                     if (activationResult.success && activationResult.message) {
                         console.log(`✅ User ${phoneNumber} activated successfully`);
                         await sock.sendMessage(sender, { text: activationResult.message });
+                        
+                        // If this is a general user activation, send welcome message with dating info
+                        if (activationResult.role === 'general') {
+                            await sock.sendMessage(sender, {
+                                text: `🎉 Welcome to our community!\n\n` +
+                                      `As a general user, you can:\n` +
+                                      `• Download media with !download\n` +
+                                      `• Search for content with !search\n` +
+                                      `• Check your downloads with !mydownloads\n\n` +
+                                      `💝 Subscribe to unlock dating features:\n` +
+                                      `• Create a dating profile\n` +
+                                      `• Find matches in your area\n` +
+                                      `• Connect with other users\n\n` +
+                                      `Use !subscription to learn more!`
+                            });
+                        }
                     }
                     return;
                 }
@@ -380,9 +451,22 @@ async function startBot() {
                 const handledPayment = await paymentHandler.handlePaymentMessage(sock, sender, phoneNumber, username, message);
                 if (handledPayment) return;
 
-                // Handle dating commands
-                const handledDating = await datingManager.handleDatingCommand(sock, sender, phoneNumber, username, text, message);
-                if (handledDating) return;
+                // Handle dating commands - check if dating mode is enabled
+                if (datingManager.isDatingModeEnabled(phoneNumber)) {
+                    const handledDating = await datingManager.handleDatingCommand(sock, sender, phoneNumber, username, text, message);
+                    if (handledDating) return;
+                } else if (text.toLowerCase().includes('dating') || text.toLowerCase().includes('date')) {
+                    // Inform user about dating features
+                    await sock.sendMessage(sender, {
+                        text: `💝 Dating Features\n\n` +
+                              `Dating mode is not enabled for your account yet.\n\n` +
+                              `To access dating features:\n` +
+                              `1. Subscribe to premium with !subscription\n` +
+                              `2. After payment, dating mode will be activated\n` +
+                              `3. Create your profile and start matching!`
+                    });
+                    return;
+                }
 
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
@@ -398,10 +482,19 @@ async function startBot() {
                     return;
                 }
 
-                // Admin subscription activation
+                // Admin subscription activation with dating mode
                 if (text.startsWith('!activatesub ') && isAdmin) {
                     const targetPhone = text.substring('!activatesub '.length).trim();
-                    await paymentHandler.activateSubscription(sock, sender, targetPhone);
+                    const success = await paymentHandler.activateSubscription(sock, sender, targetPhone);
+                    
+                    if (success) {
+                        // Activate dating mode for this user
+                        datingManager.activateDatingMode(targetPhone);
+                        await sock.sendMessage(sender, {
+                            text: `✅ Subscription activated for ${targetPhone}\n` +
+                                  `💝 Dating mode has been enabled for this user.`
+                        });
+                    }
                     return;
                 }
 
@@ -416,6 +509,13 @@ async function startBot() {
 
             } catch (error) {
                 console.error('Error in message handler:', error);
+                
+                // Handle encryption errors specifically
+                if (error.message.includes('PreKeyError') || error.message.includes('SenderKeyRecord')) {
+                    console.log('🔑 Encryption error detected in message processing');
+                    await handleEncryptionError(m.messages[0].key.remoteJid, m.messages[0].key.participant);
+                }
+                
                 try {
                     await sock.sendMessage(sender, {
                         text: '❌ An error occurred while processing your message. Please try again.'
@@ -442,6 +542,9 @@ async function startBot() {
                 console.error('Error handling group update:', error);
             }
         });
+
+        // Start inactivity checker for dating features
+        datingManager.startInactivityChecker(sock, 30);
 
     } catch (error) {
         console.error('Error starting bot:', error);
