@@ -1,5 +1,5 @@
 globalThis.crypto = require('crypto').webcrypto;
-const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, getPhoneCode } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const UserManager = require('./user-manager');
 const ActivationManager = require('./activation-manager');
@@ -43,11 +43,8 @@ async function startBot() {
             transactionOpts: {
                 maxCommitRetries: 10,
                 delayBetweenTriesMs: 3000
-            },
-            phoneNumber: "+263777627210",
-            pairingOptions: {
-                phoneMethod: true
             }
+            // Removed phoneNumber and pairingOptions to focus on QR code only
         });
 
         // Initialize managers
@@ -78,22 +75,9 @@ async function startBot() {
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
 
-        // Connection event handler
+        // Connection event handler - QR code only
         sock.ev.on('connection.update', async (update) => {
-            const { connection, qr, lastDisconnect, phoneCode } = update;
-
-            if (phoneCode) {
-                console.log('\n╔══════════════════════════════════════════════════╗');
-                console.log('║                WHATSAPP PAIRING CODE              ║');
-                console.log('╠══════════════════════════════════════════════════╣');
-                console.log('║ Go to WhatsApp on your phone > Linked Devices    ║');
-                console.log('║ > Link a Device and enter this code:             ║');
-                console.log('║                                                  ║');
-                console.log(`║                📱 ${phoneCode}                   ║`);
-                console.log('║                                                  ║');
-                console.log('║ Code valid for 2 minutes                         ║');
-                console.log('╚══════════════════════════════════════════════════╝\n');
-            }
+            const { connection, qr, lastDisconnect } = update;
 
             if (qr) {
                 console.log('\n╔══════════════════════════════════════════════════╗');
@@ -130,28 +114,9 @@ async function startBot() {
         sock.ev.on('creds.update', saveCreds);
 
         // Handle connection errors
-        sock.ev.on('connection.phone-change', (update) => {
-            console.log('📱 Phone number changed:', update);
-        });
-
         sock.ev.on('connection.general-error', (error) => {
             console.error('❌ General connection error:', error);
         });
-
-        // Request pairing code if not received
-        setTimeout(async () => {
-            if (!isConnected && sock) {
-                try {
-                    const phoneCode = await getPhoneCode(sock, "+263777627210");
-                    if (phoneCode) {
-                        console.log('\n📱 Alternative pairing code:', phoneCode);
-                        console.log('Use this code if the automatic one doesn\'t appear');
-                    }
-                } catch (error) {
-                    console.log('Pairing code not available yet:', error.message);
-                }
-            }
-        }, 10000);
 
         // Main message handler with strict activation
         sock.ev.on("messages.upsert", async (m) => {
@@ -193,16 +158,11 @@ async function startBot() {
                         sock, sender, phoneNumber, username, text.trim()
                     );
                     
-                    if (activationResult.success) {
+                    if (activationResult.success && activationResult.message) {
                         console.log(`✅ User ${phoneNumber} activated successfully`);
-                        const welcomeMessage = userManager.getWelcomeMessage(activationResult.role, username);
-                        await sock.sendMessage(sender, { text: welcomeMessage });
-                    } else {
-                        console.log(`❌ Activation failed for ${phoneNumber}`);
-                        await sock.sendMessage(sender, { 
-                            text: activationResult.message || '❌ Activation failed. Please try again.'
-                        });
+                        await sock.sendMessage(sender, { text: activationResult.message });
                     }
+                    // No message sent for failed attempts (as per ActivationManager changes)
                     return;
                 }
 
