@@ -27,6 +27,11 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 5000; // 5 seconds
 
+// QR code management
+let lastQRGenerationTime = 0;
+const QR_GENERATION_COOLDOWN = 30000; // 30 seconds cooldown between QR codes
+let qrCooldownTimeout = null;
+
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
 
@@ -202,6 +207,42 @@ function setupAuthStateBackup(authState) {
     }
 }
 
+// Function to handle QR code generation with cooldown
+function handleQRCodeGeneration(qr) {
+    const now = Date.now();
+    const timeSinceLastQR = now - lastQRGenerationTime;
+    
+    // If we recently generated a QR code, wait before showing a new one
+    if (timeSinceLastQR < QR_GENERATION_COOLDOWN) {
+        const remainingTime = Math.ceil((QR_GENERATION_COOLDOWN - timeSinceLastQR) / 1000);
+        console.log(`\n⏳ Please scan the previous QR code. Waiting ${remainingTime}s before generating a new one...`);
+        
+        // Clear any existing timeout
+        if (qrCooldownTimeout) {
+            clearTimeout(qrCooldownTimeout);
+        }
+        
+        // Set timeout to show QR code after cooldown
+        qrCooldownTimeout = setTimeout(() => {
+            showQRCode(qr);
+        }, QR_GENERATION_COOLDOWN - timeSinceLastQR);
+        
+        return;
+    }
+    
+    // Show QR code immediately if cooldown has passed
+    showQRCode(qr);
+}
+
+// Function to display QR code
+function showQRCode(qr) {
+    console.log('\n📱 QR Code generated successfully!');
+    console.log('👉 Scan with WhatsApp -> Linked Devices');
+    console.log('──────────────────────────────────────────\n');
+    qrcode.generate(qr, { small: true });
+    lastQRGenerationTime = Date.now();
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
@@ -219,11 +260,11 @@ async function startBot() {
         console.log(`📦 Using Baileys version: ${version.join('.')}, Latest: ${isLatest}`);
 
         sock = makeWASocket({
-            printQRInTerminal: true,
+            printQRInTerminal: false, // Set to false since we're handling QR display manually
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             version: version,
-            markOnlineOnConnect: false, // Changed to false to prevent issues
+            markOnlineOnConnect: false,
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 15000,
             defaultQueryTimeoutMs: 60000,
@@ -283,10 +324,8 @@ async function startBot() {
             console.log('Connection update:', connection, lastDisconnect?.error?.message || '');
 
             if (qr) {
-                console.log('\n📱 QR Code generated successfully!');
-                console.log('👉 Scan with WhatsApp -> Linked Devices');
-                console.log('──────────────────────────────────────────\n');
-                qrcode.generate(qr, { small: true });
+                // Use our cooldown-controlled QR code handler
+                handleQRCodeGeneration(qr);
             }
 
             if (connection === 'open') {
@@ -294,6 +333,12 @@ async function startBot() {
                 reconnectAttempts = 0;
                 console.log('✅ WhatsApp connected successfully!');
                 console.log('🤖 Bot is now ready to receive messages');
+                
+                // Clear any pending QR cooldown
+                if (qrCooldownTimeout) {
+                    clearTimeout(qrCooldownTimeout);
+                    qrCooldownTimeout = null;
+                }
                 
                 // Send welcome message to command number
                 try {
