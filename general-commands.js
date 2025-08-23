@@ -1,6 +1,10 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { promisify } = require('util');
+const stream = require('stream');
+const pipeline = promisify(stream.pipeline);
+const mime = require('mime-types');
 
 class GeneralCommands {
     constructor(userManager, downloadManager, subscriptionManager) {
@@ -8,6 +12,12 @@ class GeneralCommands {
         this.downloadManager = downloadManager;
         this.subscriptionManager = subscriptionManager;
         this.activationCode = "Abbie0121";
+        this.downloadsDir = path.join(__dirname, 'downloads');
+        
+        // Ensure downloads directory exists
+        if (!fs.existsSync(this.downloadsDir)) {
+            fs.mkdirSync(this.downloadsDir, { recursive: true });
+        }
     }
 
     async handleActivation(sock, sender, phoneNumber, username, text) {
@@ -81,8 +91,8 @@ class GeneralCommands {
         try {
             await sock.sendMessage(sender, { text: `🔍 Searching for "${query}"...` });
 
-            // Simulate search across different websites
-            const results = await this.searchWebsites(query);
+            // Search across multiple platforms
+            const results = await this.searchMultiplePlatforms(query);
             
             if (results.length === 0) {
                 await sock.sendMessage(sender, { text: "No results found for your search." });
@@ -107,31 +117,68 @@ class GeneralCommands {
         }
     }
 
-    async searchWebsites(query) {
-        // Simulate searching across different websites
-        const websites = [
-            { name: "123.com", baseUrl: "https://123.com/search?q=" },
-            { name: "256.com", baseUrl: "https://256.com/search?q=" },
-            { name: "youtube.com", baseUrl: "https://youtube.com/results?q=" }
+    async searchMultiplePlatforms(query) {
+        // This would integrate with actual search APIs
+        // For now, we'll simulate results from different platforms
+        
+        const platforms = [
+            {
+                name: "YouTube",
+                search: async (q) => {
+                    // Simulate YouTube search
+                    return [
+                        {
+                            title: `${q} - Official Video`,
+                            type: 'Video',
+                            source: 'YouTube',
+                            url: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`
+                        }
+                    ];
+                }
+            },
+            {
+                name: "WonPorn",
+                search: async (q) => {
+                    // Simulate Vimeo search
+                    return [
+                        {
+                            title: `${q} - High Quality Video`,
+                            type: 'Video',
+                            source: 'WonPorn',
+                            url: `https://Wonporn.com/`
+                        }
+                    ];
+                }
+            },
+            {
+                name: "SoundCloud",
+                search: async (q) => {
+                    // Simulate SoundCloud search
+                    return [
+                        {
+                            title: `${q} - Audio Track`,
+                            type: 'Video,
+                            source: 'SoundCloud',
+                            url: `https://PornHub.com/`
+                        }
+                    ];
+                }
+            }
         ];
 
-        const results = [];
-        const types = ['Video', 'Image', 'Audio', 'Document'];
+        let allResults = [];
         
-        // Generate mock results
-        for (let i = 0; i < 5; i++) {
-            const website = websites[Math.floor(Math.random() * websites.length)];
-            const type = types[Math.floor(Math.random() * types.length)];
-            
-            results.push({
-                title: `${query} ${type} ${i + 1}`,
-                type: type,
-                source: website.name,
-                url: `${website.baseUrl}${encodeURIComponent(query)}&result=${i + 1}`
-            });
+        // Search each platform
+        for (const platform of platforms) {
+            try {
+                const results = await platform.search(query);
+                allResults = allResults.concat(results);
+            } catch (error) {
+                console.error(`Error searching ${platform.name}:`, error);
+            }
         }
         
-        return results;
+        return allResults.slice(0, 5); // Return top 5 results
     }
 
     async handleDownloadCommand(sock, sender, url, phoneNumber) {
@@ -144,29 +191,47 @@ class GeneralCommands {
                 return;
             }
 
-            // Download the file
-            const fileInfo = await this.downloadManager.downloadFile(url, phoneNumber);
+            // Download the actual file
+            const fileInfo = await this.downloadActualFile(url, phoneNumber);
+            
+            if (!fileInfo) {
+                await sock.sendMessage(sender, { 
+                    text: "❌ Failed to download file. The URL might be invalid or unsupported."
+                });
+                return;
+            }
             
             // Record the download
             this.subscriptionManager.recordDownload(phoneNumber);
             
-            // Send the file
-            if (fileInfo.type === 'image') {
+            // Send the file based on its type
+            const fileBuffer = fs.readFileSync(fileInfo.path);
+            
+            if (fileInfo.type.startsWith('image/')) {
                 await sock.sendMessage(sender, {
-                    image: { url: fileInfo.path },
+                    image: fileBuffer,
                     caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
                 });
-            } else if (fileInfo.type === 'video') {
+            } else if (fileInfo.type.startsWith('video/')) {
                 await sock.sendMessage(sender, {
-                    video: { url: fileInfo.path },
+                    video: fileBuffer,
+                    caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
+                });
+            } else if (fileInfo.type.startsWith('audio/')) {
+                await sock.sendMessage(sender, {
+                    audio: fileBuffer,
                     caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
                 });
             } else {
                 await sock.sendMessage(sender, {
-                    document: { url: fileInfo.path },
+                    document: fileBuffer,
+                    fileName: fileInfo.name,
                     caption: `✅ Download complete!\n📁 ${fileInfo.name}\n📊 ${this.formatFileSize(fileInfo.size)}`
                 });
             }
+            
+            // Clean up the temporary file
+            fs.unlinkSync(fileInfo.path);
             
             // Check if user needs subscription after this download
             const downloadsLeft = this.subscriptionManager.getDownloadsLeft(phoneNumber);
@@ -181,6 +246,47 @@ class GeneralCommands {
             await sock.sendMessage(sender, { 
                 text: `❌ Download failed: ${error.message}`
             });
+        }
+    }
+
+    async downloadActualFile(url, phoneNumber) {
+        try {
+            // Create user-specific download directory
+            const userDir = path.join(this.downloadsDir, phoneNumber);
+            if (!fs.existsSync(userDir)) {
+                fs.mkdirSync(userDir, { recursive: true });
+            }
+            
+            // Generate unique filename
+            const timestamp = Date.now();
+            const response = await axios({
+                method: 'GET',
+                url: url,
+                responseType: 'stream'
+            });
+            
+            // Get file information from headers
+            const contentType = response.headers['content-type'] || 'application/octet-stream';
+            const contentLength = parseInt(response.headers['content-length']) || 0;
+            const extension = mime.extension(contentType) || 'bin';
+            
+            const filename = `download_${timestamp}.${extension}`;
+            const filepath = path.join(userDir, filename);
+            
+            // Download the file
+            const writer = fs.createWriteStream(filepath);
+            await pipeline(response.data, writer);
+            
+            return {
+                path: filepath,
+                name: filename,
+                type: contentType,
+                size: contentLength || fs.statSync(filepath).size
+            };
+            
+        } catch (error) {
+            console.error('File download error:', error);
+            return null;
         }
     }
 
