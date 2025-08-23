@@ -1,4 +1,8 @@
+// ADD THESE TWO LINES AT THE VERY TOP
+globalThis.File = class File {};
 globalThis.crypto = require('crypto').webcrypto;
+
+// Your existing imports (remove the duplicate crypto line)
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs').promises;
