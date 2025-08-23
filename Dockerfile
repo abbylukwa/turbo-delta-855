@@ -12,8 +12,7 @@ RUN apk add --no-cache \
     git \
     curl \
     ffmpeg \
-    libc6-compat \
-    libwebp-tools
+    libc6-compat
 
 # Copy package files
 COPY package*.json ./
