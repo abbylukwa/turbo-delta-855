@@ -19,6 +19,9 @@ const { Boom } = require('@hapi/boom');
 // Store for connection
 let sock = null;
 let isConnected = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const RECONNECT_INTERVAL = 5000; // 5 seconds
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -74,10 +77,78 @@ async function clearAuthFiles() {
         await fs.rm(authDir, { recursive: true, force: true });
         console.log('✅ Cleared invalid auth files');
         await fs.mkdir(authDir, { recursive: true });
+        return true;
     } catch (error) {
         console.log('No auth files to clear or error clearing:', error.message);
+        return false;
     }
 }
+
+// Connection manager to handle reconnections
+class ConnectionManager {
+    constructor() {
+        this.isConnecting = false;
+        this.reconnectTimeout = null;
+    }
+    
+    async connect() {
+        if (this.isConnecting) {
+            console.log('🔄 Connection already in progress');
+            return;
+        }
+        
+        this.isConnecting = true;
+        
+        try {
+            await startBot();
+            reconnectAttempts = 0; // Reset on successful connection
+        } catch (error) {
+            console.error('❌ Connection failed:', error.message);
+            this.handleConnectionFailure();
+        } finally {
+            this.isConnecting = false;
+        }
+    }
+    
+    handleConnectionFailure() {
+        reconnectAttempts++;
+        
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.log(`❌ Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached`);
+            console.log('🔄 Clearing auth and restarting...');
+            reconnectAttempts = 0;
+            
+            clearAuthFiles().then(() => {
+                setTimeout(() => this.connect(), RECONNECT_INTERVAL);
+            });
+            return;
+        }
+        
+        const delay = Math.min(RECONNECT_INTERVAL * Math.pow(1.5, reconnectAttempts), 30000);
+        console.log(`🔄 Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
+        
+        this.reconnectTimeout = setTimeout(() => {
+            this.connect();
+        }, delay);
+    }
+    
+    disconnect() {
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+        
+        if (sock) {
+            sock.end();
+            sock = null;
+        }
+        
+        isConnected = false;
+        this.isConnecting = false;
+    }
+}
+
+const connectionManager = new ConnectionManager();
 
 async function startBot() {
     try {
@@ -88,9 +159,6 @@ async function startBot() {
 
         // Check if we have existing auth files
         const hasAuthFiles = await checkAuthFiles();
-        if (!hasAuthFiles) {
-            console.log('🔄 No valid auth files found, will generate QR code');
-        }
 
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
@@ -104,16 +172,16 @@ async function startBot() {
             auth: state,
             version: version,
             markOnlineOnConnect: true,
-            connectTimeoutMs: 30000,
-            keepAliveIntervalMs: 10000,
+            connectTimeoutMs: 60000, // Increased timeout
+            keepAliveIntervalMs: 15000, // More frequent keep-alive
             defaultQueryTimeoutMs: 60000,
-            maxRetries: 2,
+            maxRetries: 5, // Increased retries
             syncFullHistory: false,
             transactionOpts: {
-                maxCommitRetries: 3,
-                delayBetweenTriesMs: 2000
+                maxCommitRetries: 5,
+                delayBetweenTriesMs: 3000
             },
-            // Critical: Disable registration completely
+            // Allow registration but prevent new registrations
             registration: {
                 phoneCall: false,
                 codeMethod: 'none'
@@ -159,16 +227,18 @@ async function startBot() {
         // Connection event handler
         sock.ev.on('connection.update', async (update) => {
             const { connection, qr, lastDisconnect, isNewLogin } = update;
+            console.log('Connection update:', connection, lastDisconnect?.error?.message || '');
 
             if (qr) {
                 console.log('\n📱 QR Code generated successfully!');
                 console.log('👉 Scan with WhatsApp -> Linked Devices');
-                console.log('👉 Make sure to use the same phone number that was previously used');
                 console.log('──────────────────────────────────────────\n');
+                qrcode.generate(qr, { small: true });
             }
 
             if (connection === 'open') {
                 isConnected = true;
+                reconnectAttempts = 0;
                 console.log('✅ WhatsApp connected successfully!');
                 console.log('🤖 Bot is now ready to receive messages');
                 
@@ -182,28 +252,19 @@ async function startBot() {
                 }
             } else if (connection === 'close') {
                 isConnected = false;
-                
-                // Handle registration failures specifically
-                if (lastDisconnect?.error?.output?.statusCode === 515 || 
-                    lastDisconnect?.error?.message?.includes('registration')) {
-                    console.log('❌ Registration attempt detected and blocked');
-                    console.log('🔄 Clearing auth files and restarting for QR authentication...');
-                    await clearAuthFiles();
-                    setTimeout(startBot, 3000);
-                    return;
-                }
-                
-                // Handle other connection failures
-                const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
                 
                 console.log(`🔌 Connection closed: ${lastDisconnect.error?.message || 'Unknown reason'}`);
                 
-                if (shouldReconnect) {
-                    console.log('🔄 Attempting to reconnect...');
-                    setTimeout(startBot, 5000);
-                } else {
-                    console.log('❌ Cannot reconnect, logged out from server');
+                // Don't clear auth for normal connection issues
+                if (statusCode === DisconnectReason.loggedOut || 
+                    lastDisconnect?.error?.message?.includes('replaced')) {
+                    console.log('🔄 Logged out from server, clearing auth files...');
+                    await clearAuthFiles();
                 }
+                
+                // Always attempt to reconnect
+                connectionManager.handleConnectionFailure();
             } else if (connection === 'connecting') {
                 console.log('🔄 Connecting to WhatsApp...');
             }
@@ -214,24 +275,15 @@ async function startBot() {
         // Handle connection errors
         sock.ev.on('connection.general-error', (error) => {
             console.error('❌ General connection error:', error);
-            
-            // If it's a registration error, clear auth files
-            if (error.message?.includes('registration') || error.message?.includes('515')) {
-                console.log('🔄 Detected registration error, clearing auth files...');
-                setTimeout(async () => {
-                    await clearAuthFiles();
-                    startBot();
-                }, 2000);
-            }
+            connectionManager.handleConnectionFailure();
         });
 
         // Handle authentication failures
         sock.ev.on('connection.require_update', (update) => {
-            console.log('🔄 Connection requires update, likely need to reauthenticate');
-            console.log('Update required:', update);
+            console.log('🔄 Connection requires update:', update);
         });
 
-        // Main message handler (same as before)
+        // Main message handler
         sock.ev.on("messages.upsert", async (m) => {
             try {
                 if (!isConnected) return;
@@ -389,23 +441,17 @@ async function startBot() {
 
     } catch (error) {
         console.error('Error starting bot:', error);
-        // Clear auth files on critical errors
-        if (error.message?.includes('registration') || error.message?.includes('515')) {
-            await clearAuthFiles();
-        }
-        setTimeout(startBot, 10000);
+        connectionManager.handleConnectionFailure();
     }
 }
 
 // Start the bot
-startBot();
+connectionManager.connect();
 
 // Process handlers
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down gracefully...');
-    if (sock) {
-        sock.end();
-    }
+    connectionManager.disconnect();
     process.exit(0);
 });
 
@@ -417,4 +463,4 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-module.exports = { startBot };
+module.exports = { startBot, connectionManager };
