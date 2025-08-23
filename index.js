@@ -39,12 +39,63 @@ async function ensureDirectories() {
     }
 }
 
+// Check if auth files exist
+async function checkAuthFiles() {
+    try {
+        const authDir = path.join(__dirname, 'auth_info_baileys');
+        const files = await fs.readdir(authDir);
+        console.log('📁 Auth files found:', files);
+        
+        if (files.length === 0) {
+            console.log('❌ No auth files found. Need to scan QR code');
+            return false;
+        }
+        
+        return true;
+    } catch (error) {
+        console.log('❌ Auth directory not found. Will create new one with QR scan');
+        return false;
+    }
+}
+
+// Clear invalid auth files
+async function clearAuthFiles() {
+    try {
+        const authDir = path.join(__dirname, 'auth_info_baileys');
+        const files = await fs.readdir(authDir);
+        
+        for (const file of files) {
+            await fs.unlink(path.join(authDir, file));
+        }
+        console.log('✅ Cleared invalid auth files');
+    } catch (error) {
+        console.log('No auth files to clear or error clearing:', error.message);
+    }
+}
+
+// Force reauthentication
+async function forceReauthentication() {
+    try {
+        const authDir = path.join(__dirname, 'auth_info_baileys');
+        await fs.rm(authDir, { recursive: true, force: true });
+        console.log('🗑️  Cleared old authentication data');
+        console.log('🔄 Restarting bot for fresh QR code...');
+        setTimeout(startBot, 2000);
+    } catch (error) {
+        console.error('Error clearing auth data:', error);
+        setTimeout(startBot, 5000);
+    }
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
         
         // Ensure directories exist
         await ensureDirectories();
+
+        // Check if we have existing auth files
+        const hasAuthFiles = await checkAuthFiles();
 
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
@@ -56,11 +107,16 @@ async function startBot() {
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 25000,
             defaultQueryTimeoutMs: 60000,
-            maxRetries: 10,
+            maxRetries: 3, // Reduced retries to fail faster
             syncFullHistory: false,
             transactionOpts: {
-                maxCommitRetries: 10,
+                maxCommitRetries: 5,
                 delayBetweenTriesMs: 3000
+            },
+            // Add these options to prevent registration attempts
+            registration: {
+                phoneCall: false,
+                codeMethod: 'none'
             }
         });
 
@@ -117,6 +173,16 @@ async function startBot() {
                 }
             } else if (connection === 'close') {
                 isConnected = false;
+                
+                // Handle registration failures specifically
+                if (lastDisconnect?.error?.output?.statusCode === 515) {
+                    console.log('❌ Registration attempt blocked by WhatsApp');
+                    console.log('🔄 Clearing invalid auth files and restarting...');
+                    await forceReauthentication();
+                    return;
+                }
+                
+                // Handle other connection failures
                 const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
                 
                 console.log(`🔌 Connection closed: ${lastDisconnect.error?.message || 'Unknown reason'}`);
@@ -137,6 +203,12 @@ async function startBot() {
         // Handle connection errors
         sock.ev.on('connection.general-error', (error) => {
             console.error('❌ General connection error:', error);
+            
+            // If it's a registration error, clear auth files
+            if (error.message?.includes('registration') || error.message?.includes('515')) {
+                console.log('🔄 Detected registration error, clearing auth files...');
+                setTimeout(forceReauthentication, 2000);
+            }
         });
 
         // Main message handler with strict activation
