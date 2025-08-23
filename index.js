@@ -2,10 +2,10 @@
 globalThis.File = class File {};
 globalThis.crypto = require('crypto').webcrypto;
 
-// Your existing imports (remove the duplicate crypto line)
+// Your existing imports
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs').promises;
+const fs = require('fs'); // Keep regular fs for sync operations
 const path = require('path');
 
 // Import managers
@@ -43,8 +43,12 @@ function echo(message) {
 // Ensure data directories exist
 async function ensureDirectories() {
     try {
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-        await fs.mkdir(path.join(__dirname, 'auth_info_baileys'), { recursive: true });
+        if (!fs.existsSync(path.join(__dirname, 'data'))) {
+            fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+        }
+        if (!fs.existsSync(path.join(__dirname, 'auth_info_baileys'))) {
+            fs.mkdirSync(path.join(__dirname, 'auth_info_baileys'), { recursive: true });
+        }
         console.log('✅ Data directories created successfully');
     } catch (error) {
         console.error('❌ Error creating directories:', error);
@@ -55,7 +59,12 @@ async function ensureDirectories() {
 async function checkAuthFiles() {
     try {
         const authDir = path.join(__dirname, 'auth_info_baileys');
-        const files = await fs.readdir(authDir);
+        if (!fs.existsSync(authDir)) {
+            console.log('❌ Auth directory not found');
+            return false;
+        }
+        
+        const files = fs.readdirSync(authDir);
         console.log('📁 Auth files found:', files);
         
         if (files.length === 0) {
@@ -65,7 +74,7 @@ async function checkAuthFiles() {
         
         // Check if files have content
         for (const file of files) {
-            const content = await fs.readFile(path.join(authDir, file), 'utf8');
+            const content = fs.readFileSync(path.join(authDir, file), 'utf8');
             if (!content || content.trim() === '') {
                 console.log(`❌ Empty auth file: ${file}`);
                 return false;
@@ -83,9 +92,11 @@ async function checkAuthFiles() {
 async function clearAuthFiles() {
     try {
         const authDir = path.join(__dirname, 'auth_info_baileys');
-        await fs.rm(authDir, { recursive: true, force: true });
-        console.log('✅ Cleared invalid auth files');
-        await fs.mkdir(authDir, { recursive: true });
+        if (fs.existsSync(authDir)) {
+            fs.rmSync(authDir, { recursive: true, force: true });
+            console.log('✅ Cleared invalid auth files');
+        }
+        fs.mkdirSync(authDir, { recursive: true });
         return true;
     } catch (error) {
         console.log('No auth files to clear or error clearing:', error.message);
