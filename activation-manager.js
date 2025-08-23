@@ -1,93 +1,378 @@
-const fs = require('fs').promises;
-const path = require('path');
+globalThis.crypto = require('crypto').webcrypto;
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, getPhoneCode } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
+const UserManager = require('./user-manager');
+const ActivationManager = require('./activation-manager');
+const GroupManager = require('./group-manager');
+const AdminCommands = require('./admin-commands');
+const GeneralCommands = require('./general-commands');
+const DownloadManager = require('./download-manager');
+const SubscriptionManager = require('./subscription-manager');
+const PaymentHandler = require('./payment-handler');
+const DatingManager = require('./dating-manager');
+const { Boom } = require('@hapi/boom');
 
-class UserManager {
-    constructor() {
-        this.usersFile = path.join(__dirname, 'data', 'users.json');
-        this.activationCodes = {
-            admin: 'Pretty0121',
-            groupManager: 'Abner0121',
-            general: 'Abbie0121'
-        };
-        this.userRoles = {
-            admin: 'admin',
-            groupManager: 'group-manager',
-            user: 'user'
-        };
-        this.welcomeMessages = {
-            admin: (username) => `👑 Welcome Admin ${username}! 🌟\n\n⚡ ADMIN PRIVILEGES ACTIVATED ⚡\n\n🎯 Unlimited Downloads\n📊 Access to All Users\n🔧 System Management\n💰 OTP Generation\n\n💡 Admin Commands:\n• !search <query> - Search website media\n• !websearch <query> - Search entire web\n• !download <number> - Download any media\n• !users - View all users\n• !genotp <phone> <plan> <days> - Generate OTP\n• !userinfo <phone> - User details\n• !sysinfo - System statistics\n• !help - Show help`,
-            
-            groupManager: (username) => `🛡️ Welcome Group Manager ${username}! ⚡\n\n🌐 GROUP MANAGEMENT MODE ACTIVATED 🌐\n\n🤖 Auto-join group links\n📤 Send messages to all groups\n📊 Group statistics tracking\n🔗 Group link management\n👥 Member management\n\n💡 Group Manager Commands:\n• !joingroup <link> - Join group from link\n• !creategroup <name> - Create new group\n• !createchannel <name> - Create channel\n• !groupstats - Group statistics\n• !grouplinks - Export group links\n• !sendall <message> - Send to all groups\n• !help - Show help\n\n⚡ Controlled by: +263717457592`,
-            
-            user: (username) => `👋 Welcome ${username}! 🤖\n\n📊 Your Download Limits:\n• 🎥 Videos: 5/13 hours\n• 🖼️ Images: 10/13 hours\n\n💎 Subscription Plans:\n• 1 Week: 50¢ (Unlimited)\n• 2 Weeks: 75¢ (Unlimited)\n\n💡 Commands:\n• !search <query> - Find media\n• !download <number> - Download\n• !mystats - Your usage\n• !subscribe - Get premium\n• !help - Show help`
-        };
-        this.initialize();
-    }
+// Store for connection
+let sock = null;
+let isConnected = false;
 
-    async initialize() {
-        try {
-            // Create data directory if it doesn't exist
-            await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-            
-            // Check if users file exists, create if it doesn't
+// Command number
+const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
+
+// Helper function for debugging
+function echo(message) {
+    console.log(`[DEBUG] ${message}`);
+}
+
+async function startBot() {
+    try {
+        console.log('🚀 Starting WhatsApp Bot...');
+
+        const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+        sock = makeWASocket({
+            printQRInTerminal: false,
+            browser: Browsers.ubuntu('Chrome'),
+            auth: state,
+            markOnlineOnConnect: true,
+            // Add connection stability options
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 25000,
+            defaultQueryTimeoutMs: 60000,
+            // Enable retries
+            maxRetries: 10,
+            // Better mobile compatibility
+            syncFullHistory: false,
+            transactionOpts: {
+                maxCommitRetries: 10,
+                delayBetweenTriesMs: 3000
+            },
+            // Pairing code configuration
+            phoneNumber: "+263777627210",
+            pairingOptions: {
+                phoneMethod: true  // Use phone pairing code instead of QR
+            }
+        });
+
+        // Initialize managers
+        echo('Initializing UserManager...');
+        const userManager = new UserManager();
+        
+        echo('Initializing SubscriptionManager...');
+        const subscriptionManager = new SubscriptionManager();
+        
+        echo('Initializing ActivationManager...');
+        const activationManager = new ActivationManager(userManager);
+        
+        echo('Initializing GroupManager...');
+        const groupManager = new GroupManager();
+        
+        echo('Initializing DownloadManager...');
+        const downloadManager = new DownloadManager();
+        
+        echo('Initializing GeneralCommands...');
+        const generalCommands = new GeneralCommands(userManager, downloadManager, subscriptionManager);
+        
+        echo('Initializing PaymentHandler...');
+        const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
+        
+        echo('Initializing DatingManager...');
+        const datingManager = new DatingManager(userManager, subscriptionManager);
+        
+        echo('Initializing AdminCommands...');
+        const adminCommands = new AdminCommands(userManager, groupManager);
+
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, qr, lastDisconnect, phoneCode } = update;
+
+            // Handle pairing code display
+            if (phoneCode) {
+                console.log('\n╔══════════════════════════════════════════════════╗');
+                console.log('║                WHATSAPP PAIRING CODE              ║');
+                console.log('╠══════════════════════════════════════════════════╣');
+                console.log('║ Go to WhatsApp on your phone > Linked Devices    ║');
+                console.log('║ > Link a Device and enter this code:             ║');
+                console.log('║                                                  ║');
+                console.log(`║                📱 ${phoneCode}                   ║`);
+                console.log('║                                                  ║');
+                console.log('║ Code valid for 2 minutes                         ║');
+                console.log('╚══════════════════════════════════════════════════╝\n');
+            }
+
+            if (qr) {
+                console.log('\n╔══════════════════════════════════════════════════╗');
+                console.log('║                WHATSAPP BOT QR CODE               ║');
+                console.log('╠══════════════════════════════════════════════════╣');
+                console.log('║ Scan this QR code with WhatsApp -> Linked Devices║');
+                console.log('║                                                  ║');
+                qrcode.generate(qr, { small: true });
+                console.log('║                                                  ║');
+                console.log('╚══════════════════════════════════════════════════╝\n');
+            }
+
+            if (connection === 'open') {
+                isConnected = true;
+                console.log('✅ WhatsApp connected successfully!');
+                console.log('🤖 Bot is now ready to receive messages');
+            } 
+            else if (connection === 'close') {
+                isConnected = false;
+                const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+                
+                console.log(`🔌 Connection closed: ${lastDisconnect.error?.message || 'Unknown reason'}`);
+                
+                if (shouldReconnect) {
+                    console.log('🔄 Attempting to reconnect...');
+                    setTimeout(startBot, 5000);
+                } else {
+                    console.log('❌ Cannot reconnect, logged out from server');
+                }
+            }
+            else if (connection === 'connecting') {
+                console.log('🔄 Connecting to WhatsApp...');
+            }
+        });
+
+        sock.ev.on('creds.update', saveCreds);
+
+        // Handle connection errors
+        sock.ev.on('connection.phone-change', (update) => {
+            console.log('📱 Phone number changed:', update);
+        });
+
+        sock.ev.on('connection.general-error', (error) => {
+            console.error('❌ General connection error:', error);
+        });
+
+        // Explicitly request pairing code if not received within 10 seconds
+        setTimeout(async () => {
+            if (!isConnected && sock) {
+                try {
+                    const phoneCode = await getPhoneCode(sock, "+263777627210");
+                    if (phoneCode) {
+                        console.log('\n📱 Alternative pairing code:', phoneCode);
+                        console.log('Use this code if the automatic one doesn\'t appear');
+                    }
+                } catch (error) {
+                    console.log('Pairing code not available yet:', error.message);
+                }
+            }
+        }, 10000);
+
+        // Message handler - STRICT ACTIVATION REQUIREMENT
+        sock.ev.on("messages.upsert", async (m) => {
             try {
-                await fs.access(this.usersFile);
+                // Skip if not connected
+                if (!isConnected) return;
+
+                const message = m.messages[0];
+                if (!message.message || message.key.fromMe) return;
+
+                const text = message.message.conversation || 
+                            message.message.extendedTextMessage?.text ||
+                            message.message.buttonsResponseMessage?.selectedDisplayText || "";
+                
+                const sender = message.key.remoteJid;
+                if (!sender.endsWith('@s.whatsapp.net')) return; // Only handle personal chats
+                
+                const phoneNumber = sender.split('@')[0];
+                
+                // Get username
+                let username = "User";
+                try {
+                    const contact = await sock.onWhatsApp(sender);
+                    username = contact[0]?.exists ? contact[0].pushname || 'User' : 'User';
+                } catch (error) {
+                    console.error('Error getting username:', error);
+                }
+
+                console.log(`📨 Received message from ${username} (${phoneNumber}): ${text}`);
+
+                // Get user data
+                const user = await userManager.getUser(phoneNumber);
+                
+                // Handle activation codes FIRST - before any other processing
+                const activationCodes = userManager.getActivationCodes();
+                const isActivationCode = Object.values(activationCodes).includes(text.trim());
+                
+                if (isActivationCode) {
+                    console.log(`🔑 Activation attempt with code: ${text.trim()}`);
+                    
+                    // Handle activation process
+                    const activationResult = await activationManager.handleActivation(
+                        sock, sender, phoneNumber, username, text.trim()
+                    );
+                    
+                    if (activationResult.success) {
+                        console.log(`✅ User ${phoneNumber} activated successfully`);
+                        // Send welcome message based on role
+                        const welcomeMessage = userManager.getWelcomeMessage(
+                            activationResult.role, 
+                            username
+                        );
+                        await sock.sendMessage(sender, { text: welcomeMessage });
+                    } else {
+                        console.log(`❌ Activation failed for ${phoneNumber}`);
+                        await sock.sendMessage(sender, { 
+                            text: activationResult.message || '❌ Activation failed. Please try again.'
+                        });
+                    }
+                    return; // Stop further processing
+                }
+
+                // Check if user exists and is activated
+                if (!user) {
+                    console.log(`❌ Unregistered user ${phoneNumber} tried to send message`);
+                    await sock.sendMessage(sender, { 
+                        text: `❌ You are not registered. Please use one of the following activation codes:\n\n` +
+                              `👑 Admin: ${activationCodes.admin}\n` +
+                              `🛡️ Group Manager: ${activationCodes.groupManager}\n` +
+                              `👤 User: ${activationCodes.general}\n\n` +
+                              `Reply with the appropriate code to activate your account.`
+                    });
+                    return;
+                }
+
+                if (!user.isActivated) {
+                    console.log(`❌ Unactivated user ${phoneNumber} tried to send message`);
+                    await sock.sendMessage(sender, { 
+                        text: `❌ Your account is not activated yet. Please wait for activation or contact support.\n\n` +
+                              `Your current status: Registered as ${user.role} but not activated.`
+                    });
+                    return;
+                }
+
+                // USER IS ACTIVATED - PROCESS COMMANDS
+
+                // Check if user is admin (bypass some restrictions)
+                const isAdmin = await userManager.isAdmin(phoneNumber);
+                const isGroupManager = await userManager.isGroupManager(phoneNumber);
+
+                // Handle admin commands (only for admins)
+                if (isAdmin && text.startsWith('!')) {
+                    const handledAdmin = await adminCommands.handleAdminCommand(sock, sender, phoneNumber, username, text, message);
+                    if (handledAdmin) return;
+                }
+
+                // Handle group manager commands
+                if ((isAdmin || isGroupManager) && text.startsWith('!')) {
+                    const handledGroup = await groupManager.handleGroupCommand(sock, sender, phoneNumber, username, text, message);
+                    if (handledGroup) return;
+                }
+
+                // Handle activation command (for already activated users)
+                const isGeneralActivated = await generalCommands.handleActivation(sock, sender, phoneNumber, username, text);
+                if (isGeneralActivated) return;
+
+                // Handle general commands
+                const handledGeneral = await generalCommands.handleGeneralCommand(sock, sender, phoneNumber, username, text, message);
+                if (handledGeneral) return;
+
+                // Handle payment messages
+                const handledPayment = await paymentHandler.handlePaymentMessage(sock, sender, phoneNumber, username, message);
+                if (handledPayment) return;
+
+                // Handle dating commands
+                const handledDating = await datingManager.handleDatingCommand(sock, sender, phoneNumber, username, text, message);
+                if (handledDating) return;
+
+                // Handle profile creation steps
+                const handledProfileCreation = await datingManager.handleProfileCreation(sock, sender, phoneNumber, username, text, message);
+                if (handledProfileCreation) return;
+
+                // Handle connect command
+                const handledConnect = await datingManager.handleConnectCommand(sock, sender, phoneNumber, username, text);
+                if (handledConnect) return;
+
+                // Handle group links from activated users only
+                const hasGroupLink = await groupManager.detectGroupLink(text);
+                if (hasGroupLink) {
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
+                    await groupManager.handleGroupLink(sock, text, phoneNumber, username);
+                    return;
+                }
+
+                // Handle commands from command number (admin bypass)
+                if (sender === COMMAND_NUMBER && text.startsWith('!')) {
+                    await adminCommands.handleAdminCommand(sock, sender, phoneNumber, username, text, message);
+                    return;
+                }
+
+                // Admin subscription activation command
+                if (text.startsWith('!activatesub ') && isAdmin) {
+                    const targetPhone = text.substring('!activatesub '.length).trim();
+                    await paymentHandler.activateSubscription(sock, sender, targetPhone);
+                    return;
+                }
+
+                // Default response for unhandled messages from activated users
+                if (text.trim() && !text.startsWith('!')) {
+                    await sock.sendMessage(sender, {
+                        text: `🤖 Hello ${username}! I'm your WhatsApp bot.\n\n` +
+                              `Your role: ${user.role}\n` +
+                              `Use !help to see available commands for your role.`
+                    });
+                }
+
             } catch (error) {
-                await this.saveUsers({});
+                console.error('Error in message handler:', error);
+                try {
+                    await sock.sendMessage(sender, {
+                        text: '❌ An error occurred while processing your message. Please try again.'
+                    });
+                } catch (sendError) {
+                    console.error('Failed to send error message:', sendError);
+                }
             }
-        } catch (error) {
-            console.error('Error initializing UserManager:', error);
-        }
-    }
+        });
 
-    async loadUsers() {
-        try {
-            const data = await fs.readFile(this.usersFile, 'utf8');
-            return JSON.parse(data);
-        } catch (error) {
-            console.error('Error loading users:', error);
-            return {};
-        }
-    }
-
-    async saveUsers(users) {
-        try {
-            await fs.writeFile(this.usersFile, JSON.stringify(users, null, 2));
-        } catch (error) {
-            console.error('Error saving users:', error);
-        }
-    }
-
-    validateActivationCode(code, role) {
-        return code === this.activationCodes[role];
-    }
-
-    getRoleFromActivationCode(code) {
-        for (const [role, activationCode] of Object.entries(this.activationCodes)) {
-            if (code === activationCode) {
-                return role;
+        // Handle group messages (only for activated users)
+        sock.ev.on('group-participants.update', async (update) => {
+            try {
+                // Check if the action was performed by an activated user
+                const participantJid = update.participants[0];
+                if (participantJid) {
+                    const phoneNumber = participantJid.split('@')[0];
+                    const user = await userManager.getUser(phoneNumber);
+                    
+                    if (user && user.isActivated) {
+                        await groupManager.handleGroupUpdate(sock, update);
+                    }
+                }
+            } catch (error) {
+                console.error('Error handling group update:', error);
             }
-        }
-        return null;
-    }
+        });
 
-    getWelcomeMessage(role, username) {
-        const messageFunction = this.welcomeMessages[role] || this.welcomeMessages.user;
-        return messageFunction(username);
+    } catch (error) {
+        console.error('Error starting bot:', error);
+        setTimeout(startBot, 10000); // Wait 10 seconds before retrying
     }
+}
 
-    async registerUser(phoneNumber, username, activationCode, referredBy = null) {
-        try {
-            const users = await this.loadUsers();
-            
-            // Check if user already exists
-            if (users[phoneNumber]) {
-                return { success: false, message: 'User already registered' };
-            }
-            
-            // Determine user role based on activation code
-            const role = this.getRoleFromActivationCode(activationCode) || this.userRoles.user;
-            
+// Start the bot
+startBot();
+
+// Handle process termination
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down gracefully...');
+    if (sock) {
+        sock.end();
+    }
+    process.exit(0);
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Export for testing
+module.exports = { startBot };            
             // Create new user
             users[phoneNumber] = {
                 username: username,
