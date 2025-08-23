@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 class DatingManager {
     constructor(userManager, subscriptionManager) {
@@ -8,65 +9,163 @@ class DatingManager {
         this.profilesFile = path.join(__dirname, 'data', 'dating_profiles.json');
         this.connectionsFile = path.join(__dirname, 'data', 'dating_connections.json');
         this.requestsFile = path.join(__dirname, 'data', 'dating_requests.json');
+        this.userLastActivity = {};
         this.ensureDataDirectoryExists();
         this.profiles = this.loadData(this.profilesFile);
         this.connections = this.loadData(this.connectionsFile);
         this.requests = this.loadData(this.requestsFile);
         this.userStates = {};
+        
+        // ADD YOUR CHAT BOT ENDPOINTS HERE (primary and backups)
+        this.chatEndpoints = [
+            'http://67ygf.to/chat', // Primary endpoint
+            'http://backup-chat-api.com/chat', // Backup 1
+            'http://another-chat-service.com/api' // Backup 2
+        ];
     }
 
-    ensureDataDirectoryExists() {
-        const dataDir = path.join(__dirname, 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-            console.log('📁 Created data directory:', dataDir);
+    // Activate dating mode for a user (call this after successful subscription)
+    activateDatingMode(phoneNumber) {
+        if (!this.profiles[phoneNumber]) {
+            // Create a basic profile if one doesn't exist
+            this.profiles[phoneNumber] = {
+                phoneNumber: phoneNumber,
+                createdAt: new Date().toISOString(),
+                isActive: true,
+                profileViews: 0,
+                matches: 0,
+                datingEnabled: true
+            };
+            this.saveProfiles();
+        } else {
+            // Enable dating mode for existing profile
+            this.profiles[phoneNumber].datingEnabled = true;
+            this.saveProfiles();
         }
-        if (!fs.existsSync(this.profilesFile)) {
-            fs.writeFileSync(this.profilesFile, JSON.stringify({}));
-            console.log('📄 Created dating profiles file');
-        }
-        if (!fs.existsSync(this.connectionsFile)) {
-            fs.writeFileSync(this.connectionsFile, JSON.stringify({}));
-            console.log('📄 Created dating connections file');
-        }
-        if (!fs.existsSync(this.requestsFile)) {
-            fs.writeFileSync(this.requestsFile, JSON.stringify({}));
-            console.log('📄 Created dating requests file');
+        
+        console.log(`✅ Dating mode activated for ${phoneNumber}`);
+    }
+
+    // Check if dating mode is enabled for user
+    isDatingModeEnabled(phoneNumber) {
+        const profile = this.profiles[phoneNumber];
+        return profile && profile.datingEnabled === true;
+    }
+
+    // Track user activity
+    trackUserActivity(phoneNumber) {
+        this.userLastActivity[phoneNumber] = Date.now();
+    }
+
+    // Check for inactive users and prompt them (only if dating mode is enabled)
+    async checkInactiveUsers(sock) {
+        const now = Date.now();
+        const threeHours = 3 * 60 * 60 * 1000;
+        
+        for (const [phoneNumber, lastActivity] of Object.entries(this.userLastActivity)) {
+            if (now - lastActivity > threeHours) {
+                const user = await this.userManager.getUser(phoneNumber);
+                if (user && user.isActivated && 
+                    this.subscriptionManager.hasActiveSubscription(phoneNumber) &&
+                    this.isDatingModeEnabled(phoneNumber)) {
+                    await this.promptInactiveUser(sock, phoneNumber, user.username);
+                    this.userLastActivity[phoneNumber] = now;
+                }
+            }
         }
     }
 
-    loadData(filePath) {
+    // Prompt inactive user with options
+    async promptInactiveUser(sock, phoneNumber, username) {
         try {
-            const data = fs.readFileSync(filePath, 'utf8');
-            return JSON.parse(data);
+            const sender = `${phoneNumber}@s.whatsapp.net`;
+            await sock.sendMessage(sender, {
+                text: `👋 Hello ${username}! It's been a while. Would you like to:\n\n` +
+                      `1. 🔍 Search for new content\n` +
+                      `2. 💝 Explore dating features\n` +
+                      `3. 💬 Chat with me\n\n` +
+                      `Just reply with the number or option you're interested in!`
+            });
         } catch (error) {
-            console.error(`Error loading data from ${filePath}:`, error);
-            return {};
+            console.error('Error prompting inactive user:', error);
         }
     }
 
-    saveData(filePath, data) {
+    // Handle AI chat requests with fallback endpoints
+    async handleAIChat(sock, sender, phoneNumber, username, text) {
         try {
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+            const chatMessage = text.replace(/(chat with me|chat|talk)/gi, '').trim();
+            
+            if (!chatMessage) {
+                await sock.sendMessage(sender, {
+                    text: `💬 I'd love to chat! What would you like to talk about?`
+                });
+                return true;
+            }
+            
+            await sock.sendMessage(sender, {
+                text: `💭 Thinking...`
+            });
+            
+            // Try each endpoint until one works
+            const aiResponse = await this.getAIResponseWithFallback(chatMessage, phoneNumber);
+            
+            await sock.sendMessage(sender, {
+                text: `🤖 ${aiResponse}`
+            });
+            
+            return true;
         } catch (error) {
-            console.error(`Error saving data to ${filePath}:`, error);
+            console.error('AI chat error:', error);
+            await sock.sendMessage(sender, {
+                text: `❌ Sorry, I'm having trouble connecting right now. Please try again later.`
+            });
+            return true;
         }
     }
 
-    saveProfiles() {
-        this.saveData(this.profilesFile, this.profiles);
+    // Try multiple endpoints with fallback
+    async getAIResponseWithFallback(message, phoneNumber) {
+        let lastError = null;
+        
+        for (const endpoint of this.chatEndpoints) {
+            try {
+                const response = await axios.post(endpoint, {
+                    message: message,
+                    user_id: phoneNumber,
+                    timestamp: new Date().toISOString()
+                }, {
+                    timeout: 8000 // 8 second timeout per endpoint
+                });
+                
+                if (response.data && response.data.response) {
+                    console.log(`✅ AI response from ${endpoint}`);
+                    return response.data.response;
+                }
+            } catch (error) {
+                console.log(`❌ Failed to connect to ${endpoint}:`, error.message);
+                lastError = error;
+                // Continue to next endpoint
+            }
+        }
+        
+        // If all endpoints failed
+        throw lastError || new Error('All chat endpoints failed');
     }
 
-    saveConnections() {
-        this.saveData(this.connectionsFile, this.connections);
-    }
-
-    saveRequests() {
-        this.saveData(this.requestsFile, this.requests);
-    }
-
+    // Modified to check if dating mode is enabled
     async handleDatingCommand(sock, sender, phoneNumber, username, text, message) {
+        // Check if dating mode is enabled for this user
+        if (!this.isDatingModeEnabled(phoneNumber)) {
+            await sock.sendMessage(sender, {
+                text: `❌ Dating features are not enabled for your account.\n\n` +
+                      `Please subscribe to activate dating mode.`
+            });
+            return true;
+        }
+        
         const lowerText = text.toLowerCase();
+        this.trackUserActivity(phoneNumber);
         
         if (lowerText === 'dating' || lowerText === 'date' || lowerText === 'match') {
             await this.showDatingMenu(sock, sender, username);
@@ -88,25 +187,34 @@ class DatingManager {
             return true;
         }
         
+        // Handle AI chat requests
+        if (lowerText.includes('chat with me') || lowerText.includes('chat') || 
+            lowerText.includes('talk') || lowerText === '3') {
+            return await this.handleAIChat(sock, sender, phoneNumber, username, text);
+        }
+        
+        // Handle responses to inactivity prompt
+        if (lowerText === '1' || lowerText.includes('search')) {
+            await sock.sendMessage(sender, {
+                text: `🔍 Great! What would you like to search for? Just type 'search' followed by your query.`
+            });
+            return true;
+        }
+        
+        if (lowerText === '2' || lowerText.includes('dating')) {
+            await this.showDatingMenu(sock, sender, username);
+            return true;
+        }
+        
         return false;
     }
 
-    async showDatingMenu(sock, sender, username) {
-        await sock.sendMessage(sender, {
-            text: `👥 Dating Features for ${username}:\n\n` +
-                  `1. 📝 Create Profile - *create profile*\n` +
-                  `2. 🔍 Find Matches - *find matches*\n` +
-                  `3. 💬 My Connections - *my connections*\n` +
-                  `4. 📊 Dating Stats - *dating stats*\n\n` +
-                  `*Note:* Premium feature for subscribed users only.`
-        });
-    }
-
+    // Update profile creation to require dating mode
     async startProfileCreation(sock, sender, phoneNumber, username) {
-        if (!this.subscriptionManager.hasActiveSubscription(phoneNumber)) {
+        if (!this.isDatingModeEnabled(phoneNumber)) {
             await sock.sendMessage(sender, {
-                text: `❌ Premium Feature\n\n` +
-                      `Dating features require an active subscription. Please subscribe first using the *!subscribe* command.`
+                text: `❌ Dating features are not enabled for your account.\n\n` +
+                      `Please subscribe to activate dating mode.`
             });
             return;
         }
@@ -132,109 +240,15 @@ class DatingManager {
         });
     }
 
-    async handleProfileCreation(sock, sender, phoneNumber, username, text, message) {
-        if (this.userStates[phoneNumber]?.creatingProfile) {
-            try {
-                const profileData = this.parseProfileData(text);
-                this.createProfile(phoneNumber, profileData);
-                
-                delete this.userStates[phoneNumber];
-                
-                await sock.sendMessage(sender, {
-                    text: `✅ Profile Created Successfully!\n\n` +
-                          `Your dating profile is now active. Use *find matches* to discover people near you!`
-                });
-                
-                return true;
-            } catch (error) {
-                console.error('Error creating profile:', error);
-            }
-        }
-        
-        return false;
-    }
+    // ... (keep all other existing methods unchanged) ...
 
-    parseProfileData(text) {
-        const lines = text.split('\n');
-        const data = {};
+    // Add this method to regularly check for inactive users
+    startInactivityChecker(sock, intervalMinutes = 30) {
+        setInterval(() => {
+            this.checkInactiveUsers(sock);
+        }, intervalMinutes * 60 * 1000);
         
-        lines.forEach(line => {
-            if (line.includes(':')) {
-                const [key, value] = line.split(':').map(part => part.trim());
-                if (key && value) {
-                    data[key.toLowerCase()] = value;
-                }
-            }
-        });
-        
-        return data;
-    }
-
-    createProfile(phoneNumber, profileData) {
-        this.profiles[phoneNumber] = {
-            ...profileData,
-            phoneNumber: phoneNumber,
-            createdAt: new Date().toISOString(),
-            isActive: true,
-            profileViews: 0,
-            matches: 0
-        };
-        
-        this.saveProfiles();
-        return this.profiles[phoneNumber];
-    }
-
-    getProfile(phoneNumber) {
-        return this.profiles[phoneNumber];
-    }
-
-    async showDatingStats(sock, sender, phoneNumber, username) {
-        const profile = this.getProfile(phoneNumber);
-        
-        if (!profile) {
-            await sock.sendMessage(sender, {
-                text: `❌ No dating profile found.\n\n` +
-                      `Create your profile first using *create profile*`
-            });
-            return;
-        }
-        
-        await sock.sendMessage(sender, {
-            text: `📊 Dating Stats for ${username}:\n\n` +
-                  `👀 Profile Views: ${profile.profileViews || 0}\n` +
-                  `💝 Matches: ${profile.matches || 0}\n` +
-                  `📅 Member Since: ${new Date(profile.createdAt).toLocaleDateString()}\n` +
-                  `📍 Location: ${profile.location || 'Not set'}\n` +
-                  `🎯 Interested In: ${profile['interested in'] || 'Not set'}`
-        });
-    }
-
-    async findMatches(sock, sender, phoneNumber, username) {
-        const userProfile = this.getProfile(phoneNumber);
-        
-        if (!userProfile) {
-            await sock.sendMessage(sender, {
-                text: `❌ No dating profile found.\n\n` +
-                      `Create your profile first using *create profile*`
-            });
-            return;
-        }
-        
-        const sampleMatches = [
-            "👩‍💼 Sarah, 26, Harare - Loves hiking and music",
-            "👩‍🎨 Lisa, 28, Bulawayo - Artist and traveler",
-            "👩‍🍳 Maria, 25, Mutare - Chef and food lover"
-        ];
-        
-        await sock.sendMessage(sender, {
-            text: `💝 Potential Matches for ${username}:\n\n` +
-                  sampleMatches.join('\n') + 
-                  `\n\n*Note:* This is a demo feature. Full matching system coming soon!`
-        });
-    }
-
-    async handleConnectCommand(sock, sender, phoneNumber, username, text) {
-        return false;
+        console.log(`⏰ Inactivity checker started (checking every ${intervalMinutes} minutes)`);
     }
 }
 
