@@ -268,6 +268,20 @@ function retryQRGeneration() {
     }
 }
 
+// Simple logger implementation that Baileys expects
+const createSimpleLogger = () => {
+    return {
+        trace: (message, ...args) => console.log(`[TRACE] ${message}`, ...args),
+        debug: (message, ...args) => console.log(`[DEBUG] ${message}`, ...args),
+        info: (message, ...args) => console.log(`[INFO] ${message}`, ...args),
+        warn: (message, ...args) => console.warn(`[WARN] ${message}`, ...args),
+        error: (message, ...args) => console.error(`[ERROR] ${message}`, ...args),
+        fatal: (message, ...args) => console.error(`[FATAL] ${message}`, ...args),
+        // Add child method that returns the same logger
+        child: () => createSimpleLogger()
+    };
+};
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
@@ -283,6 +297,9 @@ async function startBot() {
         // Get latest version for better compatibility
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📦 Using Baileys version: ${version.join('.')}, Latest: ${isLatest}`);
+
+        // Create a simple logger that has the child method
+        const logger = createSimpleLogger();
 
         sock = makeWASocket({
             printQRInTerminal: true, // Enable terminal QR as backup
@@ -313,10 +330,8 @@ async function startBot() {
             // Additional options to prevent QR timeout
             qrTimeout: 120000, // 2 minutes for QR timeout
             authTimeout: 120000, // 2 minutes for auth timeout
-            logger: {
-                level: 'error', // Reduce log spam
-                // timestamp: () => `[${new Date().toISOString()}]`
-            }
+            // Use our custom logger
+            logger: logger
         });
 
         // Initialize managers
