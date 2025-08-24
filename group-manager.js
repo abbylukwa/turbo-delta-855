@@ -1,127 +1,19 @@
-const fs = require('fs');
-const path = require('path');
+// Toggle auto-join
+if (text === '!autojoin on') {
+    const status = groupManager.toggleAutoJoin(true);
+    await sock.sendMessage(chatId, { text: `Auto-join ${status ? 'enabled' : 'disabled'}` });
+}
 
-class GroupManager {
-    constructor() {
-        this.groupsFile = path.join(__dirname, 'data', 'groups.json');
-        this.commandNumber = '263717457592@s.whatsapp.net';
-        this.ensureDataDirectoryExists();
-        this.groups = this.loadGroups();
-        this.groupStats = {
-            totalGroups: 0,
-            activeGroups: 0,
-            messagesSent: 0
-        };
-    }
+if (text === '!autojoin off') {
+    const status = groupManager.toggleAutoJoin(false);
+    await sock.sendMessage(chatId, { text: `Auto-join ${status ? 'enabled' : 'disabled'}` });
+}
 
-    ensureDataDirectoryExists() {
-        const dataDir = path.join(__dirname, 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-        }
-        if (!fs.existsSync(this.groupsFile)) {
-            fs.writeFileSync(this.groupsFile, JSON.stringify({ groups: {}, stats: this.groupStats }));
-        }
-    }
-
-    loadGroups() {
-        try {
-            const data = fs.readFileSync(this.groupsFile, 'utf8');
-            const parsedData = JSON.parse(data);
-            this.groups = new Map(Object.entries(parsedData.groups || {}));
-            this.groupStats = parsedData.stats || this.groupStats;
-            return this.groups;
-        } catch (error) {
-            console.error('Error loading groups:', error);
-            return new Map();
-        }
-    }
-
-    saveGroupData() {
-        try {
-            const data = {
-                groups: Object.fromEntries(this.groups),
-                stats: this.groupStats
-            };
-            fs.writeFileSync(this.groupsFile, JSON.stringify(data, null, 2));
-        } catch (error) {
-            console.error('Error saving group data:', error);
-        }
-    }
-
-    async detectGroupLink(text) {
-        const groupLinkRegex = /https?:\/\/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/;
-        return groupLinkRegex.test(text);
-    }
-
-    async handleGroupLink(sock, text, phoneNumber, username) {
-        const groupLinkRegex = /https?:\/\/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/;
-        const match = text.match(groupLinkRegex);
-        
-        if (!match) {
-            return false;
-        }
-
-        const groupCode = match[1];
-        
-        try {
-            await sock.sendMessage(sock.user.id, { 
-                text: `⬇️ Processing group link from ${username}...` 
-            });
-
-            const response = await sock.groupAcceptInvite(groupCode);
-            
-            if (response) {
-                const groupId = response.gid;
-                const groupMetadata = await sock.groupMetadata(groupId);
-                const groupName = groupMetadata.subject;
-                
-                this.addGroup(groupId, groupName, `https://chat.whatsapp.com/${groupCode}`, phoneNumber, username);
-                
-                await sock.sendMessage(sock.user.id, { 
-                    text: `✅ Successfully joined group: ${groupName}\n\nGroup ID: ${groupId}`
-                });
-                
-                console.log(`✅ Joined group: ${groupName} (${groupId})`);
-                return true;
-            }
-        } catch (error) {
-            console.error('Error joining group:', error);
-            await sock.sendMessage(sock.user.id, { 
-                text: `❌ Failed to join group: ${error.message}`
-            });
-            return false;
-        }
-    }
-
-    getGroupStats() {
-        const totalGroups = this.groups.size;
-        const groupsByUser = {};
-        
-        this.groups.forEach(group => {
-            if (!groupsByUser[group.joinedByUsername]) {
-                groupsByUser[group.joinedByUsername] = 0;
-            }
-            groupsByUser[group.joinedByUsername]++;
-        });
-        
-        return {
-            totalGroups,
-            groupsByUser
-        };
-    }
-
-    getAllGroups() {
-        return Array.from(this.groups.values());
-    }
-
-    isCommandNumber(phoneNumber) {
-        return phoneNumber === this.commandNumber;
-    }
-
-    async joinGroup(sock, groupLink) {
-        try {
-            console.log(`Attempting to join group: ${groupLink}`);
+// Check status
+if (text === '!autojoin status') {
+    const status = groupManager.getAutoJoinStatus();
+    await sock.sendMessage(chatId, { text: `Auto-join is currently ${status ? 'enabled' : 'disabled'}` });
+}            console.log(`Attempting to join group: ${groupLink}`);
             
             const inviteCode = this.extractInviteCode(groupLink);
             if (!inviteCode) {
