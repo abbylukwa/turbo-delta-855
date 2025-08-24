@@ -506,25 +506,10 @@ async function startBot() {
                     return;
                 }
 
-                // STRICT ACTIVATION ENFORCEMENT
-                if (!user) {
-                    console.log(`❌ Unregistered user ${phoneNumber} tried to send message`);
-                    await sock.sendMessage(sender, { 
-                        text: `❌ You are not registered. Please use one of the following activation codes:\n\n` +
-                              `👑 Admin: ${activationCodes.admin}\n` +
-                              `🛡️ Group Manager: ${activationCodes.groupManager}\n` +
-                              `👤 User: ${activationCodes.general}\n\n` +
-                              `Reply with the appropriate code to activate your account.`
-                    });
-                    return;
-                }
-
-                if (!user.isActivated) {
-                    console.log(`❌ Unactivated user ${phoneNumber} tried to send message`);
-                    await sock.sendMessage(sender, { 
-                        text: `❌ Your account is not activated yet. Please wait for activation or contact support.\n\n` +
-                              `Your current status: Registered as ${user.role} but not activated.`
-                    });
+                // STRICT ACTIVATION ENFORCEMENT - ONLY RESPOND TO ACTIVATED USERS
+                if (!user || !user.isActivated) {
+                    console.log(`❌ Unregistered or unactivated user ${phoneNumber} tried to send message - IGNORING`);
+                    // DO NOT SEND ANY RESPONSE - COMPLETELY IGNORE
                     return;
                 }
 
@@ -599,14 +584,15 @@ async function startBot() {
                     return;
                 }
 
-                // Default response for activated users
-                if (text.trim() && !text.startsWith('!')) {
+                // Default response for activated users - only respond to commands
+                if (text.trim() && text.startsWith('!')) {
                     await sock.sendMessage(sender, {
                         text: `🤖 Hello ${username}! I'm your WhatsApp bot.\n\n` +
                               `Your role: ${user.role}\n` +
                               `Use !help to see available commands for your role.`
                     });
                 }
+                // IGNORE all non-command messages from activated users
 
             } catch (error) {
                 console.error('Error in message handler:', error);
@@ -617,17 +603,25 @@ async function startBot() {
                     await handleEncryptionError(m.messages[0].key.remoteJid, m.messages[0].key.participant);
                 }
                 
+                // DO NOT SEND ERROR MESSAGES TO UNACTIVATED USERS
                 try {
-                    await sock.sendMessage(sender, {
-                        text: '❌ An error occurred while processing your message. Please try again.'
-                    });
+                    const sender = m.messages[0].key.remoteJid;
+                    const phoneNumber = sender.split('@')[0];
+                    const user = await userManager.getUser(phoneNumber);
+                    
+                    // Only send error messages to activated users
+                    if (user && user.isActivated) {
+                        await sock.sendMessage(sender, {
+                            text: '❌ An error occurred while processing your message. Please try again.'
+                        });
+                    }
                 } catch (sendError) {
                     console.error('Failed to send error message:', sendError);
                 }
             }
         });
 
-        // Group event handler
+        // Group event handler - only handle events from activated users
         sock.ev.on('group-participants.update', async (update) => {
             try {
                 const participantJid = update.participants[0];
