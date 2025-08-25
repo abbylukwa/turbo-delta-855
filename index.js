@@ -25,11 +25,11 @@ let sock = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
-const RECONNECT_INTERVAL = 50000; // Increased to 10 seconds
+const RECONNECT_INTERVAL = 50000; // Increased to 50 seconds
 
-// QR code management
+// QR code management - INCREASED TO 70 SECONDS
 let lastQRGenerationTime = 0;
-const QR_GENERATION_COOLDOWN = 90000; // 30 seconds cooldown between QR codes
+const QR_GENERATION_COOLDOWN = 70000; // 70 seconds cooldown between QR codes
 let qrCooldownTimeout = null;
 let currentQR = null;
 
@@ -327,9 +327,9 @@ async function startBot() {
                     conversation: "hello"
                 }
             },
-            // Additional options to prevent QR timeout
-            qrTimeout: 120000, // 2 minutes for QR timeout
-            authTimeout: 120000, // 2 minutes for auth timeout
+            // Additional options to prevent QR timeout - INCREASED TO 3 MINUTES
+            qrTimeout: 180000, // 3 minutes for QR timeout
+            authTimeout: 180000, // 3 minutes for auth timeout
             // Use our custom logger
             logger: logger
         });
@@ -348,7 +348,7 @@ async function startBot() {
         const groupManager = new GroupManager();
         
         echo('Initializing DownloadManager...');
-        const downloadManager = new DownloadManager();
+        const downloadManager = = new DownloadManager();
         
         echo('Initializing GeneralCommands...');
         const generalCommands = new GeneralCommands(userManager, downloadManager, subscriptionManager);
