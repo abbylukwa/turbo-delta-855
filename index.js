@@ -25,11 +25,11 @@ let sock = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
-const RECONNECT_INTERVAL = 10000; // Increased to 10 seconds
+const RECONNECT_INTERVAL = 50000; // Increased to 10 seconds
 
 // QR code management
 let lastQRGenerationTime = 0;
-const QR_GENERATION_COOLDOWN = 30000; // 30 seconds cooldown between QR codes
+const QR_GENERATION_COOLDOWN = 90000; // 30 seconds cooldown between QR codes
 let qrCooldownTimeout = null;
 let currentQR = null;
 
