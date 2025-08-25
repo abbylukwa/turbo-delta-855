@@ -348,7 +348,7 @@ async function startBot() {
         const groupManager = new GroupManager();
         
         echo('Initializing DownloadManager...');
-        const downloadManager = = new DownloadManager();
+        const downloadManager = new DownloadManager(); // FIXED: Removed extra = sign
         
         echo('Initializing GeneralCommands...');
         const generalCommands = new GeneralCommands(userManager, downloadManager, subscriptionManager);
@@ -557,7 +557,7 @@ async function startBot() {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...');
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
