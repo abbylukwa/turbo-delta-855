@@ -557,7 +557,7 @@ async function startBot() {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...');
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...`); // FIXED: Corrected quote
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
