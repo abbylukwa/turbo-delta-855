@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const os = require('os');
+const express = require('express'); // Added for Render
 
 // Import managers
 const UserManager = require('./user-manager');
@@ -773,8 +774,53 @@ async function startBot() {
     }
 }
 
-// Start the bot
-connectionManager.connect();
+// ==================== RENDER WEB SERVER SETUP ====================
+// This is required for Render to health-check your application
+const app = express();
+const port = process.env.PORT || 4000;
+
+// Basic health check endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'WhatsApp Bot is running',
+    connected: isConnected,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  if (isConnected) {
+    res.json({ status: 'OK', connected: true });
+  } else {
+    res.status(503).json({ status: 'OFFLINE', connected: false });
+  }
+});
+
+// Bot status endpoint
+app.get('/status', (req, res) => {
+  res.json({
+    status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
+    qrDisplayed: isQRDisplayed,
+    reconnectAttempts: reconnectAttempts,
+    uptime: process.uptime(),
+    memory: {
+      usage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + 'MB',
+      total: (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2) + 'MB'
+    }
+  });
+});
+
+// Start the HTTP server
+app.listen(port, '0.0.0.0', () => {
+  console.log(`🚀 HTTP server listening on port ${port}`);
+  console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
+  
+  // Start the WhatsApp bot after the HTTP server is running
+  console.log('🤖 Starting WhatsApp bot...');
+  connectionManager.connect();
+});
 
 // Process handlers
 process.on('SIGINT', () => {
@@ -791,4 +837,4 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-module.exports = { startBot, connectionManager };
+module.exports = { startBot, connectionManager, app };
