@@ -11,6 +11,9 @@ const { exec } = require('child_process');
 const os = require('os');
 const express = require('express'); // Added for Render
 
+// Import database models
+const { initializeDatabase } = require('./models');
+
 // Import managers
 const UserManager = require('./user-manager');
 const ActivationManager = require('./activation-manager');
@@ -444,6 +447,22 @@ function debugConnectionState(update) {
     }
 }
 
+// Add this function to initialize the application
+async function startApp() {
+    try {
+        // Initialize database first
+        console.log('🔄 Initializing database...');
+        await initializeDatabase();
+        
+        // Then start the bot
+        console.log('🤖 Starting WhatsApp bot...');
+        await connectionManager.connect();
+    } catch (error) {
+        console.error('❌ Failed to start application:', error);
+        process.exit(1);
+    }
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
@@ -711,7 +730,7 @@ async function startBot() {
                 if (handledPayment) return;
 
                 // Handle dating commands - check if dating mode is enabled
-                if (datingManager.isDatingModeEnabled(phoneNumber)) {
+                if (await datingManager.isDatingModeEnabled(phoneNumber)) {
                     const handledDating = await datingManager.handleDatingCommand(sock, sender, phoneNumber, username, text, message);
                     if (handledDating) return;
                 } else if (text.toLowerCase().includes('dating') || text.toLowerCase().includes('date')) {
@@ -748,7 +767,7 @@ async function startBot() {
                     
                     if (success) {
                         // Activate dating mode for this user
-                        datingManager.activateDatingMode(targetPhone);
+                        await datingManager.activateDatingMode(targetPhone);
                         await sock.sendMessage(sender, {
                             text: `✅ Subscription activated for ${targetPhone}\n` +
                                   `💝 Dating mode has been enabled for this user.`
@@ -865,7 +884,7 @@ app.listen(port, '0.0.0.0', () => {
   
   // Start the WhatsApp bot after the HTTP server is running
   console.log('🤖 Starting WhatsApp bot...');
-  connectionManager.connect();
+  startApp(); // Changed from connectionManager.connect() to startApp()
 });
 
 // Process handlers
