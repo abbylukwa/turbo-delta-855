@@ -210,7 +210,7 @@ async function handleEncryptionError(remoteJid, participant) {
             } catch (preKeyError) {
                 console.error('Failed to request prekeys:', preKeyError);
             }
-    }
+        }
     } catch (recoveryError) {
         console.error('Failed to recover session:', recoveryError);
     }
