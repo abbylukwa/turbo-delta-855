@@ -24,7 +24,10 @@ RUN npm install --production
 COPY . .
 
 # Create necessary directories for persistence
-RUN mkdir -p /app/data /app/auth_info_baileys
+RUN mkdir -p /app/data /app/auth_info_baileys /app/downloads /app/backups
+
+# Set proper permissions
+RUN chmod -R 755 /app
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:${PORT:-3000}/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
