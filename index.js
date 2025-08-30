@@ -210,7 +210,7 @@ async function handleEncryptionError(remoteJid, participant) {
             } catch (preKeyError) {
                 console.error('Failed to request prekeys:', preKeyError);
             }
-        }
+    }
     } catch (recoveryError) {
         console.error('Failed to recover session:', recoveryError);
     }
@@ -420,7 +420,7 @@ const createSimpleLogger = () => {
         trace: (message, ...args) => console.log(`[TRACE] ${message}`, ...args),
         debug: (message, ...args) => console.log(`[DEBUG] ${message}`, ...args),
         info: (message, ...args) => console.log(`[INFO] ${message}`, ...args),
-        warn: (message, ...args) => console.warn(`[WARN] ${message`}, ...args),
+        warn: (message, ...args) => console.warn(`[WARN] ${message}`, ...args),
         error: (message, ...args) => console.error(`[ERROR] ${message}`, ...args),
         fatal: (message, ...args) => console.error(`[FATAL] ${message}`, ...args),
         // Add child method that returns the same logger
