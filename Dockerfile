@@ -1,5 +1,5 @@
-# Use the official Node.js LTS image
-FROM node:18-alpine
+# Use the official Node.js LTS image (Node 20)
+FROM node:20-alpine
 
 # Set the working directory
 WORKDIR /app
@@ -17,8 +17,8 @@ RUN apk add --no-cache \
 # Copy package files
 COPY package*.json ./
 
-# Install Node.js dependencies
-RUN npm install --production
+# Install Node.js dependencies (use --omit=dev instead of --production)
+RUN npm install --omit=dev
 
 # Copy application source code
 COPY . .
