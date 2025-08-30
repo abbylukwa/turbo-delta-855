@@ -171,6 +171,25 @@ class ConnectionManager {
         isConnected = false;
         this.isConnecting = false;
     }
+    
+    async handlePairingSuccess() {
+        console.log('🔄 Handling successful pairing scenario...');
+        this.disconnect();
+        
+        // Wait a bit before reconnecting
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Clear auth state to force fresh connection
+        try {
+            await clearAuthFiles();
+            console.log('✅ Cleared auth files for fresh connection');
+        } catch (error) {
+            console.log('⚠️ Could not clear auth files:', error.message);
+        }
+        
+        // Reconnect with fresh state
+        await this.connect();
+    }
 }
 
 const connectionManager = new ConnectionManager();
@@ -409,6 +428,22 @@ const createSimpleLogger = () => {
     };
 };
 
+// Add this function to debug connection states
+function debugConnectionState(update) {
+    const { connection, qr, lastDisconnect, receivedPendingNotifications, isOnline } = update;
+    
+    console.log('🔍 Connection Debug:');
+    console.log(`   - Connection state: ${connection}`);
+    console.log(`   - Has QR: ${!!qr}`);
+    console.log(`   - Last disconnect: ${lastDisconnect?.error?.message || 'None'}`);
+    console.log(`   - Received pending notifications: ${receivedPendingNotifications || false}`);
+    console.log(`   - Is online: ${isOnline || false}`);
+    
+    if (lastDisconnect?.error) {
+        console.log(`   - Error details:`, lastDisconnect.error);
+    }
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
@@ -494,8 +529,19 @@ async function startBot() {
 
         // Connection event handler
         sock.ev.on('connection.update', async (update) => {
+            // Debug output
+            debugConnectionState(update);
+            
             const { connection, qr, lastDisconnect, isNewLogin } = update;
-            console.log('Connection update:', connection, lastDisconnect?.error?.message || '');
+
+            // Specific handling for pairing success case
+            if (connection === 'close' && 
+                (lastDisconnect?.error?.message?.includes('pairing configured successfully') ||
+                 lastDisconnect?.error?.message?.includes('expect to restart'))) {
+                console.log('🔄 Detected pairing success scenario, handling restart...');
+                await connectionManager.handlePairingSuccess();
+                return;
+            }
 
             if (qr) {
                 console.log('📱 QR code received');
