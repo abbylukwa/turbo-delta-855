@@ -98,7 +98,7 @@ const Connection = sequelize.define('Connection', {
     type: DataTypes.ENUM('pending', 'accepted', 'rejected'),
     defaultValue: 'pending'
   },
-  initiator: {
+  initiatorPhone: {  // ← Changed from 'initiator' to 'initiatorPhone'
     type: DataTypes.STRING,
     allowNull: false
   }
@@ -146,11 +146,11 @@ UserProfile.hasMany(Connection, {
 });
 Connection.belongsTo(UserProfile, { 
   foreignKey: 'user1', 
-  as: 'initiator' 
+  as: 'initiatorProfile'  // ← Changed from 'initiator' to 'initiatorProfile'
 });
 Connection.belongsTo(UserProfile, { 
   foreignKey: 'user2', 
-  as: 'receiver' 
+  as: 'receiverProfile'  // ← Changed from 'receiver' to 'receiverProfile' for consistency
 });
 
 UserProfile.hasMany(DatingMessage, { 
