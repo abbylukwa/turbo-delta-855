@@ -245,40 +245,7 @@ function setupAuthStateBackup(authState) {
     }
 }
 
-// Function to handle QR code generation with cooldown
-function handleQRCodeGeneration(qr) {
-    const now = Date.now();
-    const timeSinceLastQR = now - lastQRGenerationTime;
-    
-    // Store current QR code
-    currentQR = qr;
-    
-    // If we recently generated a QR code, wait before showing a new one
-    if (timeSinceLastQR < QR_GENERATION_COOLDOWN) {
-        const remainingTime = Math.ceil((QR_GENERATION_COOLDOWN - timeSinceLastQR) / 1000);
-        console.log(`\n⏳ Please scan the previous QR code. Waiting ${remainingTime}s before generating a new one...`);
-        
-        // Start background tasks while waiting
-        performBackgroundTasks();
-        
-        // Clear any existing timeout
-        if (qrCooldownTimeout) {
-            clearTimeout(qrCooldownTimeout);
-        }
-        
-        // Set timeout to show QR code after cooldown
-        qrCooldownTimeout = setTimeout(() => {
-            showQRCode(qr);
-        }, QR_GENERATION_COOLDOWN - timeSinceLastQR);
-        
-        return;
-    }
-    
-    // Show QR code immediately if cooldown has passed
-    showQRCode(qr);
-}
-
-// Function to display QR code
+// Function to display QR code in terminal
 function showQRCode(qr) {
     console.log('\n📱 QR Code generated successfully!');
     console.log('👉 Scan with WhatsApp -> Linked Devices');
@@ -286,6 +253,9 @@ function showQRCode(qr) {
     qrcode.generate(qr, { small: true });
     lastQRGenerationTime = Date.now();
     isQRDisplayed = true;
+    
+    console.log('\n⏳ Waiting for QR code scan...');
+    console.log('🔄 Performing background optimizations while waiting...');
     
     // Start background tasks while waiting for scan
     performBackgroundTasks();
@@ -374,47 +344,8 @@ async function performBackgroundTasks() {
         console.log('⚠️ Could not check for updates:', error.message);
     }
     
-    // Task 6: Backup important data
-    console.log('💾 Creating backup...');
-    try {
-        const backupDir = path.join(__dirname, 'backups');
-        if (!fs.existsSync(backupDir)) {
-            fs.mkdirSync(backupDir, { recursive: true });
-        }
-        
-        const backupFile = path.join(backupDir, `backup-${Date.now()}.json`);
-        const backupData = {
-            timestamp: Date.now(),
-            system: {
-                platform: os.platform(),
-                arch: os.arch(),
-                version: os.version()
-            },
-            users: {
-                // This would contain your actual user data
-                count: 0,
-                lastBackup: Date.now()
-            }
-        };
-        
-        fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
-        console.log('✅ Backup created successfully');
-    } catch (error) {
-        console.log('⚠️ Could not create backup:', error.message);
-    }
-    
     console.log('\n🎉 Background tasks completed!');
     console.log('📱 Please scan the QR code with your WhatsApp when ready\n');
-}
-
-// Function to manually retry QR generation
-function retryQRGeneration() {
-    if (currentQR) {
-        console.log('\n🔄 Retrying QR code display...');
-        showQRCode(currentQR);
-    } else {
-        console.log('\n❌ No QR code available to retry');
-    }
 }
 
 // Simple logger implementation that Baileys expects
@@ -470,7 +401,7 @@ async function startBot() {
         const logger = createSimpleLogger();
 
         sock = makeWASocket({
-            printQRInTerminal: true, // Enable terminal QR as backup
+            // REMOVED printQRInTerminal: true - We'll handle QR display manually
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             version: version,
@@ -512,6 +443,7 @@ async function startBot() {
         echo('Initializing ActivationManager...');
         const activationManager = new ActivationManager(userManager);
         
+        // FIXED: Initialize GroupManager without calling ensureDataDirectoryExists
         echo('Initializing GroupManager...');
         const groupManager = new GroupManager();
         
@@ -553,8 +485,8 @@ async function startBot() {
 
             if (qr) {
                 console.log('📱 QR code received');
-                // Use our cooldown-controlled QR code handler
-                handleQRCodeGeneration(qr);
+                // Show QR code in terminal
+                showQRCode(qr);
             }
 
             if (connection === 'open') {
@@ -562,12 +494,6 @@ async function startBot() {
                 reconnectAttempts = 0;
                 console.log('✅ WhatsApp connected successfully!');
                 console.log('🤖 Bot is now ready to receive messages');
-                
-                // Clear any pending QR cooldown
-                if (qrCooldownTimeout) {
-                    clearTimeout(qrCooldownTimeout);
-                    qrCooldownTimeout = null;
-                }
                 
                 // Send welcome message to command number
                 try {
@@ -612,10 +538,6 @@ async function startBot() {
         // Handle connection errors
         sock.ev.on('connection.general-error', (error) => {
             console.error('❌ General connection error:', error.message);
-            if (error.message.includes('QR')) {
-                console.log('🔄 QR error detected, will retry...');
-                retryQRGeneration();
-            }
             connectionManager.handleConnectionFailure();
         });
 
@@ -866,111 +788,10 @@ app.get('/status', (req, res) => {
   });
 });
 
-// QR Code endpoint - NEW ENDPOINT TO DISPLAY QR CODE
-app.get('/qr', (req, res) => {
-  if (currentQR) {
-    res.setHeader('Content-Type', 'text/html');
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>WhatsApp Bot QR Code</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            color: white;
-          }
-          .container {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            text-align: center;
-            max-width: 500px;
-            width: 100%;
-          }
-          h1 {
-            margin-top: 0;
-            font-size: 28px;
-          }
-          .qr-container {
-            margin: 20px 0;
-            padding: 20px;
-            background: white;
-            border-radius: 10px;
-            display: inline-block;
-          }
-          pre {
-            font-family: monospace;
-            line-height: 1;
-            margin: 0;
-          }
-          .instructions {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            padding: 15px;
-            margin-top: 20px;
-            text-align: left;
-          }
-          .instructions ol {
-            padding-left: 20px;
-          }
-          .status {
-            margin-top: 15px;
-            font-weight: bold;
-            padding: 10px;
-            border-radius: 5px;
-            background: ${isConnected ? 'rgba(76, 175, 80, 0.3)' : 'rgba(244, 67, 54, 0.3)'};
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>WhatsApp Bot QR Code</h1>
-          <div class="status">
-            Status: ${isConnected ? 'Connected ✅' : 'Disconnected ❌'}
-          </div>
-          <p>Scan this QR code with WhatsApp to connect your bot:</p>
-          <div class="qr-container">
-            <pre>${qrcode.generate(currentQR, { small: true })}</pre>
-          </div>
-          <div class="instructions">
-            <h3>Instructions:</h3>
-            <ol>
-              <li>Open WhatsApp on your phone</li>
-              <li>Tap Menu or Settings and select "Linked Devices"</li>
-              <li>Tap on "Link a Device"</li>
-              <li>Point your phone at this screen to scan the QR code</li>
-            </ol>
-          </div>
-          <p>This QR code will automatically refresh if needed.</p>
-        </div>
-      </body>
-      </html>
-    `);
-  } else {
-    res.status(404).json({ 
-      error: 'No QR code available', 
-      message: 'The bot is either connected or still initializing. Please try again later.' 
-    });
-  }
-});
-
 // Start the HTTP server
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
-  console.log(`📱 QR code available at http://0.0.0.0:${port}/qr`);
   
   // Start the WhatsApp bot after the HTTP server is running
   console.log('🤖 Starting WhatsApp bot...');
