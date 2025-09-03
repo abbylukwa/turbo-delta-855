@@ -23,6 +23,9 @@ const PaymentHandler = require('./payment-handler');
 const DatingManager = require('./dating-manager');
 const { Boom } = require('@hapi/boom');
 
+// Import database models
+const { initializeDatabase, UserProfile, Connection, DatingMessage, Sequelize } = require('./models');
+
 // Store for connection
 let sock = null;
 let isConnected = false;
@@ -451,6 +454,9 @@ async function startBot() {
         // Ensure directories exist
         await ensureDirectories();
 
+        // Initialize database first
+        await initializeDatabase();
+
         // Check if we have existing auth files
         const hasAuthFiles = await checkAuthFiles();
 
@@ -519,7 +525,9 @@ async function startBot() {
         const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
         
         echo('Initializing DatingManager...');
-        const datingManager = new DatingManager(userManager, subscriptionManager);
+        const datingManager = new DatingManager(userManager, subscriptionManager, { 
+            UserProfile, Connection, DatingMessage, Sequelize 
+        });
         
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
