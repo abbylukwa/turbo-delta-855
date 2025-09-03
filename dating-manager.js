@@ -1,16 +1,19 @@
-const { UserProfile, Connection, DatingMessage } = require('./models');
-
 class DatingManager {
-    constructor(userManager, subscriptionManager) {
+    constructor(userManager, subscriptionManager, models) {
         this.userManager = userManager;
         this.subscriptionManager = subscriptionManager;
+        this.models = models;
+        this.UserProfile = models.UserProfile;
+        this.Connection = models.Connection;
+        this.DatingMessage = models.DatingMessage;
+        this.Sequelize = models.Sequelize;
         this.userStates = {};
         this.userLastActivity = {};
     }
 
     async activateDatingMode(phoneNumber) {
         try {
-            const [profile, created] = await UserProfile.findOrCreate({
+            const [profile, created] = await this.UserProfile.findOrCreate({
                 where: { phoneNumber },
                 defaults: {
                     phoneNumber,
@@ -36,7 +39,7 @@ class DatingManager {
 
     async isDatingModeEnabled(phoneNumber) {
         try {
-            const profile = await UserProfile.findOne({ where: { phoneNumber } });
+            const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
             return profile && profile.datingEnabled === true;
         } catch (error) {
             console.error('Error checking dating mode:', error);
@@ -48,7 +51,7 @@ class DatingManager {
         this.userLastActivity[phoneNumber] = Date.now();
         
         // Update last active in database
-        UserProfile.update(
+        this.UserProfile.update(
             { lastActive: new Date() },
             { where: { phoneNumber } }
         ).catch(console.error);
@@ -219,7 +222,7 @@ class DatingManager {
                     lastUpdated: new Date()
                 };
 
-                await UserProfile.update(updateData, {
+                await this.UserProfile.update(updateData, {
                     where: { phoneNumber }
                 });
 
@@ -250,7 +253,7 @@ class DatingManager {
 
     async showDatingStats(sock, sender, phoneNumber, username) {
         try {
-            const profile = await UserProfile.findOne({ where: { phoneNumber } });
+            const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
             
             if (!profile || !profile.profileComplete) {
                 await sock.sendMessage(sender, {
@@ -260,9 +263,9 @@ class DatingManager {
                 return;
             }
             
-            const matchCount = await Connection.count({
+            const matchCount = await this.Connection.count({
                 where: {
-                    [Sequelize.Op.or]: [
+                    [this.Sequelize.Op.or]: [
                         { user1: phoneNumber, status: 'accepted' },
                         { user2: phoneNumber, status: 'accepted' }
                     ]
@@ -287,7 +290,7 @@ class DatingManager {
 
     async findMatches(sock, sender, phoneNumber, username) {
         try {
-            const userProfile = await UserProfile.findOne({ where: { phoneNumber } });
+            const userProfile = await this.UserProfile.findOne({ where: { phoneNumber } });
             
             if (!userProfile || !userProfile.profileComplete) {
                 await sock.sendMessage(sender, {
@@ -301,9 +304,9 @@ class DatingManager {
             const userGender = userProfile.gender || '';
             
             // Find potential matches
-            const potentialMatches = await UserProfile.findAll({
+            const potentialMatches = await this.UserProfile.findAll({
                 where: {
-                    phoneNumber: { [Sequelize.Op.ne]: phoneNumber },
+                    phoneNumber: { [this.Sequelize.Op.ne]: phoneNumber },
                     profileComplete: true,
                     datingEnabled: true
                 },
@@ -327,7 +330,7 @@ class DatingManager {
             
             let matchText = `🔍 *Found ${compatibleMatches.length} potential matches!*\n\n`;
             
-            compatibleMatches.slice(0, 3).forEach((match, index) => {
+            compatibleMatches.slice(0, 3).forEach((match, index) {
                 matchText += `*Match ${index + 1}:*\n` +
                             `👤 ${match.name || 'Unknown'}\n` +
                             `🎂 ${match.age || '?'} years\n` +
@@ -347,7 +350,7 @@ class DatingManager {
             
             // Update profile views for shown matches
             compatibleMatches.forEach(match => {
-                UserProfile.increment('profileViews', {
+                this.UserProfile.increment('profileViews', {
                     where: { phoneNumber: match.phoneNumber }
                 }).catch(console.error);
             });
@@ -376,21 +379,21 @@ class DatingManager {
 
     async showMyMatches(sock, sender, phoneNumber, username) {
         try {
-            const connections = await Connection.findAll({
+            const connections = await this.Connection.findAll({
                 where: {
-                    [Sequelize.Op.or]: [
+                    [this.Sequelize.Op.or]: [
                         { user1: phoneNumber, status: 'accepted' },
                         { user2: phoneNumber, status: 'accepted' }
                     ]
                 },
                 include: [
                     {
-                        model: UserProfile,
+                        model: this.UserProfile,
                         as: 'initiator',
                         attributes: ['name', 'location']
                     },
                     {
-                        model: UserProfile,
+                        model: this.UserProfile,
                         as: 'receiver',
                         attributes: ['name', 'location']
                     }
@@ -407,7 +410,7 @@ class DatingManager {
             
             let matchesText = `💕 *Your Matches (${connections.length})*\n\n`;
             
-            connections.forEach((connection, index) => {
+            connections.forEach((connection, index) {
                 const isInitiator = connection.user1 === phoneNumber;
                 const matchProfile = isInitiator ? connection.receiver : connection.initiator;
                 const matchNumber = isInitiator ? connection.user2 : connection.user1;
@@ -432,7 +435,7 @@ class DatingManager {
 
     async startProfileEdit(sock, sender, phoneNumber, username) {
         try {
-            const profile = await UserProfile.findOne({ where: { phoneNumber } });
+            const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
             
             if (!profile || !profile.profileComplete) {
                 await sock.sendMessage(sender, {
