@@ -866,10 +866,111 @@ app.get('/status', (req, res) => {
   });
 });
 
+// QR Code endpoint - NEW ENDPOINT TO DISPLAY QR CODE
+app.get('/qr', (req, res) => {
+  if (currentQR) {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>WhatsApp Bot QR Code</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: white;
+          }
+          .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+          }
+          h1 {
+            margin-top: 0;
+            font-size: 28px;
+          }
+          .qr-container {
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            display: inline-block;
+          }
+          pre {
+            font-family: monospace;
+            line-height: 1;
+            margin: 0;
+          }
+          .instructions {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: left;
+          }
+          .instructions ol {
+            padding-left: 20px;
+          }
+          .status {
+            margin-top: 15px;
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 5px;
+            background: ${isConnected ? 'rgba(76, 175, 80, 0.3)' : 'rgba(244, 67, 54, 0.3)'};
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>WhatsApp Bot QR Code</h1>
+          <div class="status">
+            Status: ${isConnected ? 'Connected ✅' : 'Disconnected ❌'}
+          </div>
+          <p>Scan this QR code with WhatsApp to connect your bot:</p>
+          <div class="qr-container">
+            <pre>${qrcode.generate(currentQR, { small: true })}</pre>
+          </div>
+          <div class="instructions">
+            <h3>Instructions:</h3>
+            <ol>
+              <li>Open WhatsApp on your phone</li>
+              <li>Tap Menu or Settings and select "Linked Devices"</li>
+              <li>Tap on "Link a Device"</li>
+              <li>Point your phone at this screen to scan the QR code</li>
+            </ol>
+          </div>
+          <p>This QR code will automatically refresh if needed.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  } else {
+    res.status(404).json({ 
+      error: 'No QR code available', 
+      message: 'The bot is either connected or still initializing. Please try again later.' 
+    });
+  }
+});
+
 // Start the HTTP server
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
+  console.log(`📱 QR code available at http://0.0.0.0:${port}/qr`);
   
   // Start the WhatsApp bot after the HTTP server is running
   console.log('🤖 Starting WhatsApp bot...');
