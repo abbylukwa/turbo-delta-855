@@ -330,7 +330,7 @@ class DatingManager {
             
             let matchText = `🔍 *Found ${compatibleMatches.length} potential matches!*\n\n`;
             
-            compatibleMatches.slice(0, 3).forEach((match, index) {
+            compatibleMatches.slice(0, 3).forEach((match, index) => {
                 matchText += `*Match ${index + 1}:*\n` +
                             `👤 ${match.name || 'Unknown'}\n` +
                             `🎂 ${match.age || '?'} years\n` +
@@ -410,7 +410,7 @@ class DatingManager {
             
             let matchesText = `💕 *Your Matches (${connections.length})*\n\n`;
             
-            connections.forEach((connection, index) {
+            connections.forEach((connection, index) => {
                 const isInitiator = connection.user1 === phoneNumber;
                 const matchProfile = isInitiator ? connection.receiver : connection.initiator;
                 const matchNumber = isInitiator ? connection.user2 : connection.user1;
