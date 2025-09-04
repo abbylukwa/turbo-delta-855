@@ -7,7 +7,6 @@ class GroupManager {
         this.groupsFile = path.join(__dirname, 'data', 'groups.json');
         this.commandNumber = '263717457592@s.whatsapp.net';
         this.autoJoinEnabled = true;
-        this.ensureDataDirectoryExists();
         this.groups = this.loadGroups();
         this.groupStats = {
             totalGroups: 0,
