@@ -251,7 +251,6 @@ function showQRCode(qr) {
     isQRDisplayed = true;
     
     console.log('\n⏳ Waiting for QR code scan...');
-    console.log('🔄 Performing background optimizations while waiting...');
     
     // Start background tasks while waiting for scan
     performBackgroundTasks();
@@ -301,23 +300,6 @@ async function performBackgroundTasks() {
         }
     } catch (error) {
         console.log('⚠️ Could not optimize data files:', error.message);
-    }
-    
-    // Task 3: Check system resources
-    console.log('💻 Checking system resources...');
-    try {
-        const totalMem = os.totalmem() / 1024 / 1024;
-        const freeMem = os.freemem() / 1024 / 1024;
-        const usedMem = totalMem - freeMem;
-        const memoryUsage = (usedMem / totalMem) * 100;
-        
-        console.log(`📈 Memory usage: ${memoryUsage.toFixed(2)}% (${usedMem.toFixed(2)}MB / ${totalMem.toFixed(2)}MB)`);
-        
-        if (memoryUsage > 80) {
-            console.log('⚠️ High memory usage detected');
-        }
-    } catch (error) {
-        console.log('⚠️ Could not check system resources:', error.message);
     }
     
     console.log('\n🎉 Background tasks completed!');
@@ -390,7 +372,8 @@ async function startBot() {
         const logger = createSimpleLogger();
 
         sock = makeWASocket({
-            // REMOVED printQRInTerminal: true - We'll handle QR display manually
+            // ADDED BACK: Enable terminal QR display
+            printQRInTerminal: true,
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             version: version,
@@ -417,7 +400,7 @@ async function startBot() {
             },
             // Additional options to prevent QR timeout - INCREASED TO 3 MINUTES
             qrTimeout: 180000, // 3 minutes for QR timeout
-            authTimeout: 180000, // 3 minutes for auth timeout
+            authTimeout: 180000, // 3 minutes for auth timeout,
             // Use our custom logger
             logger: logger
         });
@@ -471,6 +454,8 @@ async function startBot() {
 
             if (qr) {
                 console.log('📱 QR code received');
+                // Store the QR code
+                currentQR = qr;
                 // Show QR code in terminal
                 showQRCode(qr);
             }
@@ -646,7 +631,7 @@ async function startBot() {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...');
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
