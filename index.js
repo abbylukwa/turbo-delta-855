@@ -11,6 +11,9 @@ const { exec } = require('child_process');
 const os = require('os');
 const express = require('express'); // Added for Render
 
+// Import database models
+const { initializeDatabase } = require('./models');
+
 // Import managers
 const UserManager = require('./user-manager');
 const ActivationManager = require('./activation-manager');
@@ -23,9 +26,6 @@ const PaymentHandler = require('./payment-handler');
 const DatingManager = require('./dating-manager');
 const { Boom } = require('@hapi/boom');
 
-// Import database models
-const { initializeDatabase, UserProfile, Connection, DatingMessage, Sequelize } = require('./models');
-
 // Store for connection
 let sock = null;
 let isConnected = false;
@@ -34,9 +34,6 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000; // Increased to 50 seconds
 
 // QR code management
-let lastQRGenerationTime = 0;
-const QR_GENERATION_COOLDOWN = 70000; // 70 seconds cooldown between QR codes
-let qrCooldownTimeout = null;
 let currentQR = null;
 let isQRDisplayed = false;
 
@@ -251,7 +248,6 @@ function showQRCode(qr) {
     console.log('👉 Scan with WhatsApp -> Linked Devices');
     console.log('──────────────────────────────────────────\n');
     qrcode.generate(qr, { small: true });
-    lastQRGenerationTime = Date.now();
     isQRDisplayed = true;
     
     console.log('\n⏳ Waiting for QR code scan...');
@@ -324,26 +320,6 @@ async function performBackgroundTasks() {
         console.log('⚠️ Could not check system resources:', error.message);
     }
     
-    // Task 4: Validate user data
-    console.log('👥 Validating user data...');
-    try {
-        // This would normally be your user validation logic
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('✅ User data validation completed');
-    } catch (error) {
-        console.log('⚠️ Could not validate user data:', error.message);
-    }
-    
-    // Task 5: Check for updates
-    console.log('🔍 Checking for updates...');
-    try {
-        // Simulate checking for updates
-        await new Promise(resolve => setTimeout(resolve, 800));
-        console.log('✅ System is up to date');
-    } catch (error) {
-        console.log('⚠️ Could not check for updates:', error.message);
-    }
-    
     console.log('\n🎉 Background tasks completed!');
     console.log('📱 Please scan the QR code with your WhatsApp when ready\n');
 }
@@ -378,15 +354,28 @@ function debugConnectionState(update) {
     }
 }
 
+// Add this function to initialize the application
+async function startApp() {
+    try {
+        // Initialize database first
+        console.log('🔄 Initializing database...');
+        await initializeDatabase();
+        
+        // Then start the bot
+        console.log('🤖 Starting WhatsApp bot...');
+        await connectionManager.connect();
+    } catch (error) {
+        console.error('❌ Failed to start application:', error);
+        process.exit(1);
+    }
+}
+
 async function startBot() {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
         
         // Ensure directories exist
         await ensureDirectories();
-
-        // Initialize database first
-        await initializeDatabase();
 
         // Check if we have existing auth files
         const hasAuthFiles = await checkAuthFiles();
@@ -443,7 +432,6 @@ async function startBot() {
         echo('Initializing ActivationManager...');
         const activationManager = new ActivationManager(userManager);
         
-        // FIXED: Initialize GroupManager without calling ensureDataDirectoryExists
         echo('Initializing GroupManager...');
         const groupManager = new GroupManager();
         
@@ -457,9 +445,7 @@ async function startBot() {
         const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
         
         echo('Initializing DatingManager...');
-        const datingManager = new DatingManager(userManager, subscriptionManager, { 
-            UserProfile, Connection, DatingMessage, Sequelize 
-        });
+        const datingManager = new DatingManager(userManager, subscriptionManager);
         
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
@@ -641,7 +627,7 @@ async function startBot() {
                 if (handledPayment) return;
 
                 // Handle dating commands - check if dating mode is enabled
-                if (datingManager.isDatingModeEnabled(phoneNumber)) {
+                if (await datingManager.isDatingModeEnabled(phoneNumber)) {
                     const handledDating = await datingManager.handleDatingCommand(sock, sender, phoneNumber, username, text, message);
                     if (handledDating) return;
                 } else if (text.toLowerCase().includes('dating') || text.toLowerCase().includes('date')) {
@@ -678,7 +664,7 @@ async function startBot() {
                     
                     if (success) {
                         // Activate dating mode for this user
-                        datingManager.activateDatingMode(targetPhone);
+                        await datingManager.activateDatingMode(targetPhone);
                         await sock.sendMessage(sender, {
                             text: `✅ Subscription activated for ${targetPhone}\n` +
                                   `💝 Dating mode has been enabled for this user.`
@@ -795,7 +781,7 @@ app.listen(port, '0.0.0.0', () => {
   
   // Start the WhatsApp bot after the HTTP server is running
   console.log('🤖 Starting WhatsApp bot...');
-  connectionManager.connect();
+  startApp();
 });
 
 // Process handlers
