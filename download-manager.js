@@ -17,14 +17,20 @@ class DownloadManager {
             'youtube.com': this.downloadYouTube.bind(this),
             'youtu.be': this.downloadYouTube.bind(this),
             'instagram.com': this.downloadInstagram.bind(this),
+            'xvideos.com': this.downloadXvideos.bind(this),
             'twitter.com': this.downloadTwitter.bind(this),
+            'pornpics.com': this.downloadPornpics.bind(this),
+            'motherless.com': this.downloadMotherless.bind(this),
+            'pornhits.com': this.downloadPornHits.bind(this),
             'x.com': this.downloadTwitter.bind(this),
             'tiktok.com': this.downloadTikTok.bind(this),
             'facebook.com': this.downloadFacebook.bind(this),
             'reddit.com': this.downloadReddit.bind(this),
+            'tik.porn': this.downloadTikporn.bind(this),
             'pinterest.com': this.downloadPinterest.bind(this),
             'spotify.com': this.downloadSpotify.bind(this),
-            'soundcloud.com': this.downloadSoundCloud.bind(this)
+            'soundcloud.com': this.downloadSoundCloud.bind(this),
+            'pornhub.com': this.downloadPornhub.bind(this)
         };
     }
 
