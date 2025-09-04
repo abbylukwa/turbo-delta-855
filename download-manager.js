@@ -12,25 +12,21 @@ class DownloadManager {
         this.tempDir = path.join(__dirname, 'temp');
         this.ensureDirectoriesExist();
         
-        // Supported websites and their handlers
+        // Supported websites with arrow functions to automatically bind 'this'
         this.supportedWebsites = {
-            'youtube.com': this.downloadYouTube.bind(this),
-            'youtu.be': this.downloadYouTube.bind(this),
-            'instagram.com': this.downloadInstagram.bind(this),
-            'xvideos.com': this.downloadXvideos.bind(this),
-            'twitter.com': this.downloadTwitter.bind(this),
-            'pornpics.com': this.downloadPornpics.bind(this),
-            'motherless.com': this.downloadMotherless.bind(this),
-            'pornhits.com': this.downloadPornHits.bind(this),
-            'x.com': this.downloadTwitter.bind(this),
-            'tiktok.com': this.downloadTikTok.bind(this),
-            'facebook.com': this.downloadFacebook.bind(this),
-            'reddit.com': this.downloadReddit.bind(this),
-            'tik.porn': this.downloadTikporn.bind(this),
-            'pinterest.com': this.downloadPinterest.bind(this),
-            'spotify.com': this.downloadSpotify.bind(this),
-            'soundcloud.com': this.downloadSoundCloud.bind(this),
-            'pornhub.com': this.downloadPornhub.bind(this)
+            'youtube.com': (url, phoneNumber, options) => this.downloadYouTube(url, phoneNumber, options),
+            'youtu.be': (url, phoneNumber, options) => this.downloadYouTube(url, phoneNumber, options),
+            'instagram.com': (url, phoneNumber) => this.downloadInstagram(url, phoneNumber),
+            'twitter.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'tik.porn': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'xvideos.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'reddit.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'pornhub.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'wonporn.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'xnxx.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'pornhits.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'soundcloud.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber),
+            'x.com': (url, phoneNumber) => this.downloadGeneric(url, phoneNumber)
         };
     }
 
@@ -121,38 +117,13 @@ class DownloadManager {
     }
 
     async downloadInstagram(url, phoneNumber) {
-        // Instagram download logic using external API or scraping
         try {
-            // This would typically use an Instagram API or scraping service
-            // For now, we'll use a generic download
+            // Instagram download logic - using generic download for now
+            // You can implement specific Instagram downloading logic here later
+            console.log('Downloading from Instagram:', url);
             return await this.downloadGeneric(url, phoneNumber);
         } catch (error) {
             throw new Error(`Instagram download failed: ${error.message}`);
-        }
-    }
-
-    async downloadTwitter(url, phoneNumber) {
-        // Twitter download logic
-        try {
-            // Use twitter-dl or similar service
-            const userDir = path.join(this.downloadsDir, phoneNumber);
-            const filename = `twitter_${Date.now()}.mp4`;
-            const filePath = path.join(userDir, filename);
-
-            // This would use a Twitter download API
-            return await this.downloadGeneric(url, phoneNumber);
-        } catch (error) {
-            throw new Error(`Twitter download failed: ${error.message}`);
-        }
-    }
-
-    async downloadTikTok(url, phoneNumber) {
-        // TikTok download logic
-        try {
-            // Use tiktok-dl or similar service
-            return await this.downloadGeneric(url, phoneNumber);
-        } catch (error) {
-            throw new Error(`TikTok download failed: ${error.message}`);
         }
     }
 
@@ -168,12 +139,17 @@ class DownloadManager {
                 url: url,
                 responseType: 'stream',
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': '*/*',
+                    'Accept-Encoding': 'identity',
+                    'Connection': 'keep-alive'
+                },
+                timeout: 30000
             });
 
             const contentType = response.headers['content-type'];
-            const extension = this.getExtensionFromContentType(contentType, url);
+            const contentDisposition = response.headers['content-disposition'];
+            const extension = this.getExtensionFromContentType(contentType, url, contentDisposition);
             const filename = `download_${Date.now()}${extension}`;
             const filePath = path.join(userDir, filename);
 
@@ -181,6 +157,14 @@ class DownloadManager {
             response.data.pipe(writer);
 
             return new Promise((resolve, reject) => {
+                let downloadedBytes = 0;
+                let totalBytes = parseInt(response.headers['content-length'], 10) || 0;
+
+                response.data.on('data', (chunk) => {
+                    downloadedBytes += chunk.length;
+                    // You can add progress reporting here if needed
+                });
+
                 writer.on('finish', () => {
                     const stats = fs.statSync(filePath);
                     resolve({
@@ -188,52 +172,129 @@ class DownloadManager {
                         name: filename,
                         size: stats.size,
                         type: this.getFileTypeFromExtension(extension),
-                        url: url
+                        url: url,
+                        originalName: this.getOriginalFilename(contentDisposition, url)
                     });
                 });
-                writer.on('error', reject);
+                
+                writer.on('error', (error) => {
+                    // Clean up partial file on error
+                    if (fs.existsSync(filePath)) {
+                        fs.unlinkSync(filePath);
+                    }
+                    reject(error);
+                });
+
+                // Handle request errors
+                response.data.on('error', reject);
             });
         } catch (error) {
             throw new Error(`Generic download failed: ${error.message}`);
         }
     }
 
-    getExtensionFromContentType(contentType, url) {
+    getExtensionFromContentType(contentType, url, contentDisposition = '') {
+        // First try to get extension from content-disposition
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (filenameMatch && filenameMatch[1]) {
+                const filename = filenameMatch[1];
+                const dotIndex = filename.lastIndexOf('.');
+                if (dotIndex !== -1) {
+                    return filename.substring(dotIndex);
+                }
+            }
+        }
+
+        // Then try content-type
         if (contentType) {
             const extensions = {
                 'image/jpeg': '.jpg',
+                'image/jpg': '.jpg',
                 'image/png': '.png',
                 'image/gif': '.gif',
                 'image/webp': '.webp',
+                'image/svg+xml': '.svg',
                 'video/mp4': '.mp4',
+                'video/mpeg': '.mpeg',
+                'video/quicktime': '.mov',
                 'video/webm': '.webm',
+                'video/x-msvideo': '.avi',
+                'video/x-ms-wmv': '.wmv',
                 'audio/mpeg': '.mp3',
                 'audio/wav': '.wav',
-                'application/pdf': '.pdf'
+                'audio/ogg': '.ogg',
+                'audio/x-m4a': '.m4a',
+                'application/pdf': '.pdf',
+                'text/plain': '.txt',
+                'application/zip': '.zip',
+                'application/x-rar-compressed': '.rar'
             };
-            return extensions[contentType] || '.bin';
+            
+            const extension = extensions[contentType.split(';')[0].trim()];
+            if (extension) return extension;
         }
         
         // Fallback to URL extension
-        const urlParts = url.split('/');
-        const lastPart = urlParts[urlParts.length - 1];
-        const dotIndex = lastPart.lastIndexOf('.');
-        if (dotIndex !== -1) {
-            return lastPart.substring(dotIndex);
+        try {
+            const urlObj = new URL(url);
+            const pathname = urlObj.pathname;
+            const dotIndex = pathname.lastIndexOf('.');
+            if (dotIndex !== -1) {
+                const ext = pathname.substring(dotIndex);
+                // Basic validation to ensure it's a reasonable extension
+                if (ext.length <= 8 && /^\.\w+$/.test(ext)) {
+                    return ext;
+                }
+            }
+        } catch (e) {
+            // URL parsing failed, try simple string method
+            const urlParts = url.split('/');
+            const lastPart = urlParts[urlParts.length - 1];
+            const dotIndex = lastPart.lastIndexOf('.');
+            if (dotIndex !== -1) {
+                const ext = lastPart.substring(dotIndex);
+                if (ext.length <= 8 && /^\.\w+$/.test(ext)) {
+                    return ext;
+                }
+            }
         }
         
         return '.bin';
     }
 
-    getFileTypeFromExtension(extension) {
-        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-        const videoExtensions = ['.mp4', '.mov', '.avi', '.wmv', '.flv', '.webm', '.mkv'];
-        const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a'];
+    getOriginalFilename(contentDisposition, url) {
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (filenameMatch && filenameMatch[1]) {
+                return filenameMatch[1];
+            }
+        }
         
-        if (imageExtensions.includes(extension.toLowerCase())) return 'image';
-        if (videoExtensions.includes(extension.toLowerCase())) return 'video';
-        if (audioExtensions.includes(extension.toLowerCase())) return 'audio';
-        return 'document';
+        // Extract from URL as fallback
+        try {
+            const urlObj = new URL(url);
+            return urlObj.pathname.split('/').pop() || 'download';
+        } catch (e) {
+            return url.split('/').pop() || 'download';
+        }
+    }
+
+    getFileTypeFromExtension(extension) {
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.tiff'];
+        const videoExtensions = ['.mp4', '.mov', '.avi', '.wmv', '.flv', '.webm', '.mkv', '.mpeg', '.mpg'];
+        const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac', '.wma'];
+        const documentExtensions = ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.xls', '.xlsx', '.ppt', '.pptx'];
+        
+        const ext = extension.toLowerCase();
+        
+        if (imageExtensions.includes(ext)) return 'image';
+        if (videoExtensions.includes(ext)) return 'video';
+        if (audioExtensions.includes(ext)) return 'audio';
+        if (documentExtensions.includes(ext)) return 'document';
+        if (ext === '.zip' || ext === '.rar' || ext === '.7z') return 'archive';
+        
+        return 'unknown';
     }
 
     getUserDownloads(phoneNumber) {
@@ -242,23 +303,48 @@ class DownloadManager {
         
         return fs.readdirSync(userDir).map(file => {
             const filePath = path.join(userDir, file);
-            const stats = fs.statSync(filePath);
-            return {
-                name: file,
-                size: stats.size,
-                date: stats.mtime,
-                type: this.getFileTypeFromExtension(path.extname(file))
-            };
-        });
+            try {
+                const stats = fs.statSync(filePath);
+                return {
+                    name: file,
+                    size: stats.size,
+                    date: stats.mtime,
+                    type: this.getFileTypeFromExtension(path.extname(file)),
+                    path: filePath
+                };
+            } catch (error) {
+                console.error(`Error reading file ${filePath}:`, error);
+                return null;
+            }
+        }).filter(Boolean); // Remove null entries
     }
 
     deleteUserFile(phoneNumber, filename) {
         const filePath = path.join(this.downloadsDir, phoneNumber, filename);
         if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            return true;
+            try {
+                fs.unlinkSync(filePath);
+                return true;
+            } catch (error) {
+                console.error(`Error deleting file ${filePath}:`, error);
+                return false;
+            }
         }
         return false;
+    }
+
+    deleteAllUserFiles(phoneNumber) {
+        const userDir = path.join(this.downloadsDir, phoneNumber);
+        if (fs.existsSync(userDir)) {
+            try {
+                fs.rmSync(userDir, { recursive: true, force: true });
+                return true;
+            } catch (error) {
+                console.error(`Error deleting user directory ${userDir}:`, error);
+                return false;
+            }
+        }
+        return true; // Directory doesn't exist, so consider it deleted
     }
 
     getUserDirectory(phoneNumber) {
@@ -269,48 +355,63 @@ class DownloadManager {
         const userDir = this.getUserDirectory(phoneNumber);
         if (!fs.existsSync(userDir)) return 0;
         
-        const files = fs.readdirSync(userDir);
         let totalSize = 0;
-        
-        files.forEach(file => {
-            const filePath = path.join(userDir, file);
-            totalSize += fs.statSync(filePath).size;
-        });
+        try {
+            const files = fs.readdirSync(userDir);
+            files.forEach(file => {
+                const filePath = path.join(userDir, file);
+                try {
+                    totalSize += fs.statSync(filePath).size;
+                } catch (error) {
+                    console.error(`Error getting stats for ${filePath}:`, error);
+                }
+            });
+        } catch (error) {
+            console.error(`Error reading user directory ${userDir}:`, error);
+        }
         
         return totalSize;
     }
 
-    // Additional platform-specific download methods
-    async downloadFacebook(url, phoneNumber) {
-        // Facebook download implementation
-        return await this.downloadGeneric(url, phoneNumber);
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
-    async downloadReddit(url, phoneNumber) {
-        // Reddit download implementation
-        return await this.downloadGeneric(url, phoneNumber);
+    async cleanupOldFiles(phoneNumber, maxAgeHours = 24) {
+        const userDir = path.join(this.downloadsDir, phoneNumber);
+        if (!fs.existsSync(userDir)) return 0;
+        
+        const now = Date.now();
+        const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+        let deletedCount = 0;
+        
+        try {
+            const files = fs.readdirSync(userDir);
+            for (const file of files) {
+                const filePath = path.join(userDir, file);
+                try {
+                    const stats = fs.statSync(filePath);
+                    if (now - stats.mtimeMs > maxAgeMs) {
+                        fs.unlinkSync(filePath);
+                        deletedCount++;
+                    }
+                } catch (error) {
+                    console.error(`Error cleaning up file ${filePath}:`, error);
+                }
+            }
+        } catch (error) {
+            console.error(`Error during cleanup for ${userDir}:`, error);
+        }
+        
+        return deletedCount;
     }
 
-    async downloadPinterest(url, phoneNumber) {
-        // Pinterest download implementation
-        return await this.downloadGeneric(url, phoneNumber);
-    }
-
-    async downloadSpotify(url, phoneNumber) {
-        // Spotify download implementation (would need special handling)
-        return await this.downloadGeneric(url, phoneNumber);
-    }
-
-    async downloadSoundCloud(url, phoneNumber) {
-        // SoundCloud download implementation
-        return await this.downloadGeneric(url, phoneNumber);
-    }
-
-    // Advanced: Download from search query
     async downloadFromSearch(query, phoneNumber, type = 'video') {
         try {
-            // This would use a search API to find content
-            // For now, we'll simulate this functionality
             const searchUrl = await this.searchContent(query, type);
             if (searchUrl) {
                 return await this.downloadContent(searchUrl, phoneNumber);
@@ -322,9 +423,23 @@ class DownloadManager {
     }
 
     async searchContent(query, type = 'video') {
-        // This would integrate with a search API
-        // For demonstration, return a mock URL
+        // Placeholder for search functionality
+        // In a real implementation, you would integrate with a search API
+        console.log(`Searching for ${type}: ${query}`);
         return `https://example.com/${type}/${encodeURIComponent(query)}`;
+    }
+
+    // Utility method to check if a URL is supported
+    isUrlSupported(url) {
+        return Object.keys(this.supportedWebsites).some(site => 
+            url.includes(site)
+        );
+    }
+
+    // Method to get download progress (useful for large files)
+    async downloadWithProgress(url, phoneNumber, onProgress) {
+        // Implementation for progress tracking would go here
+        return await this.downloadGeneric(url, phoneNumber);
     }
 }
 
