@@ -3,15 +3,31 @@ class DatingManager {
         this.userManager = userManager;
         this.subscriptionManager = subscriptionManager;
         this.models = models;
-        this.UserProfile = models.UserProfile;
-        this.Connection = models.Connection;
-        this.DatingMessage = models.DatingMessage;
-        this.Sequelize = models.Sequelize;
+        
+        // Safe property access with fallbacks
+        this.UserProfile = models?.UserProfile || null;
+        this.Connection = models?.Connection || null;
+        this.DatingMessage = models?.DatingMessage || null;
+        this.Sequelize = models?.Sequelize || null;
+        
         this.userStates = {};
         this.userLastActivity = {};
+        
+        // Check if required models are available
+        if (!this.UserProfile) {
+            console.warn('⚠️ UserProfile model not provided. Dating features will be limited.');
+        }
+        if (!this.Connection) {
+            console.warn('⚠️ Connection model not provided. Match features will be limited.');
+        }
     }
 
     async activateDatingMode(phoneNumber) {
+        if (!this.UserProfile) {
+            console.error('Cannot activate dating mode: UserProfile model not available');
+            return false;
+        }
+
         try {
             const [profile, created] = await this.UserProfile.findOrCreate({
                 where: { phoneNumber },
@@ -38,6 +54,8 @@ class DatingManager {
     }
 
     async isDatingModeEnabled(phoneNumber) {
+        if (!this.UserProfile) return false;
+
         try {
             const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
             return profile && profile.datingEnabled === true;
@@ -50,11 +68,13 @@ class DatingManager {
     trackUserActivity(phoneNumber) {
         this.userLastActivity[phoneNumber] = Date.now();
         
-        // Update last active in database
-        this.UserProfile.update(
-            { lastActive: new Date() },
-            { where: { phoneNumber } }
-        ).catch(console.error);
+        // Update last active in database if model is available
+        if (this.UserProfile) {
+            this.UserProfile.update(
+                { lastActive: new Date() },
+                { where: { phoneNumber } }
+            ).catch(error => console.error('Error updating last active:', error));
+        }
     }
 
     async checkInactiveUsers(sock) {
@@ -94,6 +114,14 @@ class DatingManager {
     }
 
     async handleDatingCommand(sock, sender, phoneNumber, username, text, message) {
+        if (!this.UserProfile) {
+            await sock.sendMessage(sender, {
+                text: `❌ Dating features are currently unavailable.\n\n` +
+                      `Please try again later.`
+            });
+            return true;
+        }
+        
         if (!await this.isDatingModeEnabled(phoneNumber)) {
             await sock.sendMessage(sender, {
                 text: `❌ Dating features are not enabled for your account.\n\n` +
@@ -193,6 +221,13 @@ class DatingManager {
     }
 
     async handleProfileCreation(sock, sender, phoneNumber, username, text) {
+        if (!this.UserProfile) {
+            await sock.sendMessage(sender, {
+                text: `❌ Profile creation is currently unavailable.`
+            });
+            return;
+        }
+
         const state = this.userStates[phoneNumber];
         
         try {
@@ -252,6 +287,13 @@ class DatingManager {
     }
 
     async showDatingStats(sock, sender, phoneNumber, username) {
+        if (!this.UserProfile || !this.Connection) {
+            await sock.sendMessage(sender, {
+                text: `❌ Dating stats are currently unavailable.`
+            });
+            return;
+        }
+
         try {
             const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
             
@@ -289,6 +331,13 @@ class DatingManager {
     }
 
     async findMatches(sock, sender, phoneNumber, username) {
+        if (!this.UserProfile) {
+            await sock.sendMessage(sender, {
+                text: `❌ Match finding is currently unavailable.`
+            });
+            return;
+        }
+
         try {
             const userProfile = await this.UserProfile.findOne({ where: { phoneNumber } });
             
@@ -352,7 +401,7 @@ class DatingManager {
             compatibleMatches.forEach(match => {
                 this.UserProfile.increment('profileViews', {
                     where: { phoneNumber: match.phoneNumber }
-                }).catch(console.error);
+                }).catch(error => console.error('Error updating profile views:', error));
             });
             
         } catch (error) {
@@ -378,6 +427,13 @@ class DatingManager {
     }
 
     async showMyMatches(sock, sender, phoneNumber, username) {
+        if (!this.Connection || !this.UserProfile) {
+            await sock.sendMessage(sender, {
+                text: `❌ Match viewing is currently unavailable.`
+            });
+            return;
+        }
+
         try {
             const connections = await this.Connection.findAll({
                 where: {
@@ -415,9 +471,9 @@ class DatingManager {
                 const matchProfile = isInitiator ? connection.receiver : connection.initiator;
                 const matchNumber = isInitiator ? connection.user2 : connection.user1;
                 
-                matchesText += `👤 *${matchProfile.name || 'Unknown'}*\n` +
+                matchesText += `👤 *${matchProfile?.name || 'Unknown'}*\n` +
                              `📞 ${matchNumber}\n` +
-                             `📍 ${matchProfile.location || 'Unknown location'}\n` +
+                             `📍 ${matchProfile?.location || 'Unknown location'}\n` +
                              `📅 Connected: ${connection.createdAt.toLocaleDateString()}\n\n`;
             });
             
@@ -434,6 +490,13 @@ class DatingManager {
     }
 
     async startProfileEdit(sock, sender, phoneNumber, username) {
+        if (!this.UserProfile) {
+            await sock.sendMessage(sender, {
+                text: `❌ Profile editing is currently unavailable.`
+            });
+            return;
+        }
+
         try {
             const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
             
