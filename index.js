@@ -56,7 +56,7 @@ async function ensureDirectories() {
         }
         console.log('✅ Data directories created successfully');
     } catch (error) {
-        console.error('❌ Error creating directories:', error);
+    console.error('❌ Error creating directories:', error);
     }
 }
 
@@ -631,7 +631,7 @@ async function startBot() {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...');
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
