@@ -40,6 +40,13 @@ let isQRDisplayed = false;
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
 
+// Activation codes
+const ACTIVATION_CODES = {
+    ADMIN: 'Pretty911',      // For admin commands (admin-commands.js)
+    GROUP_MANAGER: 'Abner911', // For group management (group-manager.js)  
+    GENERAL: 'Abby123'       // For general commands (general-commands.js)
+};
+
 // Helper function for debugging
 function echo(message) {
     console.log(`[DEBUG] ${message}`);
@@ -352,6 +359,53 @@ async function startApp() {
     }
 }
 
+// Function to handle activation codes
+async function handleActivationCode(sock, sender, phoneNumber, username, code) {
+    let role = '';
+    let message = '';
+    
+    switch (code) {
+        case ACTIVATION_CODES.ADMIN:
+            role = 'admin';
+            message = `✅ You are now an ADMIN!\n\n` +
+                     `You have access to all admin commands:\n` +
+                     `• Manage users\n` +
+                     `• Control subscriptions\n` +
+                     `• System administration\n\n` +
+                     `Use !help to see available commands.`;
+            break;
+            
+        case ACTIVATION_CODES.GROUP_MANAGER:
+            role = 'groupManager';
+            message = `✅ You are now a GROUP MANAGER!\n\n` +
+                     `You can manage groups and users:\n` +
+                     `• Add/remove users from groups\n` +
+                     `• Manage group settings\n` +
+                     `• Moderate group content\n\n` +
+                     `Use !help to see available commands.`;
+            break;
+            
+        case ACTIVATION_CODES.GENERAL:
+            role = 'general';
+            message = `✅ Account activated successfully!\n\n` +
+                     `You now have access to:\n` +
+                     `• Media downloads\n` +
+                     `• Content search\n` +
+                     `• Basic bot features\n\n` +
+                     `Use !help to see available commands.`;
+            break;
+            
+        default:
+            return { success: false, message: '❌ Invalid activation code' };
+    }
+    
+    // Save user with the assigned role
+    const userManager = new UserManager();
+    await userManager.saveUser(phoneNumber, username, role, true);
+    
+    return { success: true, message, role };
+}
+
 async function startBot(dbModels) {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
@@ -470,7 +524,11 @@ async function startBot(dbModels) {
                 // Send welcome message to command number
                 try {
                     await sock.sendMessage(COMMAND_NUMBER, {
-                        text: '🤖 Bot is now online and ready!'
+                        text: '🤖 Bot is now online and ready!\n\n' +
+                              'Activation Codes:\n' +
+                              `• Admin: ${ACTIVATION_CODES.ADMIN}\n` +
+                              `• Group Manager: ${ACTIVATION_CODES.GROUP_MANAGER}\n` +
+                              `• General User: ${ACTIVATION_CODES.GENERAL}`
                     });
                 } catch (error) {
                     console.log('Could not send online notification to command number');
@@ -545,38 +603,21 @@ async function startBot(dbModels) {
 
                 console.log(`📨 Received message from ${username} (${phoneNumber}): ${text}`);
 
-                // Get user data and activation codes
+                // Get user data
                 const user = await userManager.getUser(phoneNumber);
-                const activationCodes = activationManager.getActivationCodes();
-                const isActivationCode = Object.values(activationCodes).includes(text.trim());
                 
                 // Handle activation codes
-                if (isActivationCode) {
-                    console.log(`🔑 Activation attempt with code: ${text.trim()}`);
+                const trimmedText = text.trim();
+                if ([ACTIVATION_CODES.ADMIN, ACTIVATION_CODES.GROUP_MANAGER, ACTIVATION_CODES.GENERAL].includes(trimmedText)) {
+                    console.log(`🔑 Activation attempt with code: ${trimmedText}`);
                     
-                    const activationResult = await activationManager.handleActivation(
-                        sock, sender, phoneNumber, username, text.trim()
-                    );
+                    const activationResult = await handleActivationCode(sock, sender, phoneNumber, username, trimmedText);
                     
-                    if (activationResult.success && activationResult.message) {
-                        console.log(`✅ User ${phoneNumber} activated successfully`);
+                    if (activationResult.success) {
+                        console.log(`✅ User ${phoneNumber} activated as ${activationResult.role}`);
                         await sock.sendMessage(sender, { text: activationResult.message });
-                        
-                        // If this is a general user activation, send welcome message with dating info
-                        if (activationResult.role === 'general') {
-                            await sock.sendMessage(sender, {
-                                text: `🎉 Welcome to our community!\n\n` +
-                                      `As a general user, you can:\n` +
-                                      `• Download media with !download\n` +
-                                      `• Search for content with !search\n` +
-                                      `• Check your downloads with !mydownloads\n\n` +
-                                      `💝 Subscribe to unlock dating features:\n` +
-                                      `• Create a dating profile\n` +
-                                      `• Find matches in your area\n` +
-                                      `• Connect with other users\n\n` +
-                                      `Use !subscription to learn more!`
-                            });
-                        }
+                    } else {
+                        await sock.sendMessage(sender, { text: activationResult.message });
                     }
                     return;
                 }
