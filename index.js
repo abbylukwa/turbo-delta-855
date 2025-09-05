@@ -11,8 +11,8 @@ const { exec } = require('child_process');
 const os = require('os');
 const express = require('express'); // Added for Render
 
-// Import database models
-const { initializeDatabase } = require('./models');
+// Import database models - FIXED IMPORT
+const { initializeDatabase, models } = require('./models');
 
 // Import managers
 const UserManager = require('./user-manager');
@@ -341,18 +341,18 @@ async function startApp() {
     try {
         // Initialize database first
         console.log('🔄 Initializing database...');
-        await initializeDatabase();
+        const dbModels = await initializeDatabase();
         
-        // Then start the bot
+        // Then start the bot with the models
         console.log('🤖 Starting WhatsApp bot...');
-        await connectionManager.connect();
+        await startBot(dbModels);
     } catch (error) {
         console.error('❌ Failed to start application:', error);
         process.exit(1);
     }
 }
 
-async function startBot() {
+async function startBot(dbModels) {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
         
@@ -427,8 +427,9 @@ async function startBot() {
         echo('Initializing PaymentHandler...');
         const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
         
+        // Use the models from database initialization
         echo('Initializing DatingManager...');
-        const datingManager = new DatingManager(userManager, subscriptionManager);
+        const datingManager = new DatingManager(userManager, subscriptionManager, dbModels || models);
         
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
