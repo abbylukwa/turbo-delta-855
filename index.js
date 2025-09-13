@@ -47,6 +47,96 @@ const ACTIVATION_CODES = {
     GENERAL: 'Abby123'       // For general commands (general-commands.js)
 };
 
+// ==================== SESSION PERSISTENCE FOR DOCKER ====================
+// Automatic session backup to temporary storage (survives container restarts)
+function setupSessionBackup() {
+    setInterval(() => {
+        try {
+            const authDir = path.join(__dirname, 'auth_info_baileys');
+            const backupDir = '/tmp/auth_backup';
+            
+            if (fs.existsSync(authDir)) {
+                if (!fs.existsSync(backupDir)) {
+                    fs.mkdirSync(backupDir, { recursive: true });
+                }
+                
+                // Copy auth files to temporary storage
+                const files = fs.readdirSync(authDir);
+                files.forEach(file => {
+                    const source = path.join(authDir, file);
+                    const dest = path.join(backupDir, file);
+                    try {
+                        fs.copyFileSync(source, dest);
+                    } catch (copyError) {
+                        console.log('⚠️ Could not backup file:', file, copyError.message);
+                    }
+                });
+                
+                console.log('✅ Auth files backed up to temporary storage');
+            }
+        } catch (error) {
+            console.log('⚠️ Could not backup auth files:', error.message);
+        }
+    }, 30000); // Backup every 30 seconds
+}
+
+// Restore session if available from temporary storage
+function restoreSessionIfAvailable() {
+    try {
+        const authDir = path.join(__dirname, 'auth_info_baileys');
+        const backupDir = '/tmp/auth_backup';
+        
+        if (fs.existsSync(backupDir) && !fs.existsSync(authDir)) {
+            fs.mkdirSync(authDir, { recursive: true });
+            
+            const files = fs.readdirSync(backupDir);
+            files.forEach(file => {
+                const source = path.join(backupDir, file);
+                const dest = path.join(authDir, file);
+                try {
+                    fs.copyFileSync(source, dest);
+                    console.log('✅ Restored auth file:', file);
+                } catch (copyError) {
+                    console.log('⚠️ Could not restore file:', file, copyError.message);
+                }
+            });
+            
+            console.log('✅ Auth files restored from backup');
+            return true;
+        }
+    } catch (error) {
+        console.log('⚠️ Could not restore auth files:', error.message);
+    }
+    return false;
+}
+
+// ==================== END SESSION PERSISTENCE ====================
+
+// Function to validate and clean auth state
+async function validateAuthState(state) {
+    try {
+        // Check if credentials exist and are valid
+        if (!state.creds || !state.creds.noiseKey || !state.creds.signedIdentityKey) {
+            console.log('🔄 Invalid auth state detected, clearing...');
+            await clearAuthFiles();
+            return false;
+        }
+        
+        // Check if registration exists
+        if (!state.creds.registered) {
+            console.log('🔄 Not registered, will need QR scan...');
+            return false;
+        }
+        
+        console.log('✅ Auth state appears valid');
+        return true;
+    } catch (error) {
+        console.log('❌ Error validating auth state:', error.message);
+        await clearAuthFiles();
+        return false;
+    }
+}
+
 // Helper function for debugging
 function echo(message) {
     console.log(`[DEBUG] ${message}`);
@@ -410,6 +500,12 @@ async function startBot(dbModels) {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
         
+        // Check if we can restore session from temporary storage first
+        const hasRestoredSession = restoreSessionIfAvailable();
+        if (hasRestoredSession) {
+            console.log('✅ Session restored from backup, should not need QR scan');
+        }
+        
         // Ensure directories exist
         await ensureDirectories();
 
@@ -417,6 +513,18 @@ async function startBot(dbModels) {
         const hasAuthFiles = await checkAuthFiles();
 
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+        // Validate auth state before proceeding
+        const isValidAuth = await validateAuthState(state);
+        if (!isValidAuth) {
+            console.log('🔄 Auth state invalid, will require new QR scan');
+            // Clear any potentially corrupted state
+            await clearAuthFiles();
+            // Re-create auth state
+            const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState('auth_info_baileys');
+            Object.assign(state, newState);
+            Object.assign(saveCreds, newSaveCreds);
+        }
 
         // Get latest version for better compatibility
         const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -432,15 +540,20 @@ async function startBot(dbModels) {
             auth: state,
             version: version,
             markOnlineOnConnect: false,
-            connectTimeoutMs: 120000, // Increased timeout to 2 minutes
-            keepAliveIntervalMs: 20000, // Increased keepalive
-            defaultQueryTimeoutMs: 60000,
-            maxRetries: 10, // Increased retries
+            connectTimeoutMs: 180000, // Increased to 3 minutes
+            keepAliveIntervalMs: 30000, // Increased to 30 seconds
+            defaultQueryTimeoutMs: 90000, // Increased to 90 seconds
+            maxRetries: 15, // Increased retries
             syncFullHistory: false,
             transactionOpts: {
-                maxCommitRetries: 10, // Increased retries
-                delayBetweenTriesMs: 5000 // Increased delay
+                maxCommitRetries: 15, // Increased retries
+                delayBetweenTriesMs: 3000 // Reduced delay
             },
+            // Add these new options for better connection stability
+            retryRequestDelayMs: 3000,
+            maxCachedMessages: 50,
+            shouldIgnoreJid: (jid) => jid?.endsWith('@g.us'), // Ignore group messages during reconnect
+            fireInitQueries: true,
             registration: {
                 phoneCall: false,
                 codeMethod: 'none'
@@ -458,6 +571,9 @@ async function startBot(dbModels) {
             // Use our custom logger
             logger: logger
         });
+
+        // Start session backup system
+        setupSessionBackup();
 
         // Initialize managers
         echo('Initializing UserManager...');
@@ -539,6 +655,12 @@ async function startBot(dbModels) {
                 const errorMessage = lastDisconnect?.error?.message || 'Unknown reason';
                 
                 console.log(`🔌 Connection closed: ${errorMessage}`);
+                console.log('🔍 Status code:', statusCode);
+                
+                // Log full error details for debugging
+                if (lastDisconnect?.error) {
+                    console.log('🔍 Full error details:', JSON.stringify(lastDisconnect.error, null, 2));
+                }
                 
                 // Handle specific error types
                 if (errorMessage.includes('PreKeyError') || errorMessage.includes('SenderKeyRecord')) {
@@ -554,6 +676,12 @@ async function startBot(dbModels) {
                 if (statusCode === DisconnectReason.loggedOut || errorMessage.includes('replaced')) {
                     console.log('🔄 Logged out from server, clearing auth files...');
                     await clearAuthFiles();
+                }
+                
+                // Special handling for unexpected connection issues
+                if (errorMessage.includes('unexpected') || errorMessage.includes('canceled')) {
+                    console.log('🔄 Unexpected connection issue detected, waiting 10 seconds before reconnect...');
+                    await new Promise(resolve => setTimeout(resolve, 10000));
                 }
                 
                 // Always attempt to reconnect
