@@ -2,9 +2,10 @@ const fs = require('fs').promises;
 const path = require('path');
 
 class AdminCommands {
-    constructor(userManager, groupManager) {
+    constructor(userManager, groupManager, paymentHandler) {
         this.userManager = userManager;
         this.groupManager = groupManager;
+        this.paymentHandler = paymentHandler;
         this.commandNumber = '263717457592@s.whatsapp.net';
         this.adminNumbers = ['263717457592']; // Add other admin numbers here
     }
@@ -63,6 +64,60 @@ class AdminCommands {
                     text: '❌ Usage: !genotp <phone> <plan> <days>\nExample: !genotp 263123456789 weekly 7' 
                 });
             }
+            return true;
+        }
+
+        // Payment-related admin commands
+        if (command.startsWith('!setprice ')) {
+            const params = text.substring('!setprice '.length).trim().split(' ');
+            if (params.length >= 2) {
+                await this.handleSetPriceCommand(sock, sender, params[0], params[1]);
+            } else {
+                await sock.sendMessage(sender, { 
+                    text: '❌ Usage: !setprice <plan> <amount>\nExample: !setprice monthly 7' 
+                });
+            }
+            return true;
+        }
+
+        if (command.startsWith('!promo ')) {
+            const params = text.substring('!promo '.length).trim().split(' ');
+            if (params.length >= 2) {
+                await this.handlePromoCommand(sock, sender, params[0], params[1]);
+            } else {
+                await sock.sendMessage(sender, { 
+                    text: '❌ Usage: !promo <plan> <discount%>\nExample: !promo monthly 20' 
+                });
+            }
+            return true;
+        }
+
+        if (command.startsWith('!setnumber ')) {
+            const params = text.substring('!setnumber '.length).trim().split(' ');
+            if (params.length >= 2) {
+                await this.handleSetNumberCommand(sock, sender, params[0], params.slice(1).join(' '));
+            } else {
+                await sock.sendMessage(sender, { 
+                    text: '❌ Usage: !setnumber <country> <number>\nExample: !setnumber zimbabwe 0777123456' 
+                });
+            }
+            return true;
+        }
+
+        if (command.startsWith('!activate ')) {
+            const params = text.substring('!activate '.length).trim().split(' ');
+            if (params.length >= 2) {
+                await this.handleActivateCommand(sock, sender, params[0], params[1]);
+            } else {
+                await sock.sendMessage(sender, { 
+                    text: '❌ Usage: !activate <phone> <plan>\nExample: !activate 263123456789 monthly' 
+                });
+            }
+            return true;
+        }
+
+        if (command === '!paymentstats') {
+            await this.handlePaymentStatsCommand(sock, sender);
             return true;
         }
 
@@ -286,6 +341,133 @@ class AdminCommands {
         }
     }
 
+    async handleSetPriceCommand(sock, sender, planKey, priceStr) {
+        try {
+            const newPrice = parseFloat(priceStr);
+            
+            if (!this.paymentHandler.subscriptionPlans[planKey]) {
+                await sock.sendMessage(sender, {
+                    text: `❌ Invalid plan. Available plans: ${Object.keys(this.paymentHandler.subscriptionPlans).join(', ')}`
+                });
+                return;
+            }
+            
+            if (isNaN(newPrice) || newPrice < 0) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Invalid price amount'
+                });
+                return;
+            }
+            
+            this.paymentHandler.subscriptionPlans[planKey].price = newPrice;
+            
+            await sock.sendMessage(sender, {
+                text: `✅ ${this.paymentHandler.subscriptionPlans[planKey].name} plan price updated to $${newPrice}`
+            });
+        } catch (error) {
+            console.error('Error in setprice command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error setting price' });
+        }
+    }
+
+    async handlePromoCommand(sock, sender, planKey, discountStr) {
+        try {
+            const discount = parseFloat(discountStr);
+            
+            if (!this.paymentHandler.subscriptionPlans[planKey]) {
+                await sock.sendMessage(sender, {
+                    text: `❌ Invalid plan. Available plans: ${Object.keys(this.paymentHandler.subscriptionPlans).join(', ')}`
+                });
+                return;
+            }
+            
+            if (isNaN(discount) || discount < 0 || discount > 100) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Invalid discount percentage (0-100)'
+                });
+                return;
+            }
+            
+            const originalPrice = this.paymentHandler.subscriptionPlans[planKey].originalPrice || 
+                                 this.paymentHandler.subscriptionPlans[planKey].price;
+            const discountedPrice = originalPrice * (1 - discount / 100);
+            
+            // Store original price if this is the first discount
+            if (!this.paymentHandler.subscriptionPlans[planKey].originalPrice) {
+                this.paymentHandler.subscriptionPlans[planKey].originalPrice = originalPrice;
+            }
+            
+            this.paymentHandler.subscriptionPlans[planKey].price = discountedPrice;
+            
+            await sock.sendMessage(sender, {
+                text: `✅ ${this.paymentHandler.subscriptionPlans[planKey].name} plan discounted by ${discount}%\nNew price: $${discountedPrice.toFixed(2)}`
+            });
+        } catch (error) {
+            console.error('Error in promo command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error applying promotion' });
+        }
+    }
+
+    async handleSetNumberCommand(sock, sender, country, number) {
+        try {
+            if (country !== 'zimbabwe' && country !== 'south_africa') {
+                await sock.sendMessage(sender, {
+                    text: '❌ Invalid country. Use "zimbabwe" or "south_africa"'
+                });
+                return;
+            }
+            
+            this.paymentHandler.paymentNumbers[country] = number;
+            this.paymentHandler.savePaymentNumbers();
+            
+            // Update payment method instructions
+            for (const method of Object.values(this.paymentHandler.paymentMethods)) {
+                if (method.domestic && method.domestic.includes(country)) {
+                    method.instructions = method.instructions.replace(/Send to: .+?\n/, `Send to: ${number}\n`);
+                } else if (method.international) {
+                    if (country === 'zimbabwe') {
+                        method.instructions = method.instructions.replace(/ZIM: .+?\n/, `ZIM: ${number}\n`);
+                    } else {
+                        method.instructions = method.instructions.replace(/SA: .+?\n/, `SA: ${number}\n`);
+                    }
+                }
+            }
+            
+            await sock.sendMessage(sender, {
+                text: `✅ ${country} payment number updated to ${number}`
+            });
+        } catch (error) {
+            console.error('Error in setnumber command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error setting payment number' });
+        }
+    }
+
+    async handleActivateCommand(sock, sender, targetPhone, planKey) {
+        try {
+            await this.paymentHandler.activateSubscription(sock, sender, targetPhone, planKey);
+        } catch (error) {
+            console.error('Error in activate command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error activating subscription' });
+        }
+    }
+
+    async handlePaymentStatsCommand(sock, sender) {
+        try {
+            const stats = this.paymentHandler.getPaymentStats();
+            
+            await sock.sendMessage(sender, {
+                text: `📊 *PAYMENT STATISTICS*\n\n` +
+                      `💰 Total Revenue: $${stats.revenue}\n` +
+                      `✅ Completed Payments: ${stats.completed}\n` +
+                      `⏳ Pending Payments: ${stats.pending}\n` +
+                      `📋 Total Payment Attempts: ${stats.total}`
+            });
+        } catch (error) {
+            console.error('Error in paymentstats command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error fetching payment statistics' });
+        }
+    }
+
     async handleHelpCommand(sock, sender) {
         const helpText = `🛠️ Admin Commands:\n\n` +
             `📊 !stats - Show bot statistics\n` +
@@ -295,6 +477,11 @@ class AdminCommands {
             `📢 !broadcast <message> - Broadcast message to all users\n` +
             `👤 !userinfo <phone> - Get user information\n` +
             `🔑 !genotp <phone> <plan> <days> - Generate OTP for subscription\n` +
+            `💰 !setprice <plan> <amount> - Set subscription price\n` +
+            `🎯 !promo <plan> <discount%> - Apply discount to plan\n` +
+            `📞 !setnumber <country> <number> - Set payment number\n` +
+            `✅ !activate <phone> <plan> - Activate subscription for user\n` +
+            `💳 !paymentstats - Show payment statistics\n` +
             `❓ !help - Show this help message`;
 
         await sock.sendMessage(sender, { text: helpText });
