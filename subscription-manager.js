@@ -1,11 +1,43 @@
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios'); // You'll need to install axios: npm install axios
 
 class SubscriptionManager {
     constructor() {
         this.subscriptionsFile = path.join(__dirname, 'data', 'subscriptions.json');
+        this.exchangeRatesFile = path.join(__dirname, 'data', 'exchangeRates.json');
         this.ensureDataDirectoryExists();
         this.subscriptions = this.loadSubscriptions();
+        this.exchangeRates = this.loadExchangeRates();
+        
+        // Base prices in USD
+        this.basePrices = {
+            '2days': 0.50,    // 50 cents for 2 days
+            'weekly': 2.00,   // $2 for 7 days
+            'monthly': 5.00,  // $5 for 30 days
+            'quarterly': 12.00, // $12 for 90 days
+            'yearly': 40.00   // $40 for 365 days
+        };
+        
+        // Discount tiers (13% reduction for each tier)
+        this.discountTiers = {
+            '2days': 0,       // No discount for 2 days
+            'weekly': 0.13,   // 13% discount for weekly
+            'monthly': 0.26,  // 26% discount for monthly
+            'quarterly': 0.39, // 39% discount for quarterly
+            'yearly': 0.52    // 52% discount for yearly
+        };
+        
+        // Initialize exchange rates if not set
+        if (!this.exchangeRates.lastUpdated) {
+            this.exchangeRates.USD_TO_ZWL = 322; // Default exchange rate
+            this.exchangeRates.lastUpdated = new Date().toISOString();
+            this.saveExchangeRates();
+        }
+        
+        // Update exchange rates periodically
+        this.updateExchangeRates();
+        setInterval(() => this.updateExchangeRates(), 24 * 60 * 60 * 1000); // Update daily
     }
 
     ensureDataDirectoryExists() {
@@ -16,11 +48,23 @@ class SubscriptionManager {
         if (!fs.existsSync(this.subscriptionsFile)) {
             fs.writeFileSync(this.subscriptionsFile, JSON.stringify({}));
         }
+        if (!fs.existsSync(this.exchangeRatesFile)) {
+            fs.writeFileSync(this.exchangeRatesFile, JSON.stringify({}));
+        }
     }
 
     loadSubscriptions() {
         try {
             const data = fs.readFileSync(this.subscriptionsFile, 'utf8');
+            return JSON.parse(data);
+        } catch (error) {
+            return {};
+        }
+    }
+
+    loadExchangeRates() {
+        try {
+            const data = fs.readFileSync(this.exchangeRatesFile, 'utf8');
             return JSON.parse(data);
         } catch (error) {
             return {};
@@ -35,6 +79,137 @@ class SubscriptionManager {
         }
     }
 
+    saveExchangeRates() {
+        try {
+            fs.writeFileSync(this.exchangeRatesFile, JSON.stringify(this.exchangeRates, null, 2));
+        } catch (error) {
+            console.error('Error saving exchange rates:', error);
+        }
+    }
+
+    async updateExchangeRates() {
+        try {
+            // Try to get official RBZ exchange rate
+            const response = await axios.get('https://api.rbz.co.zw/exchange-rates');
+            if (response.data && response.data.rates && response.data.rates.USD) {
+                this.exchangeRates.USD_TO_ZWL = response.data.rates.USD;
+                this.exchangeRates.lastUpdated = new Date().toISOString();
+                this.saveExchangeRates();
+                console.log('Exchange rates updated successfully');
+            }
+        } catch (error) {
+            console.error('Failed to update exchange rates from RBZ API:', error);
+            
+            // Fallback to alternative API
+            try {
+                const fallbackResponse = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
+                if (fallbackResponse.data && fallbackResponse.data.rates && fallbackResponse.data.rates.ZWL) {
+                    this.exchangeRates.USD_TO_ZWL = fallbackResponse.data.rates.ZWL;
+                    this.exchangeRates.lastUpdated = new Date().toISOString();
+                    this.saveExchangeRates();
+                    console.log('Exchange rates updated from fallback API');
+                }
+            } catch (fallbackError) {
+                console.error('Failed to update exchange rates from fallback API:', fallbackError);
+                // Keep the existing rate if both APIs fail
+            }
+        }
+    }
+
+    getCurrentExchangeRate() {
+        return this.exchangeRates.USD_TO_ZWL || 322; // Default fallback
+    }
+
+    calculatePrice(planKey, currency = 'USD') {
+        if (!this.basePrices[planKey]) {
+            throw new Error(`Invalid plan: ${planKey}`);
+        }
+
+        const basePrice = this.basePrices[planKey];
+        const discount = this.discountTiers[planKey];
+        const discountedPriceUSD = basePrice * (1 - discount);
+        
+        if (currency === 'USD') {
+            return {
+                price: discountedPriceUSD,
+                currency: 'USD',
+                originalPrice: basePrice,
+                discount: discount * 100,
+                discountAmount: basePrice - discountedPriceUSD
+            };
+        } else if (currency === 'ZWL') {
+            const exchangeRate = this.getCurrentExchangeRate();
+            const priceZWL = discountedPriceUSD * exchangeRate;
+            const originalPriceZWL = basePrice * exchangeRate;
+            
+            return {
+                price: priceZWL,
+                currency: 'ZWL',
+                originalPrice: originalPriceZWL,
+                discount: discount * 100,
+                discountAmount: originalPriceZWL - priceZWL,
+                exchangeRate: exchangeRate
+            };
+        } else {
+            throw new Error(`Unsupported currency: ${currency}`);
+        }
+    }
+
+    getSubscriptionPlans(currency = 'USD') {
+        const plans = {
+            '2days': { 
+                duration: 2, 
+                name: '2 Days',
+                features: ['Basic downloads', 'Limited dating features']
+            },
+            'weekly': { 
+                duration: 7, 
+                name: 'Weekly',
+                features: ['Unlimited downloads', 'Full dating features', 'Priority support']
+            },
+            'monthly': { 
+                duration: 30, 
+                name: 'Monthly',
+                features: ['Unlimited downloads', 'Full dating features', 'Priority support', 'Extra bonuses']
+            },
+            'quarterly': { 
+                duration: 90, 
+                name: 'Quarterly',
+                features: ['Unlimited downloads', 'Full dating features', 'Priority support', 'Extra bonuses', 'Discount rate']
+            },
+            'yearly': { 
+                duration: 365, 
+                name: 'Yearly',
+                features: ['Unlimited downloads', 'Full dating features', 'Priority support', 'Extra bonuses', 'Maximum discount', 'VIP status']
+            },
+            'demo': { 
+                duration: 2, 
+                name: 'Demo',
+                price: 0,
+                demo: true,
+                features: ['2 demo downloads', 'Basic dating features']
+            }
+        };
+
+        // Calculate prices for each plan
+        Object.keys(plans).forEach(planKey => {
+            if (planKey !== 'demo') {
+                const priceInfo = this.calculatePrice(planKey, currency);
+                plans[planKey].price = priceInfo.price;
+                plans[planKey].currency = priceInfo.currency;
+                plans[planKey].originalPrice = priceInfo.originalPrice;
+                plans[planKey].discount = priceInfo.discount;
+                plans[planKey].discountAmount = priceInfo.discountAmount;
+                
+                if (currency === 'ZWL') {
+                    plans[planKey].exchangeRate = priceInfo.exchangeRate;
+                }
+            }
+        });
+
+        return plans;
+    }
+
     initializeUser(phoneNumber) {
         if (!this.subscriptions[phoneNumber]) {
             this.subscriptions[phoneNumber] = {
@@ -45,7 +220,8 @@ class SubscriptionManager {
                 subscriptionExpiry: null,
                 paymentPending: false,
                 datingEnabled: false,
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                subscriptionHistory: []
             };
             this.saveSubscriptions();
         }
@@ -116,11 +292,12 @@ class SubscriptionManager {
             daysLeft: expiry > now ? Math.ceil((expiry - now) / (1000 * 60 * 60 * 24)) : 0,
             downloadCount: user.downloadCount,
             demoUsage: user.demoUsage,
-            datingEnabled: user.datingEnabled
+            datingEnabled: user.datingEnabled,
+            history: user.subscriptionHistory || []
         };
     }
 
-    activateSubscription(phoneNumber, durationDays, type = 'premium') {
+    activateSubscription(phoneNumber, durationDays, type = 'premium', pricePaid = null, currency = 'USD') {
         const user = this.initializeUser(phoneNumber);
         
         const expiryDate = new Date();
@@ -131,6 +308,22 @@ class SubscriptionManager {
         user.subscriptionExpiry = expiryDate.toISOString();
         user.paymentPending = false;
         user.datingEnabled = true; // Enable dating features
+        
+        // Record subscription history
+        user.subscriptionHistory = user.subscriptionHistory || [];
+        user.subscriptionHistory.push({
+            type: type,
+            duration: durationDays,
+            activated: new Date().toISOString(),
+            expiry: expiryDate.toISOString(),
+            pricePaid: pricePaid,
+            currency: currency
+        });
+        
+        // Keep only last 10 history entries
+        if (user.subscriptionHistory.length > 10) {
+            user.subscriptionHistory = user.subscriptionHistory.slice(-10);
+        }
         
         this.saveSubscriptions();
     }
@@ -234,6 +427,36 @@ class SubscriptionManager {
         }
         
         return cleaned;
+    }
+
+    // Get revenue statistics
+    getRevenueStats() {
+        let totalRevenueUSD = 0;
+        let totalRevenueZWL = 0;
+        let subscriptionCount = 0;
+        
+        Object.values(this.subscriptions).forEach(user => {
+            if (user.subscriptionHistory) {
+                user.subscriptionHistory.forEach(sub => {
+                    if (sub.pricePaid) {
+                        if (sub.currency === 'USD') {
+                            totalRevenueUSD += sub.pricePaid;
+                        } else if (sub.currency === 'ZWL') {
+                            totalRevenueZWL += sub.pricePaid;
+                        }
+                        subscriptionCount++;
+                    }
+                });
+            }
+        });
+        
+        return {
+            totalRevenueUSD,
+            totalRevenueZWL,
+            subscriptionCount,
+            exchangeRate: this.getCurrentExchangeRate(),
+            totalRevenueConverted: totalRevenueUSD + (totalRevenueZWL / this.getCurrentExchangeRate())
+        };
     }
 }
 
