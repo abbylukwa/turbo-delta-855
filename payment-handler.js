@@ -7,71 +7,89 @@ class PaymentHandler {
         this.subscriptionManager = subscriptionManager;
         this.userManager = userManager;
         this.paymentsFile = path.join(__dirname, 'data', 'payments.json');
+        this.paymentNumbersFile = path.join(__dirname, 'data', 'paymentNumbers.json');
         this.verificationCodes = new Map(); // Store verification codes
         this.ensureDataDirectoryExists();
         this.payments = this.loadPayments();
+        this.paymentNumbers = this.loadPaymentNumbers();
         
-        // South African payment methods
+        // Default payment numbers if not set
+        if (!this.paymentNumbers.zimbabwe) {
+            this.paymentNumbers.zimbabwe = "0777677210";
+        }
+        if (!this.paymentNumbers.south_africa) {
+            this.paymentNumbers.south_africa = "0614159817";
+        }
+        this.savePaymentNumbers();
+        
+        // Payment methods
         this.paymentMethods = {
             'ecocash': {
                 name: 'EcoCash',
-                instructions: 'Send to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(ecocash|eco)/i
-            },
-            'bank_transfer': {
-                name: 'Bank Transfer',
-                instructions: 'Bank: Standard Bank\nAcc: 1234567890\nBranch: 123456\nRef: YOUR_PHONE_NUMBER',
-                validation: /^(bank|transfer|stdbank)/i
-            },
-            'cash_send': {
-                name: 'Cash Send',
-                instructions: 'Use Cash Send to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(cash|send)/i
-            },
-            'zimswitch': {
-                name: 'ZimSwitch',
-                instructions: 'Use ZimSwitch to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(zim|switch)/i
+                instructions: `Send to: ${this.paymentNumbers.zimbabwe}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(ecocash|eco)/i,
+                domestic: ['zimbabwe']
             },
             'onemoney': {
                 name: 'OneMoney',
-                instructions: 'Send to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(one|money)/i
+                instructions: `Send to: ${this.paymentNumbers.zimbabwe}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(one|money)/i,
+                domestic: ['zimbabwe']
             },
             'telecash': {
                 name: 'Telecash',
-                instructions: 'Send to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(tele|cash)/i
+                instructions: `Send to: ${this.paymentNumbers.zimbabwe}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(tele|cash)/i,
+                domestic: ['zimbabwe']
+            },
+            'zimswitch': {
+                name: 'ZimSwitch',
+                instructions: `Use ZimSwitch to: ${this.paymentNumbers.zimbabwe}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(zim|switch)/i,
+                domestic: ['zimbabwe']
+            },
+            'bank_transfer_zw': {
+                name: 'Zimbabwe Bank Transfer',
+                instructions: `Bank: Your Bank\nAcc: YOUR_ACCOUNT\nRef: YOUR_PHONE_NUMBER\nBeneficiary: ${this.paymentNumbers.zimbabwe}`,
+                validation: /^(bank|transfer|zwbank)/i,
+                domestic: ['zimbabwe']
+            },
+            'cash_send_za': {
+                name: 'Cash Send (SA)',
+                instructions: `Use Cash Send to: ${this.paymentNumbers.south_africa}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(cash|send|sacash)/i,
+                domestic: ['south_africa']
+            },
+            'bank_transfer_za': {
+                name: 'South African Bank Transfer',
+                instructions: `Bank: Your SA Bank\nAcc: YOUR_ACCOUNT\nRef: YOUR_PHONE_NUMBER\nBeneficiary: ${this.paymentNumbers.south_africa}`,
+                validation: /^(bank|transfer|sabank)/i,
+                domestic: ['south_africa']
             },
             'mukuru': {
                 name: 'Mukuru',
-                instructions: 'Use Mukuru to send to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(mukuru)/i
+                instructions: `Use Mukuru to send to either:\nZIM: ${this.paymentNumbers.zimbabwe}\nSA: ${this.paymentNumbers.south_africa}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(mukuru)/i,
+                international: true
             },
             'worldremit': {
                 name: 'WorldRemit',
-                instructions: 'Use WorldRemit to send to: 077 123 4567\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(world|remit)/i
+                instructions: `Use WorldRemit to send to either:\nZIM: ${this.paymentNumbers.zimbabwe}\nSA: ${this.paymentNumbers.south_africa}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(world|remit)/i,
+                international: true
             },
             'western_union': {
                 name: 'Western Union',
-                instructions: 'Send via Western Union to: John Smith\nLocation: Harare\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(western|union)/i
+                instructions: `Send via Western Union to either:\nZIM: ${this.paymentNumbers.zimbabwe}\nSA: ${this.paymentNumbers.south_africa}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(western|union)/i,
+                international: true
             },
             'moneygram': {
                 name: 'MoneyGram',
-                instructions: 'Send via MoneyGram to: John Smith\nLocation: Harare\nReference: YOUR_PHONE_NUMBER',
-                validation: /^(money|gram)/i
+                instructions: `Send via MoneyGram to either:\nZIM: ${this.paymentNumbers.zimbabwe}\nSA: ${this.paymentNumbers.south_africa}\nReference: YOUR_PHONE_NUMBER`,
+                validation: /^(money|gram)/i,
+                international: true
             }
-        };
-
-        // Subscription plans
-        this.subscriptionPlans = {
-            'weekly': { price: 2, duration: 7, name: 'Weekly' },
-            'monthly': { price: 5, duration: 30, name: 'Monthly' },
-            'quarterly': { price: 12, duration: 90, name: 'Quarterly' },
-            'yearly': { price: 40, duration: 365, name: 'Yearly' },
-            'demo': { price: 0, duration: 2, name: 'Demo', demo: true }
         };
     }
 
@@ -82,6 +100,9 @@ class PaymentHandler {
         }
         if (!fs.existsSync(this.paymentsFile)) {
             fs.writeFileSync(this.paymentsFile, JSON.stringify({}));
+        }
+        if (!fs.existsSync(this.paymentNumbersFile)) {
+            fs.writeFileSync(this.paymentNumbersFile, JSON.stringify({}));
         }
     }
 
@@ -94,11 +115,28 @@ class PaymentHandler {
         }
     }
 
+    loadPaymentNumbers() {
+        try {
+            const data = fs.readFileSync(this.paymentNumbersFile, 'utf8');
+            return JSON.parse(data);
+        } catch (error) {
+            return {};
+        }
+    }
+
     savePayments() {
         try {
             fs.writeFileSync(this.paymentsFile, JSON.stringify(this.payments, null, 2));
         } catch (error) {
             console.error('Error saving payments:', error);
+        }
+    }
+
+    savePaymentNumbers() {
+        try {
+            fs.writeFileSync(this.paymentNumbersFile, JSON.stringify(this.paymentNumbers, null, 2));
+        } catch (error) {
+            console.error('Error saving payment numbers:', error);
         }
     }
 
@@ -147,7 +185,9 @@ class PaymentHandler {
 
     detectSubscriptionPlan(text) {
         const lowerText = text.toLowerCase();
-        for (const [key, plan] of Object.entries(this.subscriptionPlans)) {
+        const plans = this.subscriptionManager.getSubscriptionPlans();
+        
+        for (const [key, plan] of Object.entries(plans)) {
             if (lowerText.includes(key) || lowerText.includes(plan.name.toLowerCase())) {
                 return key;
             }
@@ -155,10 +195,21 @@ class PaymentHandler {
         return 'weekly'; // Default to weekly
     }
 
+    getSubscriptionPlans(currency = 'USD') {
+        return this.subscriptionManager.getSubscriptionPlans(currency);
+    }
+
     extractPaymentDetails(text, phoneNumber) {
         // Extract amount
-        const amountMatch = text.match(/\$(\d+)|(\d+)\s*(usd|dollars|dollar)/i);
-        const amount = amountMatch ? parseInt(amountMatch[1] || amountMatch[2]) : null;
+        const amountMatch = text.match(/\$(\d+\.?\d*)|(\d+\.?\d*)\s*(usd|dollars|dollar)/i) || 
+                           text.match(/(\d+\.?\d*)\s*(zwl|rtgs|zimdollars)/i);
+        const amount = amountMatch ? parseFloat(amountMatch[1] || amountMatch[2]) : null;
+        
+        // Extract currency
+        let currency = 'USD';
+        if (text.match(/zwl|rtgs|zimdollars/i)) {
+            currency = 'ZWL';
+        }
         
         // Extract reference
         const refMatch = text.match(/ref[:\s]*([a-z0-9]+)|reference[:\s]*([a-z0-9]+)/i);
@@ -170,26 +221,22 @@ class PaymentHandler {
         
         return {
             amount: amount,
+            currency: currency,
             reference: reference || phoneNumber,
             transactionId: transactionId,
             detectedAmount: amount
         };
     }
 
-    async handlePaymentMessage(sock, sender, phoneNumber, username, message) {
+    async handleMessage(sock, sender, phoneNumber, username, text, isAdmin = false) {
         try {
-            const text = message.message?.conversation || 
-                        message.message?.extendedTextMessage?.text || '';
-            
-            const lowerText = text.toLowerCase();
-            
             // Check if this is a payment initiation
-            if (lowerText.includes('!subscribe') || lowerText.includes('!payment')) {
+            if (text.includes('!subscribe') || text.includes('!payment')) {
                 return await this.handleSubscriptionRequest(sock, sender, phoneNumber, username, text);
             }
             
             // Check if this is a verification code
-            if (lowerText.includes('verify') || lowerText.match(/^\d{6}$/)) {
+            if (text.includes('verify') || text.match(/^\d{6}$/)) {
                 return await this.handleVerification(sock, sender, phoneNumber, text);
             }
             
@@ -201,6 +248,7 @@ class PaymentHandler {
             
             // Check for payment confirmation messages
             const paymentKeywords = ['paid', 'sent', 'transfer', 'deposit', 'completed', 'done'];
+            const lowerText = text.toLowerCase();
             if (paymentKeywords.some(keyword => lowerText.includes(keyword))) {
                 return await this.handlePaymentConfirmation(sock, sender, phoneNumber, username, text);
             }
@@ -215,7 +263,8 @@ class PaymentHandler {
 
     async handleSubscriptionRequest(sock, sender, phoneNumber, username, text) {
         const planKey = this.detectSubscriptionPlan(text);
-        const plan = this.subscriptionPlans[planKey];
+        const plans = this.getSubscriptionPlans('USD');
+        const plan = plans[planKey];
         
         if (plan.demo) {
             // Handle demo subscription
@@ -224,18 +273,23 @@ class PaymentHandler {
         
         const verificationCode = this.generateVerificationCode(phoneNumber);
         
+        // Get ZWL prices for display
+        const zwlPlans = this.getSubscriptionPlans('ZWL');
+        const zwlPlan = zwlPlans[planKey];
+        
         await sock.sendMessage(sender, {
             text: `📋 *SUBSCRIPTION REQUEST - ${plan.name}*\n\n` +
-                  `💰 Price: $${plan.price}\n` +
-                  `⏰ Duration: ${plan.duration} days\n\n` +
+                  `💰 Price: $${plan.price.toFixed(2)} USD / ZWL${zwlPlan.price.toFixed(2)}\n` +
+                  `⏰ Duration: ${plan.duration} days\n` +
+                  `🎯 Discount: ${plan.discount}% off\n\n` +
                   `💳 *Payment Methods:*\n` +
-                  `• EcoCash: Send to 077 123 4567\n` +
-                  `• Bank Transfer: Standard Bank Acc 1234567890\n` +
-                  `• Cash Send: To 077 123 4567\n` +
-                  `• ZimSwitch: To 077 123 4567\n\n` +
+                  `• EcoCash/OneMoney: Send to ${this.paymentNumbers.zimbabwe}\n` +
+                  `• Zim Banks: Transfer to ${this.paymentNumbers.zimbabwe}\n` +
+                  `• SA Cash Send: Send to ${this.paymentNumbers.south_africa}\n` +
+                  `• International: Mukuru, WorldRemit, etc.\n\n` +
                   `📝 *Include in your payment:*\n` +
                   `• Reference: ${phoneNumber}\n` +
-                  `• Amount: $${plan.price}\n\n` +
+                  `• Amount: $${plan.price.toFixed(2)} USD or ZWL${zwlPlan.price.toFixed(2)}\n\n` +
                   `🔐 *Verification Code:* ${verificationCode}\n\n` +
                   `📤 After sending payment, reply with:\n` +
                   `"verify ${verificationCode}" to confirm your payment`
@@ -273,16 +327,15 @@ class PaymentHandler {
     async handlePaymentDetection(sock, sender, phoneNumber, username, text, paymentMethod) {
         const method = this.paymentMethods[paymentMethod];
         const planKey = this.detectSubscriptionPlan(text);
-        const plan = this.subscriptionPlans[planKey];
+        const plans = this.getSubscriptionPlans('USD');
+        const plan = plans[planKey];
         
         const verificationCode = this.generateVerificationCode(phoneNumber);
         
         await sock.sendMessage(sender, {
             text: `💳 *${method.name} PAYMENT INSTRUCTIONS*\n\n` +
-                  `📋 Plan: ${plan.name} ($${plan.price})\n` +
-                  `📱 Send to: 077 123 4567\n` +
-                  `🔢 Reference: ${phoneNumber}\n` +
-                  `💰 Amount: $${plan.price}\n\n` +
+                  `📋 Plan: ${plan.name} ($${plan.price.toFixed(2)})\n` +
+                  `${method.instructions}\n\n` +
                   `📤 After sending, reply with:\n` +
                   `"verify ${verificationCode}"\n\n` +
                   `⏰ Code expires in 15 minutes`
@@ -292,6 +345,7 @@ class PaymentHandler {
             method: paymentMethod,
             plan: planKey,
             amount: plan.price,
+            currency: 'USD',
             status: 'instructions_sent',
             verificationCode: verificationCode
         });
@@ -328,8 +382,14 @@ class PaymentHandler {
             this.savePayments();
             
             // Activate subscription
-            const plan = this.subscriptionPlans[this.payments[paymentId].plan];
-            this.subscriptionManager.activateSubscription(phoneNumber, plan.duration);
+            const plan = this.getSubscriptionPlans()[this.payments[paymentId].plan];
+            this.subscriptionManager.activateSubscription(
+                phoneNumber, 
+                plan.duration, 
+                this.payments[paymentId].plan,
+                this.payments[paymentId].amount,
+                this.payments[paymentId].currency || 'USD'
+            );
             
             await sock.sendMessage(sender, {
                 text: `✅ *PAYMENT VERIFIED!*\n\n` +
@@ -354,7 +414,8 @@ class PaymentHandler {
     async handlePaymentConfirmation(sock, sender, phoneNumber, username, text) {
         const details = this.extractPaymentDetails(text, phoneNumber);
         const planKey = this.detectSubscriptionPlan(text);
-        const plan = this.subscriptionPlans[planKey];
+        const plans = this.getSubscriptionPlans('USD');
+        const plan = plans[planKey];
         
         const verificationCode = this.generateVerificationCode(phoneNumber);
         
@@ -362,6 +423,7 @@ class PaymentHandler {
             method: 'detected',
             plan: planKey,
             amount: details.amount || plan.price,
+            currency: details.currency || 'USD',
             reference: details.reference,
             transactionId: details.transactionId,
             status: 'pending_verification',
@@ -370,7 +432,7 @@ class PaymentHandler {
         
         await sock.sendMessage(sender, {
             text: `📋 *PAYMENT RECEIVED*\n\n` +
-                  `We've noted your payment of $${details.amount || plan.price}\n` +
+                  `We've noted your payment of ${details.currency === 'ZWL' ? 'ZWL' : '$'}${details.amount || plan.price}\n` +
                   `Reference: ${details.reference}\n` +
                   `Transaction: ${details.transactionId || 'Not provided'}\n\n` +
                   `🔐 *Verification Required:*\n` +
@@ -414,9 +476,10 @@ class PaymentHandler {
     async activateSubscription(sock, adminSender, targetPhone, planKey = 'monthly') {
         try {
             const cleanPhone = targetPhone.replace(/\D/g, '');
-            const plan = this.subscriptionPlans[planKey];
+            const plans = this.getSubscriptionPlans('USD');
+            const plan = plans[planKey];
             
-            this.subscriptionManager.activateSubscription(cleanPhone, plan.duration);
+            this.subscriptionManager.activateSubscription(cleanPhone, plan.duration, planKey, plan.price, 'USD');
             
             await sock.sendMessage(adminSender, {
                 text: `✅ ${plan.name} subscription activated for ${cleanPhone}\n` +
@@ -455,7 +518,7 @@ class PaymentHandler {
         
         let revenue = 0;
         completed.forEach(payment => {
-            revenue += payment.amount || this.subscriptionPlans[payment.plan]?.price || 0;
+            revenue += payment.amount || 0;
         });
         
         return {
