@@ -74,7 +74,7 @@ class AdminCommands {
                 await this.handleSetPriceCommand(sock, sender, params[0], params[1]);
             } else {
                 await sock.sendMessage(sender, { 
-                    text: '❌ Usage: !setprice <plan> <amount>\nExample: !setprice monthly 7' 
+                    text: '❌ Usage: !setprice <plan> <amount>\nExample: !setprice 2days 0.50' 
                 });
             }
             return true;
@@ -121,6 +121,16 @@ class AdminCommands {
             return true;
         }
 
+        if (command === '!exchangerate') {
+            await this.handleExchangeRateCommand(sock, sender);
+            return true;
+        }
+
+        if (command === '!revenue') {
+            await this.handleRevenueCommand(sock, sender);
+            return true;
+        }
+
         if (command === '!help') {
             await this.handleHelpCommand(sock, sender);
             return true;
@@ -135,10 +145,12 @@ class AdminCommands {
             const users = await this.userManager.getAllUsers();
             const activeUsers = Object.keys(users).length;
             const activatedUsers = await this.userManager.getActivatedUsersCount();
+            const subscriptionStats = this.paymentHandler.subscriptionManager.getActiveSubscriptions();
 
             let response = `📊 Bot Statistics:\n\n`;
             response += `👥 Total Users: ${activeUsers}\n`;
             response += `✅ Activated Users: ${activatedUsers}\n`;
+            response += `💰 Active Subscriptions: ${subscriptionStats.length}\n`;
             response += `🦾 Total Groups Joined: ${stats.totalGroups}\n\n`;
             
             response += `👤 Groups by User:\n`;
@@ -299,6 +311,8 @@ class AdminCommands {
                 return;
             }
 
+            const subInfo = this.paymentHandler.subscriptionManager.getSubscriptionInfo(targetPhone);
+
             let response = `👤 User Information:\n\n`;
             response += `📛 Name: ${user.username}\n`;
             response += `📞 Phone: ${user.phoneNumber}\n`;
@@ -314,6 +328,11 @@ class AdminCommands {
             response += `📊 Messages Sent: ${user.stats.messagesSent || 0}\n`;
             response += `⚡ Commands Used: ${user.stats.commandsUsed || 0}\n`;
             response += `📥 Media Downloaded: ${user.stats.mediaDownloaded || 0}\n`;
+            response += `💰 Subscription: ${subInfo.active ? 'Active' : 'Inactive'}\n`;
+            if (subInfo.active) {
+                response += `📦 Plan: ${subInfo.type}\n`;
+                response += `⏰ Days Left: ${subInfo.daysLeft}\n`;
+            }
 
             await sock.sendMessage(sender, { text: response });
         } catch (error) {
@@ -345,9 +364,9 @@ class AdminCommands {
         try {
             const newPrice = parseFloat(priceStr);
             
-            if (!this.paymentHandler.subscriptionPlans[planKey]) {
+            if (!this.paymentHandler.subscriptionManager.basePrices[planKey]) {
                 await sock.sendMessage(sender, {
-                    text: `❌ Invalid plan. Available plans: ${Object.keys(this.paymentHandler.subscriptionPlans).join(', ')}`
+                    text: `❌ Invalid plan. Available plans: ${Object.keys(this.paymentHandler.subscriptionManager.basePrices).join(', ')}`
                 });
                 return;
             }
@@ -359,10 +378,11 @@ class AdminCommands {
                 return;
             }
             
-            this.paymentHandler.subscriptionPlans[planKey].price = newPrice;
+            this.paymentHandler.subscriptionManager.basePrices[planKey] = newPrice;
             
             await sock.sendMessage(sender, {
-                text: `✅ ${this.paymentHandler.subscriptionPlans[planKey].name} plan price updated to $${newPrice}`
+                text: `✅ ${planKey} base price updated to $${newPrice}\n` +
+                      `New calculated prices will apply to future subscriptions.`
             });
         } catch (error) {
             console.error('Error in setprice command:', error);
@@ -374,9 +394,9 @@ class AdminCommands {
         try {
             const discount = parseFloat(discountStr);
             
-            if (!this.paymentHandler.subscriptionPlans[planKey]) {
+            if (!this.paymentHandler.subscriptionManager.basePrices[planKey]) {
                 await sock.sendMessage(sender, {
-                    text: `❌ Invalid plan. Available plans: ${Object.keys(this.paymentHandler.subscriptionPlans).join(', ')}`
+                    text: `❌ Invalid plan. Available plans: ${Object.keys(this.paymentHandler.subscriptionManager.basePrices).join(', ')}`
                 });
                 return;
             }
@@ -388,19 +408,13 @@ class AdminCommands {
                 return;
             }
             
-            const originalPrice = this.paymentHandler.subscriptionPlans[planKey].originalPrice || 
-                                 this.paymentHandler.subscriptionPlans[planKey].price;
-            const discountedPrice = originalPrice * (1 - discount / 100);
-            
-            // Store original price if this is the first discount
-            if (!this.paymentHandler.subscriptionPlans[planKey].originalPrice) {
-                this.paymentHandler.subscriptionPlans[planKey].originalPrice = originalPrice;
-            }
-            
-            this.paymentHandler.subscriptionPlans[planKey].price = discountedPrice;
+            // Apply additional discount on top of existing tier discount
+            this.paymentHandler.subscriptionManager.additionalDiscounts = this.paymentHandler.subscriptionManager.additionalDiscounts || {};
+            this.paymentHandler.subscriptionManager.additionalDiscounts[planKey] = discount;
             
             await sock.sendMessage(sender, {
-                text: `✅ ${this.paymentHandler.subscriptionPlans[planKey].name} plan discounted by ${discount}%\nNew price: $${discountedPrice.toFixed(2)}`
+                text: `✅ ${planKey} plan received additional ${discount}% discount\n` +
+                      `New prices will apply to future subscriptions.`
             });
         } catch (error) {
             console.error('Error in promo command:', error);
@@ -468,6 +482,40 @@ class AdminCommands {
         }
     }
 
+    async handleExchangeRateCommand(sock, sender) {
+        try {
+            const rate = this.paymentHandler.subscriptionManager.getCurrentExchangeRate();
+            const lastUpdated = new Date(this.paymentHandler.subscriptionManager.exchangeRates.lastUpdated);
+            
+            await sock.sendMessage(sender, {
+                text: `💱 Current Exchange Rate:\n` +
+                      `💰 1 USD = ${rate} ZWL\n` +
+                      `⏰ Last updated: ${lastUpdated.toLocaleString()}`
+            });
+        } catch (error) {
+            console.error('Error in exchangerate command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error fetching exchange rate' });
+        }
+    }
+
+    async handleRevenueCommand(sock, sender) {
+        try {
+            const revenueStats = this.paymentHandler.subscriptionManager.getRevenueStats();
+            
+            await sock.sendMessage(sender, {
+                text: `💰 *REVENUE STATISTICS*\n\n` +
+                      `📊 Total Subscriptions: ${revenueStats.subscriptionCount}\n` +
+                      `💵 Revenue USD: $${revenueStats.totalRevenueUSD.toFixed(2)}\n` +
+                      `💶 Revenue ZWL: ZWL${revenueStats.totalRevenueZWL.toFixed(2)}\n` +
+                      `💱 Exchange Rate: ${revenueStats.exchangeRate}\n` +
+                      `🌍 Total Converted: $${revenueStats.totalRevenueConverted.toFixed(2)} USD`
+            });
+        } catch (error) {
+            console.error('Error in revenue command:', error);
+            await sock.sendMessage(sender, { text: '❌ Error fetching revenue statistics' });
+        }
+    }
+
     async handleHelpCommand(sock, sender) {
         const helpText = `🛠️ Admin Commands:\n\n` +
             `📊 !stats - Show bot statistics\n` +
@@ -477,11 +525,13 @@ class AdminCommands {
             `📢 !broadcast <message> - Broadcast message to all users\n` +
             `👤 !userinfo <phone> - Get user information\n` +
             `🔑 !genotp <phone> <plan> <days> - Generate OTP for subscription\n` +
-            `💰 !setprice <plan> <amount> - Set subscription price\n` +
-            `🎯 !promo <plan> <discount%> - Apply discount to plan\n` +
+            `💰 !setprice <plan> <amount> - Set subscription base price\n` +
+            `🎯 !promo <plan> <discount%> - Apply additional discount\n` +
             `📞 !setnumber <country> <number> - Set payment number\n` +
             `✅ !activate <phone> <plan> - Activate subscription for user\n` +
             `💳 !paymentstats - Show payment statistics\n` +
+            `💱 !exchangerate - Show current exchange rate\n` +
+            `💰 !revenue - Show revenue statistics\n` +
             `❓ !help - Show this help message`;
 
         await sock.sendMessage(sender, { text: helpText });
