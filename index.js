@@ -352,22 +352,6 @@ const createSimpleLogger = () => {
     };
 };
 
-// Add this function to debug connection states
-function debugConnectionState(update) {
-    const { connection, qr, lastDisconnect, receivedPendingNotifications, isOnline } = update;
-
-    console.log('🔍 Connection Debug:');
-    console.log(`   - Connection state: ${connection}`);
-    console.log(`   - Has QR: ${!!qr}`);
-    console.log(`   - Last disconnect: ${lastDisconnect?.error?.message || 'None'}`);
-    console.log(`   - Received pending notifications: ${receivedPendingNotifications || false}`);
-    console.log(`   - Is online: ${isOnline || false}`);
-
-    if (lastDisconnect?.error) {
-        console.log(`   - Error details:`, lastDisconnect.error);
-    }
-}
-
 // Function to display pairing information with highlighting
 function displayPairingInfo(qr, pairingCode) {
     console.log('\n'.repeat(5)); // Add some space
@@ -390,15 +374,20 @@ function displayPairingInfo(qr, pairingCode) {
     console.log('║                                              ║');
     console.log('║           📞 ' + PHONE_NUMBER + '           ║');
     console.log('║                                              ║');
+    console.log('║           🔢 ' + pairingCode + '           ║');
+    console.log('║                                              ║');
     console.log('╚══════════════════════════════════════════════╝');
     console.log('─'.repeat(40));
     console.log('1. Open WhatsApp on your phone');
     console.log('2. Go to Settings → Linked Devices → Link a Device');
     console.log('3. Choose "Link with phone number instead"');
     console.log('4. Enter the phone number shown above');
+    console.log('5. Enter the pairing code when prompted');
     console.log('═'.repeat(60));
     console.log('\n');
 }
+    
+
 
 // Add this function to initialize the application
 async function startApp() {
