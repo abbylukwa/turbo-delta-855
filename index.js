@@ -33,9 +33,8 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000; // Increased to 50 seconds
 
-// QR code management
-let currentQR = null;
-let isQRDisplayed = false;
+// Phone number for pairing
+const PHONE_NUMBER = '+263515627210';
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -54,12 +53,12 @@ function setupSessionBackup() {
         try {
             const authDir = path.join(__dirname, 'auth_info_baileys');
             const backupDir = '/tmp/auth_backup';
-            
+
             if (fs.existsSync(authDir)) {
                 if (!fs.existsSync(backupDir)) {
                     fs.mkdirSync(backupDir, { recursive: true });
                 }
-                
+
                 // Copy auth files to temporary storage
                 const files = fs.readdirSync(authDir);
                 files.forEach(file => {
@@ -71,7 +70,7 @@ function setupSessionBackup() {
                         console.log('⚠️ Could not backup file:', file, copyError.message);
                     }
                 });
-                
+
                 console.log('✅ Auth files backed up to temporary storage');
             }
         } catch (error) {
@@ -85,10 +84,10 @@ function restoreSessionIfAvailable() {
     try {
         const authDir = path.join(__dirname, 'auth_info_baileys');
         const backupDir = '/tmp/auth_backup';
-        
+
         if (fs.existsSync(backupDir) && !fs.existsSync(authDir)) {
             fs.mkdirSync(authDir, { recursive: true });
-            
+
             const files = fs.readdirSync(backupDir);
             files.forEach(file => {
                 const source = path.join(backupDir, file);
@@ -100,7 +99,7 @@ function restoreSessionIfAvailable() {
                     console.log('⚠️ Could not restore file:', file, copyError.message);
                 }
             });
-            
+
             console.log('✅ Auth files restored from backup');
             return true;
         }
@@ -121,13 +120,13 @@ async function validateAuthState(state) {
             await clearAuthFiles();
             return false;
         }
-        
+
         // Check if registration exists
         if (!state.creds.registered) {
-            console.log('🔄 Not registered, will need QR scan...');
+            console.log('🔄 Not registered, will need phone pairing...');
             return false;
         }
-        
+
         console.log('✅ Auth state appears valid');
         return true;
     } catch (error) {
@@ -165,15 +164,15 @@ async function checkAuthFiles() {
             console.log('❌ Auth directory not found');
             return false;
         }
-        
+
         const files = fs.readdirSync(authDir);
         console.log('📁 Auth files found:', files);
-        
+
         if (files.length === 0) {
-            console.log('❌ No auth files found. Need to scan QR code');
+            console.log('❌ No auth files found. Need to pair with phone');
             return false;
         }
-        
+
         // Check if files have content
         for (const file of files) {
             const content = fs.readFileSync(path.join(authDir, file), 'utf8');
@@ -182,10 +181,10 @@ async function checkAuthFiles() {
                 return false;
             }
         }
-        
+
         return true;
     } catch (error) {
-        console.log('❌ Auth directory not found. Will create new one with QR scan');
+        console.log('❌ Auth directory not found. Will create new one with phone pairing');
         return false;
     }
 }
@@ -212,15 +211,15 @@ class ConnectionManager {
         this.isConnecting = false;
         this.reconnectTimeout = null;
     }
-    
+
     async connect() {
         if (this.isConnecting) {
             console.log('🔄 Connection already in progress');
             return;
         }
-        
+
         this.isConnecting = true;
-        
+
         try {
             await startBot();
             reconnectAttempts = 0; // Reset on successful connection
@@ -231,51 +230,51 @@ class ConnectionManager {
             this.isConnecting = false;
         }
     }
-    
+
     handleConnectionFailure() {
         reconnectAttempts++;
-        
+
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             console.log(`❌ Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached`);
             console.log('🔄 Clearing auth and restarting...');
             reconnectAttempts = 0;
-            
+
             clearAuthFiles().then(() => {
                 setTimeout(() => this.connect(), RECONNECT_INTERVAL);
             });
             return;
         }
-        
+
         const delay = Math.min(RECONNECT_INTERVAL * Math.pow(1.5, reconnectAttempts), 60000); // Max 60 seconds
         console.log(`🔄 Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
-        
+
         this.reconnectTimeout = setTimeout(() => {
             this.connect();
         }, delay);
     }
-    
+
     disconnect() {
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
         }
-        
+
         if (sock) {
             sock.end();
             sock = null;
         }
-        
+
         isConnected = false;
         this.isConnecting = false;
     }
-    
+
     async handlePairingSuccess() {
         console.log('🔄 Handling successful pairing scenario...');
         this.disconnect();
-        
+
         // Wait a bit before reconnecting
         await new Promise(resolve => setTimeout(resolve, 3000));
-        
+
         // Clear auth state to force fresh connection
         try {
             await clearAuthFiles();
@@ -283,7 +282,7 @@ class ConnectionManager {
         } catch (error) {
             console.log('⚠️ Could not clear auth files:', error.message);
         }
-        
+
         // Reconnect with fresh state
         await this.connect();
     }
@@ -298,7 +297,7 @@ async function handleEncryptionError(remoteJid, participant) {
             sock.authState.creds.sessions.delete(participant);
             console.log(`Cleared session for ${participant}`);
         }
-        
+
         // Request new prekeys if it's a specific participant
         if (participant && !participant.includes('@g.us')) {
             try {
@@ -325,7 +324,7 @@ function setupAuthStateBackup(authState) {
             console.error('Failed to backup auth state:', backupError);
         }
     }, 60 * 60 * 1000);
-    
+
     // Restore if available
     if (fs.existsSync('./auth-backup.json')) {
         try {
@@ -337,70 +336,6 @@ function setupAuthStateBackup(authState) {
             console.error('Failed to restore auth state:', e);
         }
     }
-}
-
-// Function to display QR code in terminal
-function showQRCode(qr) {
-    console.log('\n📱 QR Code generated successfully!');
-    console.log('👉 Scan with WhatsApp -> Linked Devices');
-    console.log('──────────────────────────────────────────\n');
-    qrcode.generate(qr, { small: true });
-    isQRDisplayed = true;
-    
-    console.log('\n⏳ Waiting for QR code scan...');
-    
-    // Start background tasks while waiting for scan
-    performBackgroundTasks();
-}
-
-// Function to perform time-consuming background tasks
-async function performBackgroundTasks() {
-    console.log('\n🔄 Performing system optimizations while waiting for QR scan...');
-    
-    // Task 1: Clean up temporary files
-    console.log('🧹 Cleaning up temporary files...');
-    try {
-        const tempDir = os.tmpdir();
-        const files = fs.readdirSync(tempDir);
-        let deletedCount = 0;
-        
-        for (const file of files) {
-            if (file.startsWith('baileys-') || file.startsWith('tmp-')) {
-                try {
-                    fs.unlinkSync(path.join(tempDir, file));
-                    deletedCount++;
-                } catch (e) {
-                    // Ignore errors for files that can't be deleted
-                }
-            }
-        }
-        console.log(`✅ Deleted ${deletedCount} temporary files`);
-    } catch (error) {
-        console.log('⚠️ Could not clean temp files:', error.message);
-    }
-    
-    // Task 2: Check and optimize data files
-    console.log('📊 Optimizing data files...');
-    try {
-        const dataDir = path.join(__dirname, 'data');
-        if (fs.existsSync(dataDir)) {
-            const files = fs.readdirSync(dataDir);
-            for (const file of files) {
-                if (file.endsWith('.json')) {
-                    const filePath = path.join(dataDir, file);
-                    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                    // Simulate processing
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    console.log(`✅ Optimized ${file}`);
-                }
-            }
-        }
-    } catch (error) {
-        console.log('⚠️ Could not optimize data files:', error.message);
-    }
-    
-    console.log('\n🎉 Background tasks completed!');
-    console.log('📱 Please scan the QR code with your WhatsApp when ready\n');
 }
 
 // Simple logger implementation that Baileys expects
@@ -420,14 +355,14 @@ const createSimpleLogger = () => {
 // Add this function to debug connection states
 function debugConnectionState(update) {
     const { connection, qr, lastDisconnect, receivedPendingNotifications, isOnline } = update;
-    
+
     console.log('🔍 Connection Debug:');
     console.log(`   - Connection state: ${connection}`);
     console.log(`   - Has QR: ${!!qr}`);
     console.log(`   - Last disconnect: ${lastDisconnect?.error?.message || 'None'}`);
     console.log(`   - Received pending notifications: ${receivedPendingNotifications || false}`);
     console.log(`   - Is online: ${isOnline || false}`);
-    
+
     if (lastDisconnect?.error) {
         console.log(`   - Error details:`, lastDisconnect.error);
     }
@@ -439,7 +374,7 @@ async function startApp() {
         // Initialize database first
         console.log('🔄 Initializing database...');
         const dbModels = await initializeDatabase();
-        
+
         // Then start the bot with the models
         console.log('🤖 Starting WhatsApp bot...');
         await startBot(dbModels);
@@ -453,7 +388,7 @@ async function startApp() {
 async function handleActivationCode(sock, sender, phoneNumber, username, code) {
     let role = '';
     let message = '';
-    
+
     switch (code) {
         case ACTIVATION_CODES.ADMIN:
             role = 'admin';
@@ -464,7 +399,7 @@ async function handleActivationCode(sock, sender, phoneNumber, username, code) {
                      `• System administration\n\n` +
                      `Use !help to see available commands.`;
             break;
-            
+
         case ACTIVATION_CODES.GROUP_MANAGER:
             role = 'groupManager';
             message = `✅ You are now a GROUP MANAGER!\n\n` +
@@ -474,7 +409,7 @@ async function handleActivationCode(sock, sender, phoneNumber, username, code) {
                      `• Moderate group content\n\n` +
                      `Use !help to see available commands.`;
             break;
-            
+
         case ACTIVATION_CODES.GENERAL:
             role = 'general';
             message = `✅ Account activated successfully!\n\n` +
@@ -484,28 +419,28 @@ async function handleActivationCode(sock, sender, phoneNumber, username, code) {
                      `• Basic bot features\n\n` +
                      `Use !help to see available commands.`;
             break;
-            
+
         default:
             return { success: false, message: '❌ Invalid activation code' };
     }
-    
+
     // Save user with the assigned role
     const userManager = new UserManager();
     await userManager.saveUser(phoneNumber, username, role, true);
-    
+
     return { success: true, message, role };
 }
 
 async function startBot(dbModels) {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
-        
+
         // Check if we can restore session from temporary storage first
         const hasRestoredSession = restoreSessionIfAvailable();
         if (hasRestoredSession) {
-            console.log('✅ Session restored from backup, should not need QR scan');
+            console.log('✅ Session restored from backup, should not need pairing');
         }
-        
+
         // Ensure directories exist
         await ensureDirectories();
 
@@ -517,7 +452,7 @@ async function startBot(dbModels) {
         // Validate auth state before proceeding
         const isValidAuth = await validateAuthState(state);
         if (!isValidAuth) {
-            console.log('🔄 Auth state invalid, will require new QR scan');
+            console.log('🔄 Auth state invalid, will require phone pairing');
             // Clear any potentially corrupted state
             await clearAuthFiles();
             // Re-create auth state
@@ -534,8 +469,10 @@ async function startBot(dbModels) {
         const logger = createSimpleLogger();
 
         sock = makeWASocket({
-            // ADDED BACK: Enable terminal QR display
-            printQRInTerminal: true,
+            // REMOVED: QR code display
+            printQRInTerminal: false,
+            // ADDED: Phone number pairing
+            phoneNumber: PHONE_NUMBER,
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
             version: version,
@@ -565,8 +502,7 @@ async function startBot(dbModels) {
                     conversation: "hello"
                 }
             },
-            // Additional options to prevent QR timeout - INCREASED TO 3 MINUTES
-            qrTimeout: 180000, // 3 minutes for QR timeout
+            // Additional options to prevent timeout
             authTimeout: 180000, // 3 minutes for auth timeout,
             // Use our custom logger
             logger: logger
@@ -578,29 +514,29 @@ async function startBot(dbModels) {
         // Initialize managers
         echo('Initializing UserManager...');
         const userManager = new UserManager();
-        
+
         echo('Initializing SubscriptionManager...');
         const subscriptionManager = new SubscriptionManager();
-        
+
         echo('Initializing ActivationManager...');
         const activationManager = new ActivationManager(userManager);
-        
+
         echo('Initializing GroupManager...');
         const groupManager = new GroupManager();
-        
+
         echo('Initializing DownloadManager...');
         const downloadManager = new DownloadManager();
-        
+
         echo('Initializing GeneralCommands...');
         const generalCommands = new GeneralCommands(userManager, downloadManager, subscriptionManager);
-        
+
         echo('Initializing PaymentHandler...');
         const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
-        
+
         // Use the models from database initialization
         echo('Initializing DatingManager...');
         const datingManager = new DatingManager(userManager, subscriptionManager, dbModels || models);
-        
+
         echo('Initializing AdminCommands...');
         const adminCommands = new AdminCommands(userManager, groupManager);
 
@@ -611,7 +547,7 @@ async function startBot(dbModels) {
         sock.ev.on('connection.update', async (update) => {
             // Debug output
             debugConnectionState(update);
-            
+
             const { connection, qr, lastDisconnect, isNewLogin } = update;
 
             // Specific handling for pairing success case
@@ -623,20 +559,12 @@ async function startBot(dbModels) {
                 return;
             }
 
-            if (qr) {
-                console.log('📱 QR code received');
-                // Store the QR code
-                currentQR = qr;
-                // Show QR code in terminal
-                showQRCode(qr);
-            }
-
             if (connection === 'open') {
                 isConnected = true;
                 reconnectAttempts = 0;
                 console.log('✅ WhatsApp connected successfully!');
                 console.log('🤖 Bot is now ready to receive messages');
-                
+
                 // Send welcome message to command number
                 try {
                     await sock.sendMessage(COMMAND_NUMBER, {
@@ -653,37 +581,32 @@ async function startBot(dbModels) {
                 isConnected = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const errorMessage = lastDisconnect?.error?.message || 'Unknown reason';
-                
+
                 console.log(`🔌 Connection closed: ${errorMessage}`);
                 console.log('🔍 Status code:', statusCode);
-                
+
                 // Log full error details for debugging
                 if (lastDisconnect?.error) {
                     console.log('🔍 Full error details:', JSON.stringify(lastDisconnect.error, null, 2));
                 }
-                
+
                 // Handle specific error types
                 if (errorMessage.includes('PreKeyError') || errorMessage.includes('SenderKeyRecord')) {
                     console.log('🔑 Encryption error detected, will attempt recovery on reconnect');
                 }
-                
-                if (errorMessage.includes('QR refs attempts ended')) {
-                    console.log('🔄 QR generation failed, clearing auth and retrying...');
-                    await clearAuthFiles();
-                }
-                
+
                 // Don't clear auth for normal connection issues
                 if (statusCode === DisconnectReason.loggedOut || errorMessage.includes('replaced')) {
                     console.log('🔄 Logged out from server, clearing auth files...');
                     await clearAuthFiles();
                 }
-                
+
                 // Special handling for unexpected connection issues
                 if (errorMessage.includes('unexpected') || errorMessage.includes('canceled')) {
                     console.log('🔄 Unexpected connection issue detected, waiting 10 seconds before reconnect...');
                     await new Promise(resolve => setTimeout(resolve, 10000));
                 }
-                
+
                 // Always attempt to reconnect
                 connectionManager.handleConnectionFailure();
             } else if (connection === 'connecting') {
@@ -715,12 +638,12 @@ async function startBot(dbModels) {
                 const text = message.message.conversation || 
                             message.message.extendedTextMessage?.text ||
                             message.message.buttonsResponseMessage?.selectedDisplayText || "";
-                
+
                 const sender = message.key.remoteJid;
                 if (!sender.endsWith('@s.whatsapp.net')) return;
-                
+
                 const phoneNumber = sender.split('@')[0];
-                
+
                 let username = "User";
                 try {
                     const contact = await sock.onWhatsApp(sender);
@@ -733,14 +656,14 @@ async function startBot(dbModels) {
 
                 // Get user data
                 const user = await userManager.getUser(phoneNumber);
-                
+
                 // Handle activation codes
                 const trimmedText = text.trim();
                 if ([ACTIVATION_CODES.ADMIN, ACTIVATION_CODES.GROUP_MANAGER, ACTIVATION_CODES.GENERAL].includes(trimmedText)) {
                     console.log(`🔑 Activation attempt with code: ${trimmedText}`);
-                    
+
                     const activationResult = await handleActivationCode(sock, sender, phoneNumber, username, trimmedText);
-                    
+
                     if (activationResult.success) {
                         console.log(`✅ User ${phoneNumber} activated as ${activationResult.role}`);
                         await sock.sendMessage(sender, { text: activationResult.message });
@@ -801,7 +724,7 @@ async function startBot(dbModels) {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...');
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
@@ -816,7 +739,7 @@ async function startBot(dbModels) {
                 if (text.startsWith('!activatesub ') && isAdmin) {
                     const targetPhone = text.substring('!activatesub '.length).trim();
                     const success = await paymentHandler.activateSubscription(sock, sender, targetPhone);
-                    
+
                     if (success) {
                         // Activate dating mode for this user
                         await datingManager.activateDatingMode(targetPhone);
@@ -840,19 +763,19 @@ async function startBot(dbModels) {
 
             } catch (error) {
                 console.error('Error in message handler:', error);
-                
+
                 // Handle encryption errors specifically
                 if (error.message.includes('PreKeyError') || error.message.includes('SenderKeyRecord')) {
                     console.log('🔑 Encryption error detected in message processing');
                     await handleEncryptionError(m.messages[0].key.remoteJid, m.messages[0].key.participant);
                 }
-                
+
                 // DO NOT SEND ERROR MESSAGES TO UNACTIVATED USERS
                 try {
                     const sender = m.messages[0].key.remoteJid;
                     const phoneNumber = sender.split('@')[0];
                     const user = await userManager.getUser(phoneNumber);
-                    
+
                     // Only send error messages to activated users
                     if (user && user.isActivated) {
                         await sock.sendMessage(sender, {
@@ -872,7 +795,7 @@ async function startBot(dbModels) {
                 if (participantJid) {
                     const phoneNumber = participantJid.split('@')[0];
                     const user = await userManager.getUser(phoneNumber);
-                    
+
                     if (user && user.isActivated) {
                         await groupManager.handleGroupUpdate(sock, update);
                     }
@@ -919,7 +842,6 @@ app.get('/health', (req, res) => {
 app.get('/status', (req, res) => {
   res.json({
     status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
-    qrDisplayed: isQRDisplayed,
     reconnectAttempts: reconnectAttempts,
     uptime: process.uptime(),
     memory: {
@@ -933,7 +855,7 @@ app.get('/status', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
-  
+
   // Start the WhatsApp bot after the HTTP server is running
   console.log('🤖 Starting WhatsApp bot...');
   startApp();
