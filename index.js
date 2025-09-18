@@ -34,7 +34,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000; // Increased to 50 seconds
 
 // Phone number for pairing - MADE MORE VISIBLE
-const PHONE_NUMBER = '+263775156210';
+const PHONE_NUMBER = '0775156210';
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -368,6 +368,38 @@ function debugConnectionState(update) {
     }
 }
 
+// Function to display pairing information with highlighting
+function displayPairingInfo(qr, pairingCode) {
+    console.log('\n'.repeat(5)); // Add some space
+    console.log('═'.repeat(60));
+    console.log('🤖 WHATSAPP BOT PAIRING INFORMATION');
+    console.log('═'.repeat(60));
+    
+    // Display QR code if available
+    if (qr) {
+        console.log('\n📱 SCAN THIS QR CODE WITH YOUR PHONE:');
+        console.log('─'.repeat(40));
+        qrcode.generate(qr, { small: true });
+        console.log('─'.repeat(40));
+    }
+    
+    // Display pairing code with highlighting
+    console.log('\n🔢 OR ENTER THIS PAIRING CODE IN WHATSAPP:');
+    console.log('─'.repeat(40));
+    console.log('╔══════════════════════════════════════════════╗');
+    console.log('║                                              ║');
+    console.log('║           📞 ' + PHONE_NUMBER + '           ║');
+    console.log('║                                              ║');
+    console.log('╚══════════════════════════════════════════════╝');
+    console.log('─'.repeat(40));
+    console.log('1. Open WhatsApp on your phone');
+    console.log('2. Go to Settings → Linked Devices → Link a Device');
+    console.log('3. Choose "Link with phone number instead"');
+    console.log('4. Enter the phone number shown above');
+    console.log('═'.repeat(60));
+    console.log('\n');
+}
+
 // Add this function to initialize the application
 async function startApp() {
     try {
@@ -469,9 +501,9 @@ async function startBot(dbModels) {
         const logger = createSimpleLogger();
 
         sock = makeWASocket({
-            // REMOVED: QR code display
-            printQRInTerminal: false,
-            // ADDED: Phone number pairing
+            // Enable QR code display
+            printQRInTerminal: false, // We'll handle QR display ourselves
+            // Also include phone number pairing as backup
             phoneNumber: PHONE_NUMBER,
             browser: Browsers.ubuntu('Chrome'),
             auth: state,
@@ -549,6 +581,11 @@ async function startBot(dbModels) {
             debugConnectionState(update);
 
             const { connection, qr, lastDisconnect, isNewLogin } = update;
+
+            // Display pairing information when QR code is available
+            if (qr) {
+                displayPairingInfo(qr, PHONE_NUMBER);
+            }
 
             // Specific handling for pairing success case
             if (connection === 'close' && 
@@ -724,7 +761,7 @@ async function startBot(dbModels) {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...`); // FIXED SYNTAX ERROR HERE
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
