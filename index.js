@@ -34,7 +34,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000; // Increased to 50 seconds
 
 // Phone number for pairing
-const PHONE_NUMBER = '+263515627210';
+const PHONE_NUMBER = '+2635156210';
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -724,7 +724,7 @@ async function startBot(dbModels) {
                 // Handle group links
                 const hasGroupLink = text.includes('chat.whatsapp.com');
                 if (hasGroupLink) {
-                    console.log(`🔗 Detected group link from ${username}, attempting to join...');
+                    console.log(`🔗 Detected group link from ${username}, attempting to join...`);
                     await groupManager.handleGroupLink(sock, text, phoneNumber, username);
                     return;
                 }
