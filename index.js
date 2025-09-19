@@ -33,7 +33,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000; // Increased to 50 seconds
 
 // Phone number for pairing - MADE MORE VISIBLE
-const PHONE_NUMBER = '0775156210';
+const PHONE_NUMBER = '07775156210';
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -366,19 +366,54 @@ async function handleActivationCode(sock, sender, phoneNumber, username, code) {
     
     // Save user to database
     try {
-        await models.User.create({
-            phoneNumber,
-            username,
-            role,
-            isActive: true,
-            activatedAt: new Date()
-        });
+        // Check if user already exists
+        const existingUser = await models.User.findOne({ where: { phoneNumber } });
+        
+        if (existingUser) {
+            // Update existing user
+            await models.User.update(
+                { role, isActive: true, activatedAt: new Date() },
+                { where: { phoneNumber } }
+            );
+            message += '\n📝 Your account has been updated with new permissions.';
+        } else {
+            // Create new user
+            await models.User.create({
+                phoneNumber,
+                username,
+                role,
+                isActive: true,
+                activatedAt: new Date()
+            });
+        }
         
         await sock.sendMessage(sender, { text: message });
         console.log(`✅ Activated user ${phoneNumber} with role ${role}`);
     } catch (error) {
         console.error('❌ Error activating user:', error);
         await sock.sendMessage(sender, { text: '❌ Error activating your account. Please try again later.' });
+    }
+}
+
+// Function to check if user is activated
+async function checkUserActivation(phoneNumber) {
+    try {
+        const user = await models.User.findOne({ where: { phoneNumber } });
+        return user && user.isActive;
+    } catch (error) {
+        console.error('❌ Error checking user activation:', error);
+        return false;
+    }
+}
+
+// Function to get user role
+async function getUserRole(phoneNumber) {
+    try {
+        const user = await models.User.findOne({ where: { phoneNumber } });
+        return user ? user.role : null;
+    } catch (error) {
+        console.error('❌ Error getting user role:', error);
+        return null;
     }
 }
 
@@ -497,6 +532,15 @@ async function startBot(dbModels) {
                     return;
                 }
                 
+                // Check if user is activated before processing other commands
+                const isActivated = await checkUserActivation(user);
+                if (!isActivated && !text.startsWith('!activate')) {
+                    await sock.sendMessage(sender, { 
+                        text: '❌ You need to activate your account first. Use: !activate <code> <username>' 
+                    });
+                    return;
+                }
+                
                 // Handle parish requests
                 if (text.toLowerCase().includes('parish') || text.toLowerCase().includes('parishes')) {
                     let response = "🏛️ Available Parishes:\n\n";
@@ -525,7 +569,37 @@ async function startBot(dbModels) {
                 }
                 
                 // Handle other commands based on user role
-                // ... rest of your command handling logic
+                const userRole = await getUserRole(user);
+                
+                if (text.startsWith('!admin')) {
+                    if (userRole === 'admin') {
+                        // Handle admin commands
+                        await AdminCommands.handle(sock, sender, text, user);
+                    } else {
+                        await sock.sendMessage(sender, { 
+                            text: '❌ You do not have permission to use admin commands.' 
+                        });
+                    }
+                    return;
+                }
+                
+                if (text.startsWith('!group')) {
+                    if (userRole === 'admin' || userRole === 'group_manager') {
+                        // Handle group commands
+                        await GroupManager.handle(sock, sender, text, user);
+                    } else {
+                        await sock.sendMessage(sender, { 
+                            text: '❌ You do not have permission to use group commands.' 
+                        });
+                    }
+                    return;
+                }
+                
+                // Handle general commands
+                if (text.startsWith('!')) {
+                    await GeneralCommands.handle(sock, sender, text, user);
+                    return;
+                }
                 
             } catch (error) {
                 console.error('❌ Error processing message:', error);
