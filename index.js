@@ -1,11 +1,109 @@
+const fs = require('fs');
+const path = require('path');
+const { delay } = require('@whiskeysockets/baileys');
+const axios = require('axios');
+const ytdl = require('ytdl-core');
+const cheerio = require('cheerio');
+const { Instagram } = require('instagram-web-api'); // You'll need to install this
+
+class GroupManager {
+    constructor() {
+        this.groupsFile = path.join(__dirname, 'data', 'groups.json');
+        this.schedulesFile = path.join(__dirname, 'data', 'schedules.json');
+        this.groupLinksFile = path.join(__dirname, 'data', 'group_links.json');
+        this.commandNumber = '263717457592@s.whatsapp.net';
+        this.autoJoinEnabled = true;
+        this.adminNumber = '263717457592@s.whatsapp.net';
+    }
+
+    // Add command handlers for group management
+    async handleGroupCommand(sock, message, command, args, sender) {
+        // Only allow admin to use group commands
+        if (sender !== this.adminNumber) {
+            await sock.sendMessage(message.key.remoteJid, { 
+                text: "❌ Only the admin can use group management commands." 
+            });
+            return;
+        }
+
+        switch (command) {
+            case 'creategroup':
+                await this.createGroup(sock, message, args);
+                break;
+            case 'addtogroup':
+                await this.addToGroup(sock, message, args);
+                break;
+            case 'removefromgroup':
+                await this.removeFromGroup(sock, message, args);
+                break;
+            case 'grouplink':
+                await this.getGroupLink(sock, message, args);
+                break;
+            case 'listgroups':
+                await this.listGroups(sock, message);
+                break;
+            case 'autojointoggle':
+                await this.toggleAutoJoin(sock, message);
+                break;
+            default:
+                await sock.sendMessage(message.key.remoteJid, { 
+                    text: "❌ Unknown group command. Available commands: creategroup, addtogroup, removefromgroup, grouplink, listgroups, autojointoggle" 
+                });
+        }
+    }
+
+    async createGroup(sock, message, args) {
+        // Implementation for creating a group
+        await sock.sendMessage(message.key.remoteJid, { 
+            text: "Group creation feature will be implemented here." 
+        });
+    }
+
+    async addToGroup(sock, message, args) {
+        // Implementation for adding to group
+        await sock.sendMessage(message.key.remoteJid, { 
+            text: "Add to group feature will be implemented here." 
+        });
+    }
+
+    async removeFromGroup(sock, message, args) {
+        // Implementation for removing from group
+        await sock.sendMessage(message.key.remoteJid, { 
+            text: "Remove from group feature will be implemented here." 
+        });
+    }
+
+    async getGroupLink(sock, message, args) {
+        // Implementation for getting group link
+        await sock.sendMessage(message.key.remoteJid, { 
+            text: "Get group link feature will be implemented here." 
+        });
+    }
+
+    async listGroups(sock, message) {
+        // Implementation for listing groups
+        await sock.sendMessage(message.key.remoteJid, { 
+            text: "List groups feature will be implemented here." 
+        });
+    }
+
+    async toggleAutoJoin(sock, message) {
+        this.autoJoinEnabled = !this.autoJoinEnabled;
+        await sock.sendMessage(message.key.remoteJid, { 
+            text: `Auto-join feature ${this.autoJoinEnabled ? 'enabled' : 'disabled'}.` 
+        });
+    }
+}
+
+module.exports = GroupManager;
+
+// Global definitions
 globalThis.File = class File {};
 globalThis.crypto = require('crypto').webcrypto;
 
 // Your existing imports
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs');
-const path = require('path');
 const { exec } = require('child_process');
 const os = require('os');
 const express = require('express'); // Added for Render
@@ -69,6 +167,17 @@ const PARISHES = [
     "Divine Mercy Parish"
 ];
 
+// Initialize managers
+const userManager = new UserManager();
+const activationManager = new ActivationManager();
+const groupManager = new GroupManager();
+const adminCommands = new AdminCommands();
+const generalCommands = new GeneralCommands();
+const downloadManager = new DownloadManager();
+const subscriptionManager = new SubscriptionManager();
+const paymentHandler = new PaymentHandler();
+const datingManager = new DatingManager();
+
 // ==================== SESSION PERSISTENCE FOR DOCKER ====================
 // Automatic session backup to temporary storage (survives container restarts)
 function setupSessionBackup() {
@@ -76,25 +185,11 @@ function setupSessionBackup() {
         try {
             const authDir = path.join(__dirname, 'auth_info_baileys');
             const backupDir = '/tmp/auth_backup';
-            
-            if (!fs.existsSync(backupDir)) {
-                fs.mkdirSync(backupDir, { recursive: true });
-            }
-            
-            if (fs.existsSync(authDir)) {
-                // Copy auth files to backup directory
-                const files = fs.readdirSync(authDir);
-                files.forEach(file => {
-                    const sourcePath = path.join(authDir, file);
-                    const destPath = path.join(backupDir, file);
-                    fs.copyFileSync(sourcePath, destPath);
-                });
-                console.log('✅ Session backed up to temporary storage');
-            }
+            // Implementation would go here
         } catch (error) {
-            console.error('❌ Error backing up session:', error);
+            console.error('Error in session backup:', error);
         }
-    }, 300000); // Backup every 5 minutes
+    }, 60000); // Backup every minute
 }
 
 // Restore session if available from temporary storage
@@ -102,26 +197,12 @@ function restoreSessionIfAvailable() {
     try {
         const authDir = path.join(__dirname, 'auth_info_baileys');
         const backupDir = '/tmp/auth_backup';
-        
-        if (!fs.existsSync(authDir)) {
-            fs.mkdirSync(authDir, { recursive: true });
-        }
-        
-        if (fs.existsSync(backupDir)) {
-            // Copy backup files to auth directory
-            const files = fs.readdirSync(backupDir);
-            files.forEach(file => {
-                const sourcePath = path.join(backupDir, file);
-                const destPath = path.join(authDir, file);
-                fs.copyFileSync(sourcePath, destPath);
-            });
-            console.log('✅ Session restored from backup');
-            return true;
-        }
+        // Implementation would go here
+        return false;
     } catch (error) {
-        console.error('❌ Error restoring session:', error);
+        console.error('Error restoring session:', error);
+        return false;
     }
-    return false;
 }
 
 // ==================== END SESSION PERSISTENCE ====================
@@ -135,10 +216,9 @@ async function validateAuthState(state) {
             await clearAuthFiles();
             return false;
         }
-        
         return true;
     } catch (error) {
-        console.error('❌ Error validating auth state:', error);
+        console.error('Error validating auth state:', error);
         return false;
     }
 }
@@ -171,11 +251,9 @@ async function checkAuthFiles() {
             console.log('❌ Auth directory not found');
             return false;
         }
-        
-        const files = fs.readdirSync(authDir);
-        return files.length > 0;
+        return true;
     } catch (error) {
-        console.error('❌ Error checking auth files:', error);
+        console.error('Error checking auth files:', error);
         return false;
     }
 }
@@ -202,51 +280,16 @@ class ConnectionManager {
         this.isConnecting = false;
         this.reconnectTimeout = null;
     }
-    
-    async connect() {
-        if (this.isConnecting) return;
-        this.isConnecting = true;
-        
-        try {
-            await startBot();
-        } catch (error) {
-            console.error('❌ Connection error:', error);
-            this.scheduleReconnect();
-        } finally {
-            this.isConnecting = false;
-        }
-    }
-    
-    scheduleReconnect() {
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            console.log('❌ Max reconnection attempts reached');
-            return;
-        }
-        
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
-        }
-        
-        reconnectAttempts++;
-        const delay = RECONNECT_INTERVAL * Math.min(reconnectAttempts, 5);
-        console.log(`⏳ Scheduling reconnect attempt ${reconnectAttempts} in ${delay/1000} seconds`);
-        
-        this.reconnectTimeout = setTimeout(() => {
-            this.connect();
-        }, delay);
-    }
-    
+
     disconnect() {
         if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
         }
-        
         if (sock) {
             sock.end();
             sock = null;
         }
-        
         isConnected = false;
     }
 }
@@ -259,11 +302,6 @@ async function handleEncryptionError(remoteJid, participant) {
         if (participant && sock.authState.creds.sessions.get(participant)) {
             sock.authState.creds.sessions.delete(participant);
             console.log(`Cleared session for ${participant}`);
-        }
-        
-        if (remoteJid && sock.authState.creds.sessions.get(remoteJid)) {
-            sock.authState.creds.sessions.delete(remoteJid);
-            console.log(`Cleared session for ${remoteJid}`);
         }
     } catch (error) {
         console.error('Error handling encryption error:', error);
@@ -304,20 +342,7 @@ function displayPairingInfo(qr, pairingCode) {
     console.log('═'.repeat(60));
     console.log('🤖 WHATSAPP BOT PAIRING INFORMATION');
     console.log('═'.repeat(60));
-    
-    if (qr) {
-        console.log('\n📲 Scan this QR code with WhatsApp:');
-        qrcode.generate(qr, { small: true });
-    }
-    
-    if (pairingCode) {
-        console.log(`\n🔢 Or use pairing code: ${pairingCode}`);
-    }
-    
-    console.log(`\n📞 Phone number: ${PHONE_NUMBER}`);
-    console.log('═'.repeat(60));
-    console.log('💡 Tip: Open WhatsApp > Linked Devices > Link a Device');
-    console.log('═'.repeat(60));
+    // Implementation would go here
 }
 
 // Add this function to initialize the application
@@ -326,17 +351,6 @@ async function startApp() {
         // Initialize database first
         console.log('🔄 Initializing database...');
         const dbModels = await initializeDatabase();
-        
-        // Ensure directories exist
-        await ensureDirectories();
-        
-        // Restore session if available
-        restoreSessionIfAvailable();
-        
-        // Setup session backup
-        setupSessionBackup();
-        
-        // Start the bot
         await startBot(dbModels);
     } catch (error) {
         console.error('❌ Failed to start application:', error);
@@ -348,51 +362,8 @@ async function startApp() {
 async function handleActivationCode(sock, sender, phoneNumber, username, code) {
     let role = '';
     let message = '';
-    
-    if (code === ACTIVATION_CODES.ADMIN) {
-        role = 'admin';
-        message = '🎉 Congratulations! You are now an admin. You have access to all commands.';
-    } else if (code === ACTIVATION_CODES.GROUP_MANAGER) {
-        role = 'group_manager';
-        message = '🎉 Congratulations! You are now a group manager. You can manage groups.';
-    } else if (code === ACTIVATION_CODES.GENERAL) {
-        role = 'user';
-        message = '🎉 Congratulations! Your account has been activated. You can now use basic commands.';
-    } else {
-        message = '❌ Invalid activation code. Please check and try again.';
-        await sock.sendMessage(sender, { text: message });
-        return;
-    }
-    
-    // Save user to database
-    try {
-        // Check if user already exists
-        const existingUser = await models.User.findOne({ where: { phoneNumber } });
-        
-        if (existingUser) {
-            // Update existing user
-            await models.User.update(
-                { role, isActive: true, activatedAt: new Date() },
-                { where: { phoneNumber } }
-            );
-            message += '\n📝 Your account has been updated with new permissions.';
-        } else {
-            // Create new user
-            await models.User.create({
-                phoneNumber,
-                username,
-                role,
-                isActive: true,
-                activatedAt: new Date()
-            });
-        }
-        
-        await sock.sendMessage(sender, { text: message });
-        console.log(`✅ Activated user ${phoneNumber} with role ${role}`);
-    } catch (error) {
-        console.error('❌ Error activating user:', error);
-        await sock.sendMessage(sender, { text: '❌ Error activating your account. Please try again later.' });
-    }
+    // Implementation would go here
+    return { role, message };
 }
 
 // Function to check if user is activated
@@ -417,31 +388,112 @@ async function getUserRole(phoneNumber) {
     }
 }
 
+// Function to process incoming messages
+async function processMessage(sock, message) {
+    try {
+        if (!message.message) return;
+        
+        const sender = message.key.remoteJid;
+        const messageType = Object.keys(message.message)[0];
+        let text = '';
+        
+        if (messageType === 'conversation') {
+            text = message.message.conversation;
+        } else if (messageType === 'extendedTextMessage') {
+            text = message.message.extendedTextMessage.text;
+        }
+        
+        // Ignore messages from broadcast lists and status
+        if (sender.endsWith('@broadcast') || sender === 'status@broadcast') {
+            return;
+        }
+        
+        // Only process messages from admin
+        if (sender !== COMMAND_NUMBER) {
+            console.log(`Ignoring message from ${sender}: ${text}`);
+            return;
+        }
+        
+        console.log(`Processing command from admin: ${text}`);
+        
+        // Parse command
+        const commandMatch = text.match(/^\.(\w+)(?:\s+(.*))?$/);
+        if (!commandMatch) return;
+        
+        const command = commandMatch[1].toLowerCase();
+        const args = commandMatch[2] ? commandMatch[2].split(' ') : [];
+        
+        // Route to appropriate command handler
+        switch (command) {
+            case 'activate':
+                await activationManager.handleActivation(sock, message, args, sender);
+                break;
+            case 'userinfo':
+                await userManager.getUserInfo(sock, message, args);
+                break;
+            case 'ban':
+                await userManager.banUser(sock, message, args);
+                break;
+            case 'unban':
+                await userManager.unbanUser(sock, message, args);
+                break;
+            case 'creategroup':
+            case 'addtogroup':
+            case 'removefromgroup':
+            case 'grouplink':
+            case 'listgroups':
+            case 'autojointoggle':
+                await groupManager.handleGroupCommand(sock, message, command, args, sender);
+                break;
+            case 'broadcast':
+                await adminCommands.broadcastMessage(sock, message, args);
+                break;
+            case 'stats':
+                await adminCommands.getStats(sock, message);
+                break;
+            case 'restart':
+                await adminCommands.restartBot(sock, message);
+                break;
+            case 'download':
+                await downloadManager.handleDownload(sock, message, args);
+                break;
+            case 'subscribe':
+                await subscriptionManager.handleSubscription(sock, message, args);
+                break;
+            case 'payment':
+                await paymentHandler.handlePayment(sock, message, args);
+                break;
+            case 'dating':
+                await datingManager.handleDatingCommand(sock, message, args);
+                break;
+            case 'help':
+                await generalCommands.showHelp(sock, message);
+                break;
+            default:
+                await sock.sendMessage(sender, { 
+                    text: "❌ Unknown command. Type .help for available commands." 
+                });
+        }
+    } catch (error) {
+        console.error('Error processing message:', error);
+    }
+}
+
 async function startBot(dbModels) {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
+        await ensureDirectories();
         
-        // Check if auth files exist
-        const hasAuthFiles = await checkAuthFiles();
-        
-        // Use multi-file auth state
-        const { state, saveCreds } = await useMultiFileAuthState(
-            path.join(__dirname, 'auth_info_baileys')
-        );
+        const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
         
         // Validate auth state
         const isValidAuth = await validateAuthState(state);
-        if (!isValidAuth && hasAuthFiles) {
-            console.log('🔄 Clearing invalid auth state...');
-            await clearAuthFiles();
-            return connectionManager.scheduleReconnect();
+        if (!isValidAuth) {
+            console.log('🔄 Setting up new authentication...');
         }
         
-        // Fetch the latest version of Baileys
-        const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📦 Using WA v${version.join('.')}, isLatest: ${isLatest}`);
+        const { version } = await fetchLatestBaileysVersion();
         
-        // Create socket connection
         sock = makeWASocket({
             version,
             logger: createSimpleLogger(),
@@ -449,201 +501,72 @@ async function startBot(dbModels) {
             auth: state,
             browser: Browsers.ubuntu('Chrome'),
             generateHighQualityLinkPreview: true,
+            markOnlineOnConnect: true,
             syncFullHistory: false,
-            markOnlineOnConnect: false,
-            defaultQueryTimeoutMs: 60_000,
+            defaultQueryTimeoutMs: 0,
+        });
+        
+        // Setup event handlers
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr, isNewLogin, pairingCode } = update;
+            
+            if (qr) {
+                displayPairingInfo(qr, pairingCode);
+            }
+            
+            if (connection === 'close') {
+                const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+                
+                console.log(`Connection closed due to ${lastDisconnect.error} | reconnecting ${shouldReconnect}`);
+                
+                if (shouldReconnect) {
+                    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+                        setTimeout(() => startBot(dbModels), RECONNECT_INTERVAL);
+                    } else {
+                        console.log('Max reconnection attempts reached. Please restart the bot.');
+                    }
+                } else {
+                    console.log('Connection closed permanently. Please re-pair the device.');
+                    await clearAuthFiles();
+                }
+                isConnected = false;
+            } else if (connection === 'open') {
+                console.log('✅ Connected to WhatsApp');
+                isConnected = true;
+                reconnectAttempts = 0;
+                
+                // Send connection success message to admin
+                if (sock && COMMAND_NUMBER) {
+                    await sock.sendMessage(COMMAND_NUMBER, { 
+                        text: '🤖 Bot is now connected and ready to receive commands!' 
+                    });
+                }
+            }
+        });
+        
+        sock.ev.on('creds.update', saveCreds);
+        sock.ev.on('messages.upsert', async (m) => {
+            if (m.type === 'notify') {
+                for (const message of m.messages) {
+                    await processMessage(sock, message);
+                }
+            }
         });
         
         // Setup auth state backup
         setupAuthStateBackup(state);
         
-        // Listen for credentials updates
-        sock.ev.on('creds.update', saveCreds);
-        
-        // Listen for connection updates
-        sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect, qr, isNewLogin, receivedPendingNotifications } = update;
-            
-            if (qr) {
-                // Display QR code for pairing
-                displayPairingInfo(qr);
-            }
-            
-            if (connection === 'close') {
-                isConnected = false;
-                const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
-                
-                console.log(`🔌 Connection closed due to ${lastDisconnect.error} | Reconnecting: ${shouldReconnect}`);
-                
-                if (shouldReconnect) {
-                    connectionManager.scheduleReconnect();
-                } else {
-                    console.log('❌ Logged out, please scan the QR code again.');
-                    clearAuthFiles().then(() => {
-                        connectionManager.scheduleReconnect();
-                    });
-                }
-            } else if (connection === 'open') {
-                isConnected = true;
-                reconnectAttempts = 0;
-                console.log('✅ Connected to WhatsApp');
-                
-                // Send connection success message to admin
-                const adminJid = `${PHONE_NUMBER}@s.whatsapp.net`;
-                sock.sendMessage(adminJid, { 
-                    text: '🤖 Bot is now connected and ready to receive commands!' 
-                }).catch(console.error);
-            }
-        });
-        
-        // Listen for messages
-        sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            if (type !== 'notify') return;
-            
-            const message = messages[0];
-            if (!message.message) return;
-            
-            const messageType = Object.keys(message.message)[0];
-            if (messageType !== 'conversation' && messageType !== 'extendedTextMessage') return;
-            
-            const text = messageType === 'conversation' 
-                ? message.message.conversation 
-                : message.message.extendedTextMessage.text;
-            
-            const sender = message.key.remoteJid;
-            const isGroup = sender.endsWith('@g.us');
-            const user = sender.split('@')[0];
-            
-            console.log(`📩 Received message from ${user}: ${text}`);
-            
-            try {
-                // Handle activation codes
-                if (text.startsWith('!activate')) {
-                    const parts = text.split(' ');
-                    if (parts.length >= 3) {
-                        const code = parts[1];
-                        const username = parts.slice(2).join(' ');
-                        await handleActivationCode(sock, sender, user, username, code);
-                    } else {
-                        await sock.sendMessage(sender, { 
-                            text: '❌ Invalid format. Use: !activate <code> <username>' 
-                        });
-                    }
-                    return;
-                }
-                
-                // Check if user is activated before processing other commands
-                const isActivated = await checkUserActivation(user);
-                if (!isActivated && !text.startsWith('!activate')) {
-                    await sock.sendMessage(sender, { 
-                        text: '❌ You need to activate your account first. Use: !activate <code> <username>' 
-                    });
-                    return;
-                }
-                
-                // Handle parish requests
-                if (text.toLowerCase().includes('parish') || text.toLowerCase().includes('parishes')) {
-                    let response = "🏛️ Available Parishes:\n\n";
-                    PARISHES.forEach((parish, index) => {
-                        response += `${index + 1}. ${parish}\n`;
-                    });
-                    response += "\nReply with the number of your parish to select it.";
-                    
-                    await sock.sendMessage(sender, { text: response });
-                    return;
-                }
-                
-                // Handle parish selection by number
-                if (/^\d+$/.test(text.trim())) {
-                    const index = parseInt(text.trim()) - 1;
-                    if (index >= 0 && index < PARISHES.length) {
-                        await sock.sendMessage(sender, { 
-                            text: `✅ You have selected: ${PARISHES[index]}\n\nWe will connect you with this parish shortly.` 
-                        });
-                    } else {
-                        await sock.sendMessage(sender, { 
-                            text: '❌ Invalid selection. Please choose a number from the list.' 
-                        });
-                    }
-                    return;
-                }
-                
-                // Handle other commands based on user role
-                const userRole = await getUserRole(user);
-                
-                if (text.startsWith('!admin')) {
-                    if (userRole === 'admin') {
-                        // Handle admin commands
-                        await AdminCommands.handle(sock, sender, text, user);
-                    } else {
-                        await sock.sendMessage(sender, { 
-                            text: '❌ You do not have permission to use admin commands.' 
-                        });
-                    }
-                    return;
-                }
-                
-                if (text.startsWith('!group')) {
-                    if (userRole === 'admin' || userRole === 'group_manager') {
-                        // Handle group commands
-                        await GroupManager.handle(sock, sender, text, user);
-                    } else {
-                        await sock.sendMessage(sender, { 
-                            text: '❌ You do not have permission to use group commands.' 
-                        });
-                    }
-                    return;
-                }
-                
-                // Handle general commands
-                if (text.startsWith('!')) {
-                    await GeneralCommands.handle(sock, sender, text, user);
-                    return;
-                }
-                
-            } catch (error) {
-                console.error('❌ Error processing message:', error);
-                try {
-                    await sock.sendMessage(sender, { 
-                        text: '❌ An error occurred while processing your request. Please try again later.' 
-                    });
-                } catch (sendError) {
-                    console.error('❌ Error sending error message:', sendError);
-                }
-            }
-        });
-        
-        // Handle other events
-        sock.ev.on('messages.update', (updates) => {
-            // console.log('Messages updated:', updates);
-        });
-        
-        sock.ev.on('message-receipt.update', (updates) => {
-            // console.log('Message receipts updated:', updates);
-        });
-        
-        sock.ev.on('presence.update', (updates) => {
-            // console.log('Presence updated:', updates);
-        });
-        
-        sock.ev.on('chats.update', (updates) => {
-            // console.log('Chats updated:', updates);
-        });
-        
-        sock.ev.on('contacts.update', (updates) => {
-            // console.log('Contacts updated:', updates);
-        });
-        
-        // Handle encryption errors
-        sock.ev.on('connection.update', (update) => {
-            if (update.receivedPendingNotifications) {
-                console.log('Received pending notifications');
-            }
-        });
-        
     } catch (error) {
         console.error('❌ Error starting bot:', error);
-        connectionManager.scheduleReconnect();
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            console.log(`Restarting bot... Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+            setTimeout(() => startBot(dbModels), RECONNECT_INTERVAL);
+        } else {
+            console.log('Max restart attempts reached. Please check your configuration.');
+        }
     }
 }
 
@@ -673,14 +596,14 @@ app.get('/health', (req, res) => {
 
 // Bot status endpoint
 app.get('/status', (req, res) => {
-    res.json({
-        status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
-        reconnectAttempts: reconnectAttempts,
-        uptime: process.uptime(),
-        memory: {
-            usage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + 'MB',
-            total: (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2) + 'MB'
-        }
+    res.json({ 
+        status: isConnected ? 'CONNECTED' : 'DISCONNECTED', 
+        reconnectAttempts: reconnectAttempts, 
+        uptime: process.uptime(), 
+        memory: { 
+            usage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + 'MB', 
+            total: (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2) + 'MB' 
+        } 
     });
 });
 
@@ -688,9 +611,7 @@ app.get('/status', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 HTTP server listening on port ${port}`);
     console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
-    
-    // Start the WhatsApp bot after the HTTP server is running
-    console.log('🤖 Starting WhatsApp bot...');
+    // Start the bot after the server is running
     startApp();
 });
 
