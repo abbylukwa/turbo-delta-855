@@ -227,7 +227,7 @@ async function getRealJokes() {
     if (response.data && response.data.setup && response.data.delivery) {
       return `😂 Joke of the Day:\n\n${response.data.setup}\n\n${response.data.delivery}\n\n#DailyLaugh #Joke`;
     }
-    
+
     const africanJokes = [
       "Why did the African tech startup fail? They spent all their funding on bean bags and ping pong tables! 🏓 #TechHumor",
       "How many African developers does it take to change a lightbulb? None, that's a hardware problem! 💡 #DevJokes",
@@ -347,11 +347,11 @@ async function resetAuthentication() {
       console.log('🧹 Completely reset authentication data');
     }
     fs.mkdirSync(authDir, { recursive: true });
-    
+
     if (process.platform !== 'win32') {
       fs.chmodSync(authDir, 0o755);
     }
-    
+
     return true;
   } catch (error) {
     console.error('Error resetting authentication:', error);
@@ -365,6 +365,8 @@ class ConnectionManager {
     this.isConnecting = false;
     this.reconnectTimeout = null;
     this.qrCodeGenerated = false;
+    this.authState = null;
+    this.saveCreds = null;
   }
 
   async connect() {
@@ -373,32 +375,38 @@ class ConnectionManager {
 
     try {
       console.log('🔗 Initializing WhatsApp connection...');
-      
-      // Always reset authentication to ensure clean state
-      await resetAuthentication();
-      
-      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-      
+
+      // Ensure auth directory exists
+      const authDir = path.join(__dirname, 'auth_info_baileys');
+      if (!fs.existsSync(authDir)) {
+        fs.mkdirSync(authDir, { recursive: true });
+      }
+
+      // Initialize auth state
+      const { state, saveCreds } = await useMultiFileAuthState(authDir);
+      this.authState = state;
+      this.saveCreds = saveCreds;
+
       const { version, isLatest } = await fetchLatestBaileysVersion();
       console.log(`Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
-        auth: state.auth,
+        auth: this.authState,
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
       });
 
-      sock.ev.on('creds.update', saveCreds);
-      
+      sock.ev.on('creds.update', this.saveCreds);
+
       // Handle connection updates including QR code
       sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
+
         console.log('Connection status:', connection);
-        
+
         // Handle QR code generation
         if (qr && !this.qrCodeGenerated) {
           this.qrCodeGenerated = true;
@@ -418,10 +426,10 @@ class ConnectionManager {
         if (connection === 'close') {
           const shouldReconnect = 
             lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-          
+
           console.log('Connection closed, reconnecting:', shouldReconnect);
           this.qrCodeGenerated = false;
-          
+
           if (shouldReconnect) {
             this.reconnect();
           }
@@ -468,10 +476,10 @@ class ConnectionManager {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
     }
-    
+
     groupManager.stopGroupDiscovery();
     cleanupTempFiles();
-    
+
     if (sock) {
       sock.ws.close();
       sock = null;
