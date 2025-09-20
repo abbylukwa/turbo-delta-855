@@ -11,7 +11,9 @@ const ffmpegPath = require('ffmpeg-static');
 const { exec } = require('child_process');
 
 // Set ffmpeg path
-ffmpeg.setFfmpegPath(ffmpegPath);
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -53,18 +55,18 @@ class GroupManager {
   async discoverGroups(sock) {
     try {
       console.log("🔍 Searching for groups...");
-      
+
       // Simulate discovering groups by checking recent messages
       // In a real implementation, you would scan conversations for group messages
       const groups = await this.scanForGroups(sock);
-      
+
       for (const groupId of groups) {
         if (!this.joinedGroups.has(groupId)) {
           console.log(`📍 Found new group: ${groupId}`);
           this.joinedGroups.add(groupId);
         }
       }
-      
+
       console.log(`📊 Currently monitoring ${this.joinedGroups.size} groups`);
     } catch (error) {
       console.error('Error discovering groups:', error);
@@ -80,16 +82,16 @@ class GroupManager {
   async handleGroupLink(sock, message) {
     const text = message.message.conversation || '';
     const groupLinkMatch = text.match(/https:\/\/chat\.whatsapp\.com\/[a-zA-Z0-9]+/);
-    
+
     if (groupLinkMatch) {
       const groupLink = groupLinkMatch[0];
       const joined = await this.joinGroup(sock, groupLink);
-      
+
       if (joined) {
         await sock.sendMessage(message.key.remoteJid, {
           text: "✅ Successfully joined the group!"
         });
-        
+
         // Send welcome message with channel info
         await this.sendChannelInfo(sock, message.key.remoteJid);
       } else {
@@ -109,7 +111,7 @@ class GroupManager {
       // Join the group using the invite code
       await sock.groupAcceptInvite(groupId);
       this.joinedGroups.add(groupId);
-      
+
       console.log(`✅ Joined group: ${groupId}`);
       return true;
     } catch (error) {
@@ -125,7 +127,7 @@ class GroupManager {
     }
 
     console.log(`📢 Broadcasting to ${this.joinedGroups.size} groups...`);
-    
+
     for (const groupId of this.joinedGroups) {
       try {
         await sock.sendMessage(groupId, { text: message });
@@ -136,7 +138,7 @@ class GroupManager {
         this.joinedGroups.delete(groupId);
       }
     }
-    
+
     this.lastBroadcastTime = Date.now();
     console.log("✅ Broadcast completed");
   }
@@ -210,7 +212,7 @@ async function getRealNews(country) {
   try {
     // Using NewsAPI (you would need to get an API key)
     // const response = await axios.get(`https://newsapi.org/v2/top-headlines?country=${countryCode}&apiKey=YOUR_API_KEY`);
-    
+
     // For now, using a mock API response with more realistic data
     const newsSources = {
       Nigeria: [
@@ -234,10 +236,10 @@ async function getRealNews(country) {
         "Pan-African payment system gains traction"
       ]
     };
-    
+
     const countryNews = newsSources[country] || newsSources.Default;
     const randomNews = countryNews[Math.floor(Math.random() * countryNews.length)];
-    
+
     return `📰 ${country.toUpperCase()} NEWS:\n\n${randomNews}\n\n#${country.replace(/\s+/g, '')}News #AfricaUpdate`;
   } catch (error) {
     console.error('Error getting real news:', error);
@@ -250,18 +252,18 @@ async function getRealJokes() {
   try {
     // Using JokeAPI (free service)
     const response = await axios.get('https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw,religious,political,racist,sexist&type=twopart');
-    
+
     if (response.data && response.data.setup && response.data.delivery) {
       return `😂 Joke of the Day:\n\n${response.data.setup}\n\n${response.data.delivery}\n\n#DailyLaugh #Joke`;
     }
-    
+
     // Fallback to local jokes
     const africanJokes = [
       "Why did the African tech startup fail? They spent all their funding on bean bags and ping pong tables! 🏓 #TechHumor",
       "How many African developers does it take to change a lightbulb? None, that's a hardware problem! 💡 #DevJokes",
       "Why did the Nigerian prince finally stop sending emails? He got a real job in tech! 👑 #NaijaJokes"
     ];
-    
+
     return africanJokes[Math.floor(Math.random() * africanJokes.length)];
   } catch (error) {
     console.error('Error getting real jokes:', error);
@@ -275,30 +277,30 @@ async function downloadYouTubeMusic(videoUrl) {
     const videoInfo = await ytdl.getInfo(videoUrl);
     const videoTitle = videoInfo.videoDetails.title;
     const videoId = videoInfo.videoDetails.videoId;
-    
+
     // Create temp directory if it doesn't exist
     const tempDir = path.join(__dirname, 'temp');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
-    
+
     const mp4Path = path.join(tempDir, `${videoId}.mp4`);
     const mp3Path = path.join(tempDir, `${videoId}.mp3`);
-    
+
     console.log(`Downloading: ${videoTitle}`);
-    
+
     // Download MP4
     const videoStream = ytdl(videoUrl, { quality: 'highest' });
     const writeStream = fs.createWriteStream(mp4Path);
-    
+
     await new Promise((resolve, reject) => {
       videoStream.pipe(writeStream);
       videoStream.on('end', resolve);
       videoStream.on('error', reject);
     });
-    
+
     console.log('MP4 download completed');
-    
+
     // Convert to MP3
     await new Promise((resolve, reject) => {
       ffmpeg(mp4Path)
@@ -310,7 +312,7 @@ async function downloadYouTubeMusic(videoUrl) {
         .on('error', reject)
         .save(mp3Path);
     });
-    
+
     return {
       title: videoTitle,
       mp4Path: mp4Path,
@@ -335,7 +337,7 @@ async function searchYouTubeMusic(query) {
       "https://www.youtube.com/watch?v=890abcdefff",
       "https://www.youtube.com/watch?v=ghijklmnopq"
     ];
-    
+
     return mockVideos[Math.floor(Math.random() * mockVideos.length)];
   } catch (error) {
     console.error('Error searching YouTube music:', error);
@@ -348,13 +350,13 @@ async function getMusicContent() {
   try {
     const randomQuery = YOUTUBE_MUSIC_QUERIES[Math.floor(Math.random() * YOUTUBE_MUSIC_QUERIES.length)];
     const videoUrl = await searchYouTubeMusic(randomQuery);
-    
+
     if (!videoUrl) {
       throw new Error('No video found');
     }
-    
+
     const musicData = await downloadYouTubeMusic(videoUrl);
-    
+
     return {
       title: musicData.title,
       mp4Path: musicData.mp4Path,
@@ -389,12 +391,30 @@ async function ensureDirectories() {
     if (!fs.existsSync(path.join(__dirname, 'temp'))) {
       fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
     }
-    if (!fs.existsSync(path.join(__dirname, 'auth_info_baileys'))) {
-      fs.mkdirSync(path.join(__dirname, 'auth_info_baileys'), { recursive: true });
-    }
     console.log('✅ Data directories created successfully');
   } catch (error) {
     console.error('❌ Error creating directories:', error);
+  }
+}
+
+// Ensure auth directories exist with proper permissions
+async function ensureAuthDirectories() {
+  try {
+    const authDir = path.join(__dirname, 'auth_info_baileys');
+    if (!fs.existsSync(authDir)) {
+      fs.mkdirSync(authDir, { recursive: true });
+      console.log('✅ Auth directory created');
+    }
+    
+    // Set proper permissions (especially important on some hosting platforms)
+    if (process.platform !== 'win32') {
+      fs.chmodSync(authDir, 0o755);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error ensuring auth directories:', error);
+    return false;
   }
 }
 
@@ -411,14 +431,19 @@ class ConnectionManager {
 
     try {
       const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-      const { version, isLatest } = await fetchLatestBaileysVersion();
       
+      // Check if auth state is properly initialized
+      if (!state || !state.creds) {
+        throw new Error('Failed to initialize authentication state');
+      }
+      
+      const { version, isLatest } = await fetchLatestBaileysVersion();
+
       console.log(`Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
-        printQRInTerminal: true,
         auth: state.auth,
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
@@ -429,8 +454,11 @@ class ConnectionManager {
       sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
+        // Handle QR code generation manually
         if (qr) {
+          console.log('🔄 Scan this QR code with WhatsApp:');
           qrcode.generate(qr, { small: true });
+          console.log('QR Code generated above ↑');
         }
 
         if (connection === 'close') {
@@ -508,29 +536,29 @@ const connectionManager = new ConnectionManager();
 async function processMessage(sock, message) {
   try {
     if (!message.message) return;
-    
+
     const messageType = Object.keys(message.message)[0];
     let text = '';
-    
+
     if (messageType === 'conversation') {
       text = message.message.conversation;
     } else if (messageType === 'extendedTextMessage') {
       text = message.message.extendedTextMessage.text;
     }
-    
+
     if (!text) return;
-    
+
     const sender = message.key.remoteJid;
     const isAdmin = sender === COMMAND_NUMBER;
     const args = text.trim().split(' ');
     const command = args[0].toLowerCase();
-    
+
     // Handle group links (auto-join)
     if (text.includes('https://chat.whatsapp.com/')) {
       await groupManager.handleGroupLink(sock, message);
       return;
     }
-    
+
     // Process commands
     if (command.startsWith('.')) {
       switch (command) {
@@ -562,20 +590,20 @@ async function processMessage(sock, message) {
         case '.testmusic':
           if (isAdmin) {
             const music = await getMusicContent();
-            
+
             // Send MP3
             if (music.mp3Path && fs.existsSync(music.mp3Path)) {
               await sock.sendMessage(MUSIC_CHANNEL_ID, {
-                audio: fs.readFileSync(music.mp3Path),
+                audio: { url: music.mp3Path },
                 mimetype: 'audio/mpeg',
                 fileName: `${music.title}.mp3`
               });
             }
-            
+
             // Send MP4
             if (music.mp4Path && fs.existsSync(music.mp4Path)) {
               await sock.sendMessage(MUSIC_CHANNEL_ID, {
-                video: fs.readFileSync(music.mp4Path),
+                video: { url: music.mp4Path },
                 mimetype: 'video/mp4',
                 caption: music.description,
                 fileName: `${music.title}.mp4`
@@ -583,9 +611,9 @@ async function processMessage(sock, message) {
             } else {
               await sock.sendMessage(MUSIC_CHANNEL_ID, { text: music.description });
             }
-            
+
             await sock.sendMessage(sender, { text: `✅ Test music sent to music channel` });
-            
+
             // Clean up temp files after a delay
             setTimeout(cleanupTempFiles, 30000);
           }
@@ -639,16 +667,16 @@ Channels:
 // Content scheduler
 function startContentScheduler() {
   let lastBroadcastDate = null;
-  
+
   // Post content regularly
   setInterval(async () => {
     if (!isConnected) return;
-    
+
     const now = new Date();
     const hours = now.getHours();
     const minutes = now.getMinutes();
     const currentDate = now.toDateString();
-    
+
     try {
       // Broadcast channel info daily at 6 AM and 8 PM
       if ((hours === 6 || hours === 20) && minutes === 0) {
@@ -666,13 +694,13 @@ https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
 
 👉 Tap the links above to join both channels now!
           `;
-          
+
           await groupManager.broadcastToGroups(sock, channelInfo);
           lastBroadcastDate = currentDate;
           console.log(`✅ Broadcasted channel info at ${hours}:00`);
         }
       }
-      
+
       // African news between 7 PM and 9 PM to NEWS channel
       if (hours >= 19 && hours < 21 && minutes % 30 === 0) {
         const randomCountry = AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
@@ -680,31 +708,31 @@ https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
         await sock.sendMessage(NEWS_CHANNEL_ID, { text: news });
         console.log(`Posted news to news channel: ${randomCountry}`);
       }
-      
+
       // Comedy content to NEWS channel every 2 hours
       if (hours % 2 === 0 && minutes === 15) {
         const joke = await getRealJokes();
         await sock.sendMessage(NEWS_CHANNEL_ID, { text: joke });
         console.log("Posted comedy content to news channel");
       }
-      
+
       // Music content to MUSIC channel every 4 hours
       if (hours % 4 === 0 && minutes === 30) {
         const music = await getMusicContent();
-        
+
         // Send MP3
         if (music.mp3Path && fs.existsSync(music.mp3Path)) {
           await sock.sendMessage(MUSIC_CHANNEL_ID, {
-            audio: fs.readFileSync(music.mp3Path),
+            audio: { url: music.mp3Path },
             mimetype: 'audio/mpeg',
             fileName: `${music.title}.mp3`
           });
         }
-        
+
         // Send MP4
         if (music.mp4Path && fs.existsSync(music.mp4Path)) {
           await sock.sendMessage(MUSIC_CHANNEL_ID, {
-            video: fs.readFileSync(music.mp4Path),
+            video: { url: music.mp4Path },
             mimetype: 'video/mp4',
             caption: music.description,
             fileName: `${music.title}.mp4`
@@ -712,13 +740,13 @@ https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
         } else {
           await sock.sendMessage(MUSIC_CHANNEL_ID, { text: music.description });
         }
-        
+
         console.log("Posted music content to music channel");
-        
+
         // Clean up temp files after a delay
         setTimeout(cleanupTempFiles, 30000);
       }
-      
+
     } catch (error) {
       console.error('Error in content scheduler:', error);
     }
@@ -729,6 +757,18 @@ async function startBot() {
   try {
     console.log('🚀 Starting WhatsApp Bot with Enhanced Features...');
     await ensureDirectories();
+    await ensureAuthDirectories();
+    
+    // Clear any existing auth state if needed
+    if (process.argv.includes('--fresh')) {
+      const authDir = path.join(__dirname, 'auth_info_baileys');
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+        console.log('🧹 Cleared existing auth data');
+        fs.mkdirSync(authDir, { recursive: true });
+      }
+    }
+    
     await connectionManager.connect();
     startContentScheduler();
     console.log('✅ Content scheduler started');
