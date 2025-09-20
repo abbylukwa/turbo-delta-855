@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { delay } = require('@whiskeysockets/baileys');
 const axios = require('axios');
-const ytdl = require('ytdl-core');
 
 class ComedyGroupManager {
     constructor() {
@@ -12,7 +11,9 @@ class ComedyGroupManager {
         this.commandNumber = '263717457592@s.whatsapp.net';
         this.autoJoinEnabled = true;
         this.adminNumber = '263717457592@s.whatsapp.net';
-        
+        this.joinedGroups = new Set();
+        this.channelItemsCount = new Map();
+
         // Zimbabwean comedians data
         this.zimbabweanComedians = [
             {
@@ -42,42 +43,193 @@ class ComedyGroupManager {
                 },
                 tags: ["filter_comedy", "college_student", "trending"]
             },
-            // Add other comedians similarly...
+            {
+                name: "Carl Joshua Ncube",
+                aliases: ["Carl"],
+                platforms: {
+                    youtube: "https://youtube.com/carljoshuancube",
+                    instagram: "https://instagram.com/carljoshuancube"
+                },
+                tags: ["standup", "international", "comedy_festivals"]
+            },
+            {
+                name: "Doc Vikela",
+                aliases: ["Victor Mpofu"],
+                platforms: {
+                    youtube: "https://youtube.com/docvikela",
+                    instagram: "https://instagram.com/docvikela"
+                },
+                tags: ["standup", "doctor", "social_commentary"]
+            }
         ];
-        
+
         this.ensureDataFiles();
-        this.loadData();
+        this.loadGroups();
     }
 
     ensureDataFiles() {
-        const dataDir = path.join(__dirname, 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
+        const dir = path.dirname(this.groupsFile);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
         }
-
-        const files = {
-            [this.groupsFile]: { groups: [] },
-            [this.schedulesFile]: { schedules: [] },
-            [this.groupLinksFile]: { links: [] }
-        };
-
-        for (const [file, defaultData] of Object.entries(files)) {
+        
+        const files = [this.groupsFile, this.schedulesFile];
+        files.forEach(file => {
             if (!fs.existsSync(file)) {
-                fs.writeFileSync(file, JSON.stringify(defaultData, null, 2));
+                fs.writeFileSync(file, JSON.stringify([]));
+            }
+        });
+    }
+
+    loadGroups() {
+        try {
+            if (fs.existsSync(this.groupsFile)) {
+                const data = fs.readFileSync(this.groupsFile, 'utf8');
+                const groups = JSON.parse(data);
+                groups.forEach(group => this.joinedGroups.add(group.id));
+            }
+        } catch (error) {
+            console.error('Error loading groups:', error);
+        }
+    }
+
+    saveGroups() {
+        const groups = Array.from(this.joinedGroups).map(id => ({ id }));
+        fs.writeFileSync(this.groupsFile, JSON.stringify(groups, null, 2));
+    }
+
+    async joinGroup(sock, groupLink) {
+        try {
+            // Extract group ID from the link
+            const groupId = groupLink.split('https://chat.whatsapp.com/')[1];
+            if (!groupId) return false;
+
+            // Join the group using the invite code
+            await sock.groupAcceptInvite(groupId);
+            this.joinedGroups.add(groupId);
+            this.saveGroups();
+            
+            console.log(`Joined group: ${groupId}`);
+            return true;
+        } catch (error) {
+            console.error('Error joining group:', error);
+            return false;
+        }
+    }
+
+    async handleGroupLink(sock, message) {
+        const text = message.message.conversation || '';
+        const groupLinkMatch = text.match(/https:\/\/chat\.whatsapp\.com\/[a-zA-Z0-9]+/);
+        
+        if (groupLinkMatch) {
+            const groupLink = groupLinkMatch[0];
+            const joined = await this.joinGroup(sock, groupLink);
+            
+            if (joined) {
+                await sock.sendMessage(message.key.remoteJid, {
+                    text: "✅ Successfully joined the group!"
+                });
+                
+                // Send welcome message
+                await sock.sendMessage(message.key.remoteJid, {
+                    text: "🎉 Welcome to the group! I'll be sharing news, music, and comedy content regularly. Use .help to see available commands."
+                });
+            } else {
+                await sock.sendMessage(message.key.remoteJid, {
+                    text: "❌ Failed to join the group. The link might be invalid."
+                });
             }
         }
     }
 
-    loadData() {
-        this.groups = JSON.parse(fs.readFileSync(this.groupsFile, 'utf8'));
-        this.schedules = JSON.parse(fs.readFileSync(this.schedulesFile, 'utf8'));
-        this.groupLinks = JSON.parse(fs.readFileSync(this.groupLinksFile, 'utf8'));
+    async sendToChannels(sock, content) {
+        if (!sock || !isConnected) return;
+        
+        for (const groupId of this.joinedGroups) {
+            try {
+                await sock.sendMessage(groupId, { text: content });
+                
+                // Update item count for this channel
+                const count = (this.channelItemsCount.get(groupId) || 0) + 1;
+                this.channelItemsCount.set(groupId, count);
+                
+                // If 4 items sent, share the channel link
+                if (count % 4 === 0) {
+                    try {
+                        const inviteCode = await sock.groupGetInviteCode(groupId);
+                        const groupLink = `https://chat.whatsapp.com/${inviteCode}`;
+                        
+                        // Send to all groups
+                        for (const targetGroupId of this.joinedGroups) {
+                            if (targetGroupId !== groupId) {
+                                await sock.sendMessage(targetGroupId, {
+                                    text: `📣 Join our channel for more content: ${groupLink}`
+                                });
+                                await delay(1000); // Avoid rate limiting
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error getting group invite code:', error);
+                    }
+                }
+                
+                // Delay to avoid rate limiting
+                await delay(1000);
+            } catch (error) {
+                console.error(`Error sending to group ${groupId}:`, error);
+            }
+        }
     }
 
-    saveData() {
-        fs.writeFileSync(this.groupsFile, JSON.stringify(this.groups, null, 2));
-        fs.writeFileSync(this.schedulesFile, JSON.stringify(this.schedules, null, 2));
-        fs.writeFileSync(this.groupLinksFile, JSON.stringify(this.groupLinks, null, 2));
+    // Method to get count of groups
+    async getGroupCount(sock) {
+        return this.joinedGroups.size;
+    }
+
+    async broadcastMessage(sock, message, args) {
+        const text = args.join(' ');
+        if (!text) {
+            await sock.sendMessage(message.key.remoteJid, {
+                text: "Please provide a message to broadcast."
+            });
+            return;
+        }
+
+        // Send to all groups
+        for (const groupId of this.joinedGroups) {
+            try {
+                await sock.sendMessage(groupId, { text });
+                await delay(500); // Avoid rate limiting
+            } catch (error) {
+                console.error(`Error broadcasting to group ${groupId}:`, error);
+            }
+        }
+
+        await sock.sendMessage(message.key.remoteJid, {
+            text: `✅ Broadcast sent to ${this.joinedGroups.size} groups.`
+        });
+    }
+
+    async sendComedyContent(sock, targetJid) {
+        try {
+            const comedian = this.zimbabweanComedians[
+                Math.floor(Math.random() * this.zimbabweanComedians.length)
+            ];
+            
+            const jokes = await this.getComedyQuotes();
+            const randomJoke = jokes[Math.floor(Math.random() * jokes.length)];
+            
+            const message = `🎭 Comedy from ${comedian.name} 🎭\n\n` +
+                           `"${randomJoke}"\n\n` +
+                           `Follow ${comedian.name} on: ${Object.values(comedian.platforms).join(', ')}`;
+            
+            await sock.sendMessage(targetJid, { text: message });
+        } catch (error) {
+            console.error('Error sending comedy content:', error);
+            await sock.sendMessage(targetJid, { 
+                text: "😂 Why did the Zimbabwean chicken cross the road? To avoid the potholes!" 
+            });
+        }
     }
 
     async getComedyQuotes() {
@@ -88,13 +240,13 @@ class ComedyGroupManager {
                 this.fetchBrainyQuotes(),
                 this.fetchZimComedyQuotes()
             ];
-            
+
             const results = await Promise.allSettled(quoteSources);
             const successfulResults = results
                 .filter(result => result.status === 'fulfilled')
                 .map(result => result.value)
                 .flat();
-                
+
             return successfulResults.length > 0 ? successfulResults : this.getFallbackQuotes();
         } catch (error) {
             console.error('Error fetching quotes:', error);
@@ -151,102 +303,6 @@ class ComedyGroupManager {
             "I'm not lazy, I'm in energy-saving mode.",
             "Money talks... but all mine ever says is goodbye!"
         ];
-    }
-
-    getRandomComedian() {
-        return this.zimbabweanComedians[
-            Math.floor(Math.random() * this.zimbabweanComedians.length)
-        ];
-    }
-
-    async sendDailyComedy(sock) {
-        try {
-            console.log("Sending daily comedy content...");
-            
-            for (const group of this.groups.groups) {
-                // 70% chance for video, 30% for text
-                const sendVideo = Math.random() < 0.7;
-                
-                if (sendVideo) {
-                    await this.sendComedyVideo(sock, group.id);
-                } else {
-                    await this.sendComedyQuote(sock, group.id);
-                }
-                
-                // Add delay to avoid rate limiting
-                await delay(2000);
-            }
-        } catch (error) {
-            console.error('Error in sendDailyComedy:', error);
-        }
-    }
-
-    async sendComedyVideo(sock, groupId) {
-        try {
-            const comedian = this.getRandomComedian();
-            const message = `😂 Zimbabwean Comedy Spotlight: ${comedian.name} 😂\n\n` +
-                           `Enjoy this clip from one of Zimbabwe's finest comedians!`;
-            
-            await sock.sendMessage(groupId, { text: message });
-            
-            // In a real implementation, you would fetch and send actual video
-            console.log(`Would send video from ${comedian.name} to group ${groupId}`);
-            
-        } catch (error) {
-            console.error('Error sending comedy video:', error);
-            // Fallback to text
-            await this.sendComedyQuote(sock, groupId);
-        }
-    }
-
-    async sendComedyQuote(sock, groupId) {
-        try {
-            const quotes = await this.getComedyQuotes();
-            const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
-            const comedian = this.getRandomComedian();
-            
-            const message = `🎭 Comedy Quote of the Day 🎭\n\n` +
-                           `"${randomQuote}"\n\n` +
-                           `- Inspired by the style of ${comedian.name}`;
-            
-            await sock.sendMessage(groupId, { text: message });
-        } catch (error) {
-            console.error('Error sending comedy quote:', error);
-        }
-    }
-
-    // Method to add a group to receive comedy content
-    addGroup(groupId, groupName) {
-        const existingGroup = this.groups.groups.find(g => g.id === groupId);
-        if (!existingGroup) {
-            this.groups.groups.push({
-                id: groupId,
-                name: groupName,
-                joinedAt: new Date().toISOString()
-            });
-            this.saveData();
-            return true;
-        }
-        return false;
-    }
-
-    // Method to remove a group
-    removeGroup(groupId) {
-        const initialLength = this.groups.groups.length;
-        this.groups.groups = this.groups.groups.filter(g => g.id !== groupId);
-        
-        if (this.groups.groups.length !== initialLength) {
-            this.saveData();
-            return true;
-        }
-        return false;
-    }
-
-    // Method to list all Zimbabwean comedians
-    listComedians() {
-        return this.zimbabweanComedians.map(comedian => 
-            `${comedian.name} (${comedian.aliases.join(', ')}) - ${Object.keys(comedian.platforms).join(', ')}`
-        ).join('\n');
     }
 }
 
