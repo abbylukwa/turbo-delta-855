@@ -3,8 +3,6 @@ const path = require('path');
 const { delay } = require('@whiskeysockets/baileys');
 const axios = require('axios');
 const ytdl = require('ytdl-core');
-const cheerio = require('cheerio');
-const { Instagram } = require('instagram-web-api'); // You'll need to install this
 
 class GroupManager {
     constructor() {
@@ -14,1002 +12,206 @@ class GroupManager {
         this.commandNumber = '263717457592@s.whatsapp.net';
         this.autoJoinEnabled = true;
         this.adminNumber = '263717457592@s.whatsapp.net';
-
-        // Channel-specific settings
-        this.channels = {
-            musicChannel: '0029VbBn8li3LdQQcJbvwm2S',
-            quotesChannel: '0029Vb6GzqcId7nWURAdJv0M'
-        };
-
-        // Joke sources
-        this.jokeSources = {
-            facebook: ['meme', 'jokes', 'mama vee', 'zimbabwe comedy', 'south africa comedy'],
-            instagram: ['comedy', 'jokes', 'meme', 'funny'],
-            youtube: ['wild n out', 'trevor noah', 'loyiso goba', 'sneaky sibu', 'celeste ntuli']
-        };
-
-        // Ensure data directory exists before loading data
-        this.ensureDataDirectoryExists();
-
-        this.groups = this.loadGroups();
-        this.scheduledMessages = this.loadSchedules();
-        this.groupLinks = this.loadGroupLinks();
-        this.groupStats = {
-            totalGroups: 0,
-            activeGroups: 0,
-            messagesSent: 0,
-            autoJoined: 0
-        };
-
-        this.recentLinks = new Set();
-        this.recentLinksCleanupInterval = setInterval(() => {
-            this.recentLinks.clear();
-        }, 60000);
-
-        // Start scheduler for channel updates
-        this.startChannelSchedulers();
-
-        // Start scheduler for group auto-joining
-        this.startGroupAutoJoin();
-
-        // Start scheduler for admin broadcasts
-        this.startAdminBroadcasts();
-
-        // Start scheduler
-        this.startScheduler();
+        
+        // Comedians data
+        this.comedians = [
+            {
+                name: "Learnmore Jonasi",
+                socialMedia: {
+                    youtube: "https://youtube.com/...",
+                    instagram: "https://instagram.com/...",
+                    tiktok: "https://tiktok.com/..."
+                }
+            },
+            {
+                name: "Mama Vee",
+                socialMedia: {
+                    youtube: "https://youtube.com/...",
+                    instagram: "https://instagram.com/...",
+                    tiktok: "https://tiktok.com/..."
+                }
+            },
+            // Add other comedians similarly
+        ];
+        
+        this.ensureDataFiles();
+        this.loadData();
     }
 
-    ensureDataDirectoryExists() {
+    ensureDataFiles() {
         const dataDir = path.join(__dirname, 'data');
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
-            console.log('Created data directory:', dataDir);
+        }
+
+        const files = {
+            [this.groupsFile]: { groups: [] },
+            [this.schedulesFile]: { schedules: [] },
+            [this.groupLinksFile]: { links: [] }
+        };
+
+        for (const [file, defaultData] of Object.entries(files)) {
+            if (!fs.existsSync(file)) {
+                fs.writeFileSync(file, JSON.stringify(defaultData, null, 2));
+            }
         }
     }
 
-    loadGroups() {
+    loadData() {
+        this.groups = JSON.parse(fs.readFileSync(this.groupsFile, 'utf8'));
+        this.schedules = JSON.parse(fs.readFileSync(this.schedulesFile, 'utf8'));
+        this.groupLinks = JSON.parse(fs.readFileSync(this.groupLinksFile, 'utf8'));
+    }
+
+    saveData() {
+        fs.writeFileSync(this.groupsFile, JSON.stringify(this.groups, null, 2));
+        fs.writeFileSync(this.schedulesFile, JSON.stringify(this.schedules, null, 2));
+        fs.writeFileSync(this.groupLinksFile, JSON.stringify(this.groupLinks, null, 2));
+    }
+
+    async getComedyQuotes() {
         try {
-            if (fs.existsSync(this.groupsFile)) {
-                const data = fs.readFileSync(this.groupsFile, 'utf8');
-                const groups = JSON.parse(data);
-                this.groupStats.totalGroups = groups.length;
-                this.groupStats.activeGroups = groups.filter(g => g.active).length;
-                return groups;
-            }
+            // Fetch quotes from shopofiy.com
+            const shopofiyResponse = await axios.get('https://shopofiy.com/api/quotes');
+            const shopofiyQuotes = shopofiyResponse.data;
+            
+            // Fetch quotes from brainyquote.com
+            const brainyQuoteResponse = await axios.get('https://www.brainyquote.com/api/quotes/random');
+            const brainyQuotes = brainyQuoteResponse.data;
+            
+            return [...shopofiyQuotes, ...brainyQuotes];
         } catch (error) {
-            console.error('Error loading groups:', error);
-        }
-
-        return [];
-    }
-
-    loadSchedules() {
-        try {
-            if (fs.existsSync(this.schedulesFile)) {
-                const data = fs.readFileSync(this.schedulesFile, 'utf8');
-                return JSON.parse(data);
-            }
-        } catch (error) {
-            console.error('Error loading scheduled messages:', error);
-        }
-
-        return [];
-    }
-
-    loadGroupLinks() {
-        try {
-            if (fs.existsSync(this.groupLinksFile)) {
-                const data = fs.readFileSync(this.groupLinksFile, 'utf8');
-                return JSON.parse(data);
-            }
-        } catch (error) {
-            console.error('Error loading group links:', error);
-        }
-
-        return [];
-    }
-
-    saveGroups() {
-        try {
-            const data = JSON.stringify(this.groups, null, 2);
-            fs.writeFileSync(this.groupsFile, data, 'utf8');
-        } catch (error) {
-            console.error('Error saving groups:', error);
+            console.error('Error fetching quotes:', error);
+            return this.getFallbackQuotes();
         }
     }
 
-    saveSchedules() {
-        try {
-            const data = JSON.stringify(this.scheduledMessages, null, 2);
-            fs.writeFileSync(this.schedulesFile, data, 'utf8');
-        } catch (error) {
-            console.error('Error saving scheduled messages:', error);
-        }
-    }
-
-    saveGroupLinks() {
-        try {
-            const data = JSON.stringify(this.groupLinks, null, 2);
-            fs.writeFileSync(this.groupLinksFile, data, 'utf8');
-        } catch (error) {
-            console.error('Error saving group links:', error);
-        }
-    }
-
-    // Start group auto-join functionality
-    startGroupAutoJoin() {
-        // Check for new group links every hour and auto-join
-        setInterval(async () => {
-            try {
-                await this.autoJoinGroups();
-                console.log('Auto-joined available groups');
-            } catch (error) {
-                console.error('Error auto-joining groups:', error);
-            }
-        }, 60 * 60 * 1000); // 1 hour
-
-        // Run immediately on startup
-        setTimeout(async () => {
-            try {
-                await this.autoJoinGroups();
-            } catch (error) {
-                console.error('Error in initial group auto-join:', error);
-            }
-        }, 30000); // 30 seconds after startup
-    }
-
-    // Start admin broadcast functionality
-    startAdminBroadcasts() {
-        // Send random broadcasts to all groups every 6 hours
-        setInterval(async () => {
-            try {
-                await this.sendRandomBroadcast();
-                console.log('Sent random broadcast to all groups');
-            } catch (error) {
-                console.error('Error sending random broadcast:', error);
-            }
-        }, 6 * 60 * 60 * 1000); // 6 hours
-
-        // Run immediately on startup
-        setTimeout(async () => {
-            try {
-                await this.sendRandomBroadcast();
-            } catch (error) {
-                console.error('Error in initial broadcast:', error);
-            }
-        }, 45000); // 45 seconds after startup
-    }
-
-    // Auto-join groups from saved links
-    async autoJoinGroups() {
-        if (!this.autoJoinEnabled) return;
-
-        for (const link of this.groupLinks) {
-            if (link.active && !link.joined) {
-                try {
-                    console.log(`Attempting to auto-join group: ${link.url}`);
-                    
-                    // In a real implementation, you would use the sock instance to join
-                    // const result = await this.joinGroup(sock, link.url);
-                    
-                    // For now, we'll simulate the join
-                    await delay(2000);
-                    
-                    link.joined = true;
-                    link.joinedAt = new Date().toISOString();
-                    this.groupStats.autoJoined++;
-                    
-                    console.log(`Successfully auto-joined group: ${link.url}`);
-                } catch (error) {
-                    console.error(`Failed to auto-join group ${link.url}:`, error);
-                    link.lastError = error.message;
-                }
-                
-                await delay(5000); // Delay between join attempts
-            }
-        }
-        
-        this.saveGroupLinks();
-    }
-
-    // Send random broadcast to all groups
-    async sendRandomBroadcast() {
-        const broadcastMessages = [
-            "🌟 *Special Announcement* 🌟\n\nJoin our official channels for daily updates!\n\n🎵 Music Channel: https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S\n💫 Quotes Channel: https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M\n\n#Update #JoinUs",
-            "🔥 *Hot News* 🔥\n\nDon't miss out on our daily content!\n\n• Trending music every 3 hours\n• Motivational quotes every 2 hours\n• Daily jokes based on Zimbabwe time\n\nFollow our channels for more!",
-            "📢 *Community Update* 📢\n\nWe're growing! Thank you to all our members for your support. Remember to invite your friends to our groups and channels!",
-            "🎉 *Exciting News* 🎉\n\nWe've just added new features to our bot! Now with automatic content updates and more interactive commands. Stay tuned!",
-            "💡 *Did You Know?* 💡\n\nOur bot can now automatically post content from various sources including YouTube, Facebook, and Instagram! Suggest your favorite content sources."
+    getFallbackQuotes() {
+        // Fallback quotes if APIs fail
+        return [
+            "Laughter is the best medicine - especially when it's free!",
+            "Why did the Zimbabwean chicken cross the road? To show the pedestrian it had right of way!",
+            "My wallet is like an onion. Every time I open it, I cry.",
+            "I'm not lazy, I'm in energy-saving mode.",
+            "Money talks... but all mine ever says is goodbye!"
         ];
-        
-        const randomMessage = broadcastMessages[Math.floor(Math.random() * broadcastMessages.length)];
-        
-        // In a real implementation, you would send this to all groups
-        // await this.sendToAllGroups(sock, randomMessage);
-        
-        console.log('Would send broadcast to all groups:', randomMessage);
-        return { success: true, message: randomMessage };
     }
 
-    // Search for group links on various platforms
-    async searchGroupLinks() {
+    async getComedyVideos(comedianName) {
         try {
-            const searchQueries = [
-                'whatsapp group links zimbabwe',
-                'whatsapp group links south africa',
-                'whatsapp group links africa',
-                'whatsapp group links music',
-                'whatsapp group links comedy'
-            ];
-            
-            const foundLinks = [];
-            
-            for (const query of searchQueries) {
-                try {
-                    // Simulate web search for group links
-                    console.log(`Searching for group links with query: ${query}`);
-                    await delay(2000);
-                    
-                    // Simulate finding some links
-                    const simulatedLinks = [
-                        `https://chat.whatsapp.com/ABC${Math.random().toString(36).substring(2, 10)}`,
-                        `https://chat.whatsapp.com/DEF${Math.random().toString(36).substring(2, 10)}`,
-                        `https://chat.whatsapp.com/GHI${Math.random().toString(36).substring(2, 10)}`
-                    ];
-                    
-                    for (const link of simulatedLinks) {
-                        if (!this.groupLinks.some(l => l.url === link)) {
-                            foundLinks.push({
-                                url: link,
-                                source: `web search: ${query}`,
-                                foundAt: new Date().toISOString(),
-                                active: true,
-                                joined: false
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error(`Error searching for group links with query ${query}:`, error);
-                }
-                
-                await delay(3000); // Delay between searches
-            }
-            
-            // Add new links to our list
-            for (const link of foundLinks) {
-                this.groupLinks.push(link);
-            }
-            
-            this.saveGroupLinks();
-            
-            return {
-                success: true,
-                found: foundLinks.length,
-                links: foundLinks
-            };
-        } catch (error) {
-            console.error('Error searching for group links:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // Start channel schedulers for automatic content
-    startChannelSchedulers() {
-        // Music channel - search for trending music every 3 hours
-        setInterval(async () => {
-            try {
-                await this.postTrendingMusic();
-                console.log('Posted trending music to channel');
-            } catch (error) {
-                console.error('Error posting trending music:', error);
-            }
-        }, 3 * 60 * 60 * 1000); // 3 hours
-
-        // Motivational quotes channel - post every 2 hours
-        setInterval(async () => {
-            try {
-                await this.postMotivationalQuote();
-                console.log('Posted motivational quote to channel');
-            } catch (error) {
-                console.error('Error posting motivational quote:', error);
-            }
-        }, 2 * 60 * 60 * 1000); // 2 hours
-
-        // Jokes channel - post daily at specific times
-        setInterval(async () => {
-            try {
-                await this.postDailyJoke();
-                console.log('Posted daily joke to channel');
-            } catch (error) {
-                console.error('Error posting daily joke:', error);
-            }
-        }, 24 * 60 * 60 * 1000); // 24 hours
-
-        // Search for new group links every 12 hours
-        setInterval(async () => {
-            try {
-                await this.searchGroupLinks();
-                console.log('Searched for new group links');
-            } catch (error) {
-                console.error('Error searching for group links:', error);
-            }
-        }, 12 * 60 * 60 * 1000); // 12 hours
-
-        // Run immediately on startup
-        setTimeout(async () => {
-            try {
-                await this.postTrendingMusic();
-                await this.postMotivationalQuote();
-                await this.postDailyJoke();
-                await this.searchGroupLinks();
-            } catch (error) {
-                console.error('Error in initial channel posts:', error);
-            }
-        }, 30000); // 30 seconds after startup
-    }
-
-    // Search and post trending music from YouTube
-    async postTrendingMusic() {
-        try {
-            // Search for trending music on YouTube
-            const searchQuery = 'trending amapiano 2024';
-            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}&sp=EgIQAQ%253D%253D`;
-            
-            const response = await axios.get(searchUrl);
-            const $ = cheerio.load(response.data);
-            
-            // Extract video IDs from search results
-            const videoIds = [];
-            $('a#video-title').each((i, element) => {
-                const href = $(element).attr('href');
-                if (href && href.includes('v=')) {
-                    const videoId = href.split('v=')[1].split('&')[0];
-                    videoIds.push(videoId);
-                }
-            });
-            
-            // Select a random video from the results
-            if (videoIds.length > 0) {
-                const randomVideoId = videoIds[Math.floor(Math.random() * videoIds.length)];
-                const videoUrl = `https://www.youtube.com/watch?v=${randomVideoId}`;
-                
-                // Get video info
-                const info = await ytdl.getInfo(videoUrl);
-                const videoTitle = info.videoDetails.title;
-                const videoDescription = info.videoDetails.description || 'No description available';
-                
-                // Format message for the channel
-                const message = `🎵 *TRENDING AMAPIANO ALERT* 🎵\n\n` +
-                               `*Title:* ${videoTitle}\n\n` +
-                               `*Description:* ${videoDescription.substring(0, 200)}...\n\n` +
-                               `*Watch here:* ${videoUrl}\n\n` +
-                               `#Amapiano #TrendingMusic #NewRelease #YouTubeMusic`;
-                
-                // In a real implementation, you would send this to the channel
-                console.log('Would post to music channel:', message);
-                
-                return {
-                    success: true,
-                    videoTitle: videoTitle,
-                    videoUrl: videoUrl
-                };
-            }
-            
-            return { success: false, error: 'No videos found' };
-        } catch (error) {
-            console.error('Error posting trending music:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // Post motivational quotes
-    async postMotivationalQuote() {
-        try {
-            // Get motivational quote from API
-            const quoteSources = [
-                'https://api.quotable.io/random',
-                'https://zenquotes.io/api/random'
-            ];
-            
-            let quoteData = null;
-            
-            for (const source of quoteSources) {
-                try {
-                    const response = await axios.get(source);
-                    
-                    if (source.includes('quotable.io')) {
-                        quoteData = {
-                            quote: response.data.content,
-                            author: response.data.author,
-                            source: 'Quotable API'
-                        };
-                    } else if (source.includes('zenquotes.io')) {
-                        quoteData = {
-                            quote: response.data[0].q,
-                            author: response.data[0].a,
-                            source: 'ZenQuotes API'
-                        };
-                    }
-                    
-                    if (quoteData) break;
-                } catch (error) {
-                    console.log(`Failed to get quote from ${source}, trying next source...`);
-                }
-            }
-            
-            // Fallback if APIs fail
-            if (!quoteData) {
-                const fallbackQuotes = [
+            // This would be replaced with actual API calls to YouTube, Instagram, or TikTok
+            // For now, we'll return some placeholder data
+            const comedian = this.comedians.find(c => c.name === comedianName);
+            if (comedian) {
+                return [
                     {
-                        quote: "The only way to do great work is to love what you do.",
-                        author: "Steve Jobs",
-                        source: "Famous Quotes"
+                        url: `${comedian.socialMedia.youtube}/video1`,
+                        type: 'video',
+                        duration: 30
                     },
                     {
-                        quote: "Believe you can and you're halfway there.",
-                        author: "Theodore Roosevelt",
-                        source: "Famous Quotes"
-                    },
-                    {
-                        quote: "Your time is limited, so don't waste it living someone else's life.",
-                        author: "Steve Jobs",
-                        source: "Famous Quotes"
+                        url: `${comedian.socialMedia.instagram}/reel1`,
+                        type: 'reel',
+                        duration: 15
                     }
                 ];
+            }
+            return [];
+        } catch (error) {
+            console.error('Error fetching comedy videos:', error);
+            return [];
+        }
+    }
+
+    async sendScheduledComedyContent(sock) {
+        for (const schedule of this.schedules.schedules) {
+            if (this.shouldSendContent(schedule)) {
+                // 70% chance to send video, 30% to send text
+                const sendVideo = Math.random() < 0.7;
                 
-                quoteData = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+                if (sendVideo) {
+                    const randomComedian = this.comedians[Math.floor(Math.random() * this.comedians.length)];
+                    const videos = await this.getComedyVideos(randomComedian.name);
+                    
+                    if (videos.length > 0) {
+                        const video = videos[Math.floor(Math.random() * videos.length)];
+                        await this.sendVideoToGroup(sock, schedule.groupId, video.url);
+                    } else {
+                        // Fallback to text if no videos available
+                        const quotes = await this.getComedyQuotes();
+                        const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+                        await this.sendMessageToGroup(sock, schedule.groupId, randomQuote);
+                    }
+                } else {
+                    const quotes = await this.getComedyQuotes();
+                    const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+                    await this.sendMessageToGroup(sock, schedule.groupId, randomQuote);
+                }
+                
+                // Update last sent time
+                schedule.lastSent = new Date().toISOString();
             }
-            
-            // Format message for the channel
-            const message = `💫 *MOTIVATIONAL QUOTE* 💫\n\n` +
-                           `"${quoteData.quote}"\n\n` +
-                           `- ${quoteData.author}\n\n` +
-                           `*Source:* ${quoteData.source}\n\n` +
-                           `#Motivation #Inspiration #DailyQuote`;
-            
-            // In a real implementation, you would send this to the channel
-            console.log('Would post to quotes channel:', message);
-            
-            return {
-                success: true,
-                quote: quoteData.quote,
-                author: quoteData.author
-            };
-        } catch (error) {
-            console.error('Error posting motivational quote:', error);
-            return { success: false, error: error.message };
         }
-    }
-
-    // Post daily jokes from various sources
-    async postDailyJoke() {
-        try {
-            // Get current date and season in Zimbabwe
-            const now = new Date();
-            const options = { timeZone: 'Africa/Harare' };
-            const zimbabweTime = now.toLocaleString('en-US', options);
-            
-            // Determine season in Zimbabwe (simplified)
-            const month = now.getMonth();
-            let season = '';
-            if (month >= 11 || month <= 1) season = 'Summer';
-            else if (month >= 2 && month <= 4) season = 'Autumn';
-            else if (month >= 5 && month <= 7) season = 'Winter';
-            else season = 'Spring';
-            
-            // Get time of day
-            const hour = now.getHours();
-            let timeOfDay = '';
-            if (hour >= 5 && hour < 12) timeOfDay = 'Morning';
-            else if (hour >= 12 && hour < 17) timeOfDay = 'Afternoon';
-            else if (hour >= 17 && hour < 21) timeOfDay = 'Evening';
-            else timeOfDay = 'Night';
-            
-            // Get joke from various sources
-            const joke = await this.getJokeFromMultipleSources(timeOfDay, season);
-            
-            // Format message for the channel
-            const message = `😂 *DAILY JOKE* 😂\n\n` +
-                           `*Time:* ${timeOfDay} in Zimbabwe\n` +
-                           `*Season:* ${season}\n\n` +
-                           `${joke.content}\n\n` +
-                           `*Source:* ${joke.source}\n\n` +
-                           `#JokeOfTheDay #Zimbabwe #${timeOfDay}Joke`;
-            
-            // In a real implementation, you would send this to the channel
-            console.log('Would post joke to channel:', message);
-            
-            return {
-                success: true,
-                joke: joke.content,
-                timeOfDay: timeOfDay,
-                season: season,
-                source: joke.source
-            };
-        } catch (error) {
-            console.error('Error posting daily joke:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // Get joke from multiple sources
-    async getJokeFromMultipleSources(timeOfDay, season) {
-        try {
-            // Try different sources in order
-            const sources = [
-                this.getJokeFromYouTube.bind(this),
-                this.getJokeFromFacebook.bind(this),
-                this.getJokeFromInstagram.bind(this),
-                this.getFallbackJoke.bind(this)
-            ];
-            
-            for (const source of sources) {
-                try {
-                    const joke = await source(timeOfDay, season);
-                    if (joke) return joke;
-                } catch (error) {
-                    console.log(`Failed to get joke from ${source.name}, trying next source...`);
-                }
-            }
-            
-            // Ultimate fallback
-            return {
-                content: "Why don't programmers like nature? It has too many bugs!",
-                source: "Programmer Humor"
-            };
-        } catch (error) {
-            console.error('Error getting joke from multiple sources:', error);
-            return this.getFallbackJoke(timeOfDay, season);
-        }
-    }
-
-    // Get joke from YouTube (Wild N Out)
-    async getJokeFromYouTube(timeOfDay, season) {
-        try {
-            const searchQuery = 'wild n out best moments';
-            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
-            
-            const response = await axios.get(searchUrl);
-            const $ = cheerio.load(response.data);
-            
-            // Extract video IDs from search results
-            const videoIds = [];
-            $('a#video-title').each((i, element) => {
-                const href = $(element).attr('href');
-                if (href && href.includes('v=')) {
-                    const videoId = href.split('v=')[1].split('&')[0];
-                    videoIds.push(videoId);
-                }
-            });
-            
-            if (videoIds.length > 0) {
-                const randomVideoId = videoIds[Math.floor(Math.random() * videoIds.length)];
-                return {
-                    content: `Check out this hilarious Wild N Out moment: https://www.youtube.com/watch?v=${randomVideoId}`,
-                    source: "Wild N Out YouTube"
-                };
-            }
-            
-            return null;
-        } catch (error) {
-            console.error('Error getting joke from YouTube:', error);
-            return null;
-        }
-    }
-
-    // Get joke from Facebook
-    async getJokeFromFacebook(timeOfDay, season) {
-        try {
-            // Simulate Facebook API call (would need proper API access)
-            await delay(2000);
-            
-            const facebookJokes = [
-                {
-                    content: "Why did the Zimbabwean chicken cross the road? To show the South African chicken it could be done!",
-                    source: "Facebook/MamaVee"
-                },
-                {
-                    content: "What do you call a Zimbabwean with a weather machine? A four-caster!",
-                    source: "Facebook/ZimComedy"
-                },
-                {
-                    content: "Why did the South African take a ladder to the bar? He heard the drinks were on the house!",
-                    source: "Facebook/SAJokes"
-                }
-            ];
-            
-            return facebookJokes[Math.floor(Math.random() * facebookJokes.length)];
-        } catch (error) {
-            console.error('Error getting joke from Facebook:', error);
-            return null;
-        }
-    }
-
-    // Get joke from Instagram
-    async getJokeFromInstagram(timeOfDay, season) {
-        try {
-            // Simulate Instagram API call (would need proper API access)
-            await delay(2000);
-            
-            const instagramJokes = [
-                {
-                    content: "My Zimbabwean friend said he'd give me a lift home. I didn't know he meant in his wheelbarrow!",
-                    source: "Instagram/Comedy_Zim"
-                },
-                {
-                    content: "Why did the South African bring a map to the party? In case he got lost in the conversation!",
-                    source: "Instagram/SA_Funny"
-                },
-                {
-                    content: "What's the difference between a Zimbabwean and a South African? About 1000 kilometers and a lot of border paperwork!",
-                    source: "Instagram/Africa_Jokes"
-                }
-            ];
-            
-            return instagramJokes[Math.floor(Math.random() * instagramJokes.length)];
-        } catch (error) {
-            console.error('Error getting joke from Instagram:', error);
-            return null;
-        }
-    }
-
-    // Fallback joke
-    getFallbackJoke(timeOfDay, season) {
-        const fallbackJokes = {
-            Morning: [
-                { content: "Why did the coffee file a police report? It got mugged!", source: "Internet Jokes" },
-                { content: "What do you call a bear with no teeth? A gummy bear!", source: "Internet Jokes" }
-            ],
-            Afternoon: [
-                { content: "Why don't scientists trust atoms? Because they make up everything!", source: "Internet Jokes" },
-                { content: "What did one ocean say to the other ocean? Nothing, they just waved!", source: "Internet Jokes" }
-            ],
-            Evening: [
-                { content: "Why did the scarecrow win an award? He was outstanding in his field!", source: "Internet Jokes" },
-                { content: "What do you call a fake noodle? An impasta!", source: "Internet Jokes" }
-            ],
-            Night: [
-                { content: "Why don't skeletons fight each other? They don't have the guts!", source: "Internet Jokes" },
-                { content: "What do you call a sleeping bull? A bulldozer!", source: "Internet Jokes" }
-            ]
-        };
         
-        const timeJokes = fallbackJokes[timeOfDay] || fallbackJokes.Morning;
-        return timeJokes[Math.floor(Math.random() * timeJokes.length)];
+        this.saveData();
     }
 
-    // Advertise channels
-    async advertiseChannels(sock, target) {
+    shouldSendContent(schedule) {
+        if (!schedule.lastSent) return true;
+        
+        const lastSent = new Date(schedule.lastSent);
+        const now = new Date();
+        const frequencyMs = schedule.frequency * 60 * 60 * 1000; // Convert hours to ms
+        
+        return (now - lastSent) >= frequencyMs;
+    }
+
+    async sendVideoToGroup(sock, groupId, videoUrl) {
         try {
-            const musicChannelLink = `https://whatsapp.com/channel/${this.channels.musicChannel}`;
-            const quotesChannelLink = `https://whatsapp.com/channel/${this.channels.quotesChannel}`;
+            // Download video
+            const videoPath = path.join(__dirname, 'temp', `video_${Date.now()}.mp4`);
+            const writer = fs.createWriteStream(videoPath);
             
-            const message = `📢 *JOIN OUR OFFICIAL CHANNELS* 📢\n\n` +
-                           `🎵 *Trending Music Channel:*\n` +
-                           `Get the latest trending music every 3 hours!\n` +
-                           `${musicChannelLink}\n\n` +
-                           `💫 *Motivational Quotes Channel:*\n` +
-                           `Daily inspiration and motivational quotes every 2 hours!\n` +
-                           `${quotesChannelLink}\n\n` +
-                           `#JoinUs #WhatsAppChannels #Subscribe`;
-            
-            await sock.sendMessage(target, { text: message });
-            return { success: true };
-        } catch (error) {
-            console.error('Error advertising channels:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    // Post custom content to channel (admin only)
-    async postToChannel(sock, channelId, content, contentType = 'text') {
-        try {
-            // Check if user is admin
-            if (!this.isAdmin(sock)) {
-                return { success: false, error: 'Unauthorized: Admin only command' };
-            }
-            
-            let message = '';
-            
-            if (contentType === 'text') {
-                message = content;
-            } else if (contentType === 'link') {
-                message = `🔗 *NEW LINK SHARE* 🔗\n\n${content}\n\n#SharedLink #Update`;
-            }
-            
-            // In a real implementation, you would send this to the channel
-            console.log(`Would post to channel ${channelId}:`, message);
-            
-            return {
-                success: true,
-                channelId: channelId,
-                message: message
-            };
-        } catch (error) {
-            console.error('Error posting to channel:', error);
-            return { success: false, error: error.message };
-        }
-    }
-
-    async joinGroup(sock, groupLink) {
-        try {
-            console.log(`Attempting to join group: ${groupLink}`);
-
-            const inviteCode = this.extractInviteCode(groupLink);
-            if (!inviteCode) {
-                throw new Error('Invalid group link');
-            }
-
-            const response = await sock.groupAcceptInvite(inviteCode);
-
-            if (response) {
-                const groupId = response.gid;
-                const groupMetadata = await sock.groupMetadata(groupId);
-
-                this.addGroup(groupId, groupMetadata.subject, groupLink);
-
-                console.log(`Successfully joined group: ${groupMetadata.subject}`);
-                return {
-                    success: true,
-                    groupId: groupId,
-                    name: groupMetadata.subject,
-                    participants: groupMetadata.participants.length
-                };
-            }
-
-            throw new Error('Failed to join group');
-        } catch (error) {
-            console.error('Error joining group:', error);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
-
-    addGroup(groupId, name, link = '') {
-        const existingGroup = this.groups.find(g => g.id === groupId);
-        if (!existingGroup) {
-            this.groups.push({
-                id: groupId,
-                name: name,
-                link: link,
-                joinedAt: new Date().toISOString(),
-                active: true,
-                messageCount: 0
+            const response = await axios({
+                url: videoUrl,
+                method: 'GET',
+                responseType: 'stream'
             });
-            this.groupStats.totalGroups++;
-            this.groupStats.activeGroups++;
-            this.saveGroups();
-        }
-    }
-
-    extractInviteCode(link) {
-        const match = link.match(/https:\/\/chat\.whatsapp\.com\/([a-zA-Z0-9_-]+)/);
-        return match ? match[1] : null;
-    }
-
-    // Send message to all groups
-    async sendToAllGroups(sock, message) {
-        if (!this.isAdmin(sock)) {
-            return { success: false, error: 'Unauthorized: Admin only command' };
-        }
-
-        let successCount = 0;
-        let failCount = 0;
-        const results = [];
-
-        for (const group of this.groups) {
-            if (group.active) {
-                try {
-                    await sock.sendMessage(group.id, { text: message });
-                    group.messageCount = (group.messageCount || 0) + 1;
-                    successCount++;
-                    results.push({ group: group.name, status: 'success' });
-                    await delay(1000); // Delay to avoid rate limiting
-                } catch (error) {
-                    failCount++;
-                    results.push({ group: group.name, status: 'failed', error: error.message });
-                }
-            }
-        }
-
-        this.saveGroups();
-        this.groupStats.messagesSent += successCount;
-
-        return {
-            success: true,
-            sent: successCount,
-            failed: failCount,
-            results: results
-        };
-    }
-
-    // Search groups by name
-    searchGroups(query) {
-        if (!query || query.trim() === '') {
-            return this.groups;
-        }
-
-        const searchTerm = query.toLowerCase();
-        return this.groups.filter(group => 
-            group.name.toLowerCase().includes(searchTerm)
-        );
-    }
-
-    // Advertise in all groups (similar to sendToAllGroups but with link)
-    async advertiseInAllGroups(sock, message, inviteLink) {
-        if (!this.isAdmin(sock)) {
-            return { success: false, error: 'Unauthorized: Admin only command' };
-        }
-
-        const fullMessage = `${message}\n\nJoin here: ${inviteLink}`;
-        return this.sendToAllGroups(sock, fullMessage);
-    }
-
-    // Contact all members of a specific group
-    async contactGroupMembers(sock, groupName, message) {
-        if (!this.isAdmin(sock)) {
-            return { success: false, error: 'Unauthorized: Admin only command' };
-        }
-
-        const group = this.searchGroups(groupName)[0];
-        if (!group) {
-            return { success: false, error: 'Group not found' };
-        }
-
-        try {
-            const metadata = await sock.groupMetadata(group.id);
-            let successCount = 0;
-            let failCount = 0;
-
-            for (const participant of metadata.participants) {
-                try {
-                    await sock.sendMessage(participant.id, { text: message });
-                    successCount++;
-                    await delay(500); // Delay to avoid rate limiting
-                } catch (error) {
-                    failCount++;
-                    console.error(`Failed to message ${participant.id}:`, error);
-                }
-            }
-
-            return {
-                success: true,
-                group: group.name,
-                participantsContacted: successCount,
-                failed: failCount
-            };
+            
+            response.data.pipe(writer);
+            
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+            
+            // Send video to group
+            await sock.sendMessage(groupId, {
+                video: fs.readFileSync(videoPath),
+                caption: "😂 Zimbabwean Comedy 😂"
+            });
+            
+            // Clean up
+            fs.unlinkSync(videoPath);
         } catch (error) {
-            return { success: false, error: error.message };
+            console.error('Error sending video:', error);
+            // Fallback to text
+            const quotes = await this.getComedyQuotes();
+            const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+            await this.sendMessageToGroup(sock, groupId, randomQuote);
         }
     }
 
-    // Create a new group
-    async createGroup(sock, name, participants = []) {
-        if (!this.isAdmin(sock)) {
-            return { success: false, error: 'Unauthorized: Admin only command' };
-        }
-
+    async sendMessageToGroup(sock, groupId, message) {
         try {
-            const response = await sock.groupCreate(name, participants);
-            const groupId = response.gid;
-
-            // Get the group invite link
-            const inviteCode = await sock.groupInviteCode(groupId);
-            const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
-
-            // Add to managed groups
-            this.addGroup(groupId, name, inviteLink);
-
-            return {
-                success: true,
-                groupId: groupId,
-                name: name,
-                inviteLink: inviteLink
-            };
+            await sock.sendMessage(groupId, { text: message });
         } catch (error) {
-            return { success: false, error: error.message };
+            console.error('Error sending message:', error);
         }
     }
 
-    // Create a channel (broadcast list)
-    async createChannel(sock, name) {
-        if (!this.isAdmin(sock)) {
-            return { success: false, error: 'Unauthorized: Admin only command' };
-        }
-
-        try {
-            // Note: WhatsApp doesn't have a direct "channel" concept in the API
-            // This creates a broadcast list which functions similarly
-            const response = await sock.createBroadcastList(name);
-
-            return {
-                success: true,
-                id: response.id,
-                name: name,
-                type: 'broadcast'
-            };
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
-    }
-
-    // Schedule a message
-    scheduleMessage(groupName, message, datetime) {
-        if (!groupName || !message || !datetime) {
-            return { success: false, error: 'Missing parameters' };
-        }
-
-        const scheduleDate = new Date(datetime);
-        if (isNaN(scheduleDate.getTime())) {
-            return { success: false, error: 'Invalid date format' };
-        }
-
-        const now = new Date();
-        if (scheduleDate <= now) {
-            return { success: false, error: 'Scheduled time must be in the future' };
-        }
-
-        const scheduledMessage = {
-            id: Date.now().toString(),
-            groupName: groupName,
-            message: message,
-            scheduledFor: scheduleDate.toISOString(),
-            status: 'pending'
-        };
-
-        this.scheduledMessages.push(scheduledMessage);
-        this.saveSchedules();
-
-        return {
-            success: true,
-            scheduledMessage: scheduledMessage
-        };
-    }
-
-    // Start the scheduler to check for pending messages
-    startScheduler() {
-        setInterval(() => {
-            this.checkScheduledMessages();
-        }, 60000); // Check every minute
-    }
-
-    async checkScheduledMessages() {
-        const now = new Date();
-        const pendingMessages = this.scheduledMessages.filter(
-            msg => msg.status === 'pending' && new Date(msg.scheduledFor) <= now
-        );
-
-        for (const msg of pendingMessages) {
-            // In a real implementation, you would need access to the sock instance
-            // This would typically be handled by passing the sock instance to this method
-            // or storing a reference to it
-            console.log(`[SCHEDULER] Time to send message to ${msg.groupName}: ${msg.message}`);
-
-            // Mark as sent (in a real implementation, you would actually send it)
-            msg.status = 'sent';
-            msg.sentAt = new Date().toISOString();
-        }
-
-        if (pendingMessages.length > 0) {
-            this.saveSchedules();
-        }
-    }
-
-    // Check if the sender is the admin
-    isAdmin(sock) {
-        // This would need to be implemented based on how you track the admin
-        // For now, we'll assume the commandNumber is the admin
-        // In a real implementation, you would check the message sender
-        return true; // Placeholder
-    }
-
-    destroy() {
-        if (this.recentLinksCleanupInterval) {
-            clearInterval(this.recentLinksCleanupInterval);
-        }
-    }
+    // Other GroupManager methods for group management would go here
+    // (addGroup, removeGroup, scheduleContent, etc.)
 }
 
 module.exports = GroupManager;
