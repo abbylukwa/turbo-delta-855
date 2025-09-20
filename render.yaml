@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: whatsapp-bot
+    name: social-media-bot
     runtime: docker
     region: oregon
     plan: free
@@ -14,14 +14,11 @@ services:
         value: ""
       - key: DATABASE_URL
         fromDatabase:
-          name: whatsapp-bot-db
+          name: social-media-bot-db
           property: connectionString
-    healthCheckPath: /health
-    autoDeploy: true
-
-databases:
-  - name: whatsapp-bot-db
-    plan: free
-    databaseName: whatsapp_bot
-    user: whatsapp_user
-    ipAllowList: []
+      - key: FACEBOOK_APP_ID
+        value: ""
+      - key: FACEBOOK_APP_SECRET
+        value: ""
+      - key: TWITTER_API_KEY
+        value: ""
