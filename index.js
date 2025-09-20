@@ -4,8 +4,33 @@ const { delay } = require('@whiskeysockets/baileys');
 const axios = require('axios');
 const ytdl = require('ytdl-core');
 const cheerio = require('cheerio');
-const { Instagram } = require('instagram-web-api'); // You'll need to install this
 
+// Global definitions
+globalThis.File = class File {};
+globalThis.crypto = require('crypto').webcrypto;
+
+// Your existing imports
+const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
+const { exec } = require('child_process');
+const os = require('os');
+const express = require('express'); // Added for Render
+
+// Import database models
+const { initializeDatabase, models } = require('./models');
+
+// Import managers - REMOVE THE DUPLICATE GroupManager IMPORT
+const UserManager = require('./user-manager');
+const ActivationManager = require('./activation-manager');
+const AdminCommands = require('./admin-commands');
+const GeneralCommands = require('./general-commands');
+const DownloadManager = require('./download-manager');
+const SubscriptionManager = require('./subscription-manager');
+const PaymentHandler = require('./payment-handler');
+const DatingManager = require('./dating-manager');
+const { Boom } = require('@hapi/boom');
+
+// Define GroupManager class here instead of importing it
 class GroupManager {
     constructor() {
         this.groupsFile = path.join(__dirname, 'data', 'groups.json');
@@ -95,34 +120,6 @@ class GroupManager {
     }
 }
 
-module.exports = GroupManager;
-
-// Global definitions
-globalThis.File = class File {};
-globalThis.crypto = require('crypto').webcrypto;
-
-// Your existing imports
-const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
-const { exec } = require('child_process');
-const os = require('os');
-const express = require('express'); // Added for Render
-
-// Import database models - FIXED IMPORT
-const { initializeDatabase, models } = require('./models');
-
-// Import managers
-const UserManager = require('./user-manager');
-const ActivationManager = require('./activation-manager');
-const GroupManager = require('./group-manager');
-const AdminCommands = require('./admin-commands');
-const GeneralCommands = require('./general-commands');
-const DownloadManager = require('./download-manager');
-const SubscriptionManager = require('./subscription-manager');
-const PaymentHandler = require('./payment-handler');
-const DatingManager = require('./dating-manager');
-const { Boom } = require('@hapi/boom');
-
 // Store for connection
 let sock = null;
 let isConnected = false;
@@ -170,7 +167,7 @@ const PARISHES = [
 // Initialize managers
 const userManager = new UserManager();
 const activationManager = new ActivationManager();
-const groupManager = new GroupManager();
+const groupManager = new GroupManager(); // Now using the locally defined class
 const adminCommands = new AdminCommands();
 const generalCommands = new GeneralCommands();
 const downloadManager = new DownloadManager();
@@ -392,37 +389,37 @@ async function getUserRole(phoneNumber) {
 async function processMessage(sock, message) {
     try {
         if (!message.message) return;
-        
+
         const sender = message.key.remoteJid;
         const messageType = Object.keys(message.message)[0];
         let text = '';
-        
+
         if (messageType === 'conversation') {
             text = message.message.conversation;
         } else if (messageType === 'extendedTextMessage') {
             text = message.message.extendedTextMessage.text;
         }
-        
+
         // Ignore messages from broadcast lists and status
         if (sender.endsWith('@broadcast') || sender === 'status@broadcast') {
             return;
         }
-        
+
         // Only process messages from admin
         if (sender !== COMMAND_NUMBER) {
             console.log(`Ignoring message from ${sender}: ${text}`);
             return;
         }
-        
+
         console.log(`Processing command from admin: ${text}`);
-        
+
         // Parse command
         const commandMatch = text.match(/^\.(\w+)(?:\s+(.*))?$/);
         if (!commandMatch) return;
-        
+
         const command = commandMatch[1].toLowerCase();
         const args = commandMatch[2] ? commandMatch[2].split(' ') : [];
-        
+
         // Route to appropriate command handler
         switch (command) {
             case 'activate':
@@ -483,17 +480,17 @@ async function startBot(dbModels) {
     try {
         console.log('🚀 Starting WhatsApp Bot...');
         await ensureDirectories();
-        
+
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-        
+
         // Validate auth state
         const isValidAuth = await validateAuthState(state);
         if (!isValidAuth) {
             console.log('🔄 Setting up new authentication...');
         }
-        
+
         const { version } = await fetchLatestBaileysVersion();
-        
+
         sock = makeWASocket({
             version,
             logger: createSimpleLogger(),
@@ -505,20 +502,20 @@ async function startBot(dbModels) {
             syncFullHistory: false,
             defaultQueryTimeoutMs: 0,
         });
-        
+
         // Setup event handlers
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr, isNewLogin, pairingCode } = update;
-            
+
             if (qr) {
                 displayPairingInfo(qr, pairingCode);
             }
-            
+
             if (connection === 'close') {
                 const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-                
+
                 console.log(`Connection closed due to ${lastDisconnect.error} | reconnecting ${shouldReconnect}`);
-                
+
                 if (shouldReconnect) {
                     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                         reconnectAttempts++;
@@ -536,7 +533,7 @@ async function startBot(dbModels) {
                 console.log('✅ Connected to WhatsApp');
                 isConnected = true;
                 reconnectAttempts = 0;
-                
+
                 // Send connection success message to admin
                 if (sock && COMMAND_NUMBER) {
                     await sock.sendMessage(COMMAND_NUMBER, { 
@@ -545,7 +542,7 @@ async function startBot(dbModels) {
                 }
             }
         });
-        
+
         sock.ev.on('creds.update', saveCreds);
         sock.ev.on('messages.upsert', async (m) => {
             if (m.type === 'notify') {
@@ -554,10 +551,10 @@ async function startBot(dbModels) {
                 }
             }
         });
-        
+
         // Setup auth state backup
         setupAuthStateBackup(state);
-        
+
     } catch (error) {
         console.error('❌ Error starting bot:', error);
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
