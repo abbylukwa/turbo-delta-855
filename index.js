@@ -6,6 +6,11 @@ const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason
 const qrcode = require('qrcode-terminal');
 const express = require('express');
 
+// Import managers
+const ComedyGroupManager = require('./group-manager');
+const ActivationManager = require('./activation-manager');
+const MusicManager = require('./music-manager');
+
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
 
@@ -31,237 +36,11 @@ class UserManager {
   }
 }
 
-// Activation Manager (kept separate as requested)
-class ActivationManager {
-  constructor() {
-    this.activationFile = path.join(__dirname, 'data', 'activation.json');
-    this.ensureActivationFile();
-  }
-  
-  ensureActivationFile() {
-    if (!fs.existsSync(path.dirname(this.activationFile))) {
-      fs.mkdirSync(path.dirname(this.activationFile), { recursive: true });
-    }
-    if (!fs.existsSync(this.activationFile)) {
-      fs.writeFileSync(this.activationFile, JSON.stringify({}));
-    }
-  }
-  
-  async handleActivation(sock, message, args, sender) {
-    // Activation logic here - separate from main bot
-    await sock.sendMessage(message.key.remoteJid, {
-      text: "Activation feature will be implemented here."
-    });
-  }
-  
-  // Method to check if a user is activated
-  isUserActivated(userId) {
-    try {
-      const data = fs.readFileSync(this.activationFile, 'utf8');
-      const activations = JSON.parse(data);
-      return activations[userId] === true;
-    } catch (error) {
-      console.error('Error reading activation file:', error);
-      return false;
-    }
-  }
-}
-
-// Group Manager (Updated with requested features)
-class GroupManager {
-  constructor() {
-    this.groupsFile = path.join(__dirname, 'data', 'groups.json');
-    this.schedulesFile = path.join(__dirname, 'data', 'schedules.json');
-    this.groupLinksFile = path.join(__dirname, 'data', 'group_links.json');
-    this.commandNumber = '263717457592@s.whatsapp.net';
-    this.autoJoinEnabled = true;
-    this.adminNumber = '263717457592@s.whatsapp.net';
-    this.joinedGroups = new Set();
-    this.channelItemsCount = new Map(); // Track items sent per channel
-    this.ensureDataFiles();
-    this.loadGroups();
-  }
-
-  ensureDataFiles() {
-    const dir = path.dirname(this.groupsFile);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    
-    const files = [this.groupsFile, this.schedulesFile];
-    files.forEach(file => {
-      if (!fs.existsSync(file)) {
-        fs.writeFileSync(file, JSON.stringify([]));
-      }
-    });
-  }
-
-  loadGroups() {
-    try {
-      if (fs.existsSync(this.groupsFile)) {
-        const data = fs.readFileSync(this.groupsFile, 'utf8');
-        const groups = JSON.parse(data);
-        groups.forEach(group => this.joinedGroups.add(group.id));
-      }
-    } catch (error) {
-      console.error('Error loading groups:', error);
-    }
-  }
-
-  saveGroups() {
-    const groups = Array.from(this.joinedGroups).map(id => ({ id }));
-    fs.writeFileSync(this.groupsFile, JSON.stringify(groups, null, 2));
-  }
-
-  async joinGroup(sock, groupLink) {
-    try {
-      // Extract group ID from the link
-      const groupId = groupLink.split('https://chat.whatsapp.com/')[1];
-      if (!groupId) return false;
-
-      // Join the group using the invite code
-      await sock.groupAcceptInvite(groupId);
-      this.joinedGroups.add(groupId);
-      this.saveGroups();
-      
-      console.log(`Joined group: ${groupId}`);
-      return true;
-    } catch (error) {
-      console.error('Error joining group:', error);
-      return false;
-    }
-  }
-
-  async handleGroupLink(sock, message) {
-    const text = message.message.conversation || '';
-    const groupLinkMatch = text.match(/https:\/\/chat\.whatsapp\.com\/[a-zA-Z0-9]+/);
-    
-    if (groupLinkMatch) {
-      const groupLink = groupLinkMatch[0];
-      const joined = await this.joinGroup(sock, groupLink);
-      
-      if (joined) {
-        await sock.sendMessage(message.key.remoteJid, {
-          text: "✅ Successfully joined the group!"
-        });
-      } else {
-        await sock.sendMessage(message.key.remoteJid, {
-          text: "❌ Failed to join the group. The link might be invalid."
-        });
-      }
-    }
-  }
-
-  async sendToChannels(sock, content) {
-    // Implementation for sending content to channels
-    for (const groupId of this.joinedGroups) {
-      try {
-        await sock.sendMessage(groupId, { text: content });
-        
-        // Update item count for this channel
-        const count = (this.channelItemsCount.get(groupId) || 0) + 1;
-        this.channelItemsCount.set(groupId, count);
-        
-        // If 4 items sent, share the channel link
-        if (count % 4 === 0) {
-          const inviteCode = await sock.groupGetInviteCode(groupId);
-          const groupLink = `https://chat.whatsapp.com/${inviteCode}`;
-          
-          // Send to all groups
-          for (const targetGroupId of this.joinedGroups) {
-            if (targetGroupId !== groupId) {
-              await sock.sendMessage(targetGroupId, {
-                text: `Join our channel: ${groupLink}`
-              });
-            }
-          }
-        }
-        
-        // Delay to avoid rate limiting
-        await delay(1000);
-      } catch (error) {
-        console.error(`Error sending to group ${groupId}:`, error);
-      }
-    }
-  }
-
-  // Method to get count of groups by scanning messages
-  async getGroupCount(sock) {
-    try {
-      // This would typically scan messages to identify groups
-      // For simplicity, we'll return the count of joined groups
-      return this.joinedGroups.size;
-    } catch (error) {
-      console.error('Error getting group count:', error);
-      return 0;
-    }
-  }
-}
-
-// Admin Commands
-class AdminCommands {
-  async broadcastMessage(sock, message, args, groupManager) {
-    const text = args.join(' ');
-    if (!text) {
-      await sock.sendMessage(message.key.remoteJid, {
-        text: "Please provide a message to broadcast."
-      });
-      return;
-    }
-
-    // Send to all groups
-    for (const groupId of groupManager.joinedGroups) {
-      try {
-        await sock.sendMessage(groupId, { text });
-        await delay(500); // Avoid rate limiting
-      } catch (error) {
-        console.error(`Error broadcasting to group ${groupId}:`, error);
-      }
-    }
-
-    await sock.sendMessage(message.key.remoteJid, {
-      text: `✅ Broadcast sent to ${groupManager.joinedGroups.size} groups.`
-    });
-  }
-}
-
-// General Commands
-class GeneralCommands {
-  async showHelp(sock, message) {
-    const helpText = `
-🤖 WhatsApp Bot Help 🤖
-
-Admin Commands:
-.activate [code] - Activate a user
-.userinfo [number] - Get user information
-.ban [number] - Ban a user
-.unban [number] - Unban a user
-.broadcast [message] - Broadcast message to all users
-.stats - Show bot statistics
-.restart - Restart the bot
-
-Group Commands:
-.creategroup [name] - Create a new group
-.addtogroup [number] - Add user to group
-.removefromgroup [number] - Remove user from group
-.grouplink - Get group invite link
-.listgroups - List all groups
-.autojointoggle - Toggle auto-join feature
-
-General Commands:
-.help - Show this help message
-    `;
-
-    await sock.sendMessage(message.key.remoteJid, { text: helpText });
-  }
-}
-
 // Initialize managers
 const userManager = new UserManager();
 const activationManager = new ActivationManager();
-const groupManager = new GroupManager();
-const adminCommands = new AdminCommands();
-const generalCommands = new GeneralCommands();
+const groupManager = new ComedyGroupManager();
+const musicManager = new MusicManager();
 
 // Store for connection
 let sock = null;
@@ -271,24 +50,140 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000;
 
 // News countries and content
-const NEWS_COUNTRIES = [
-  "USA", "UK", "Canada", "Australia", "Germany", 
-  "France", "Japan", "China", "India", "Brazil",
-  "South Africa", "Nigeria", "Kenya"
+const AFRICAN_COUNTRIES = [
+  "Nigeria", "South Africa", "Kenya", "Ghana", "Egypt",
+  "Zimbabwe", "Tanzania", "Ethiopia", "Uganda", "Morocco",
+  "Algeria", "Angola", "Zambia", "Mozambique", "Cameroon"
+];
+
+// Famous Zimbabwean and South African Comedians
+const AFRICAN_COMEDIANS = {
+  ZIMBABWE: [
+    "Carl Joshua Ncube",
+    "Doc Vikela",
+    "Q Dube",
+    "Long John",
+    "Comic Pastor",
+    "Mandy",
+    "Ntando Van Moyo",
+    "Tiripi Padero",
+    "Prophet Passion Java",
+    "Mama Vee"
+  ],
+  SOUTH_AFRICA: [
+    "Trevor Noah",
+    "Loyiso Gola",
+    "David Kau",
+    "Kagiso Lediga",
+    "Riaad Moosa",
+    "Celeste Ntuli",
+    "Lasizwe Dambuza",
+    "Tumi Morake",
+    "Schalk Bezuidenhout",
+    "Ntosh Madlingozi"
+  ]
+};
+
+// YouTube search queries for Wild 'N Out and comedy
+const YOUTUBE_SEARCH_QUERIES = [
+  "Wild N Out South Africa",
+  "Wild N Out Africa",
+  "Zimbabwean comedy",
+  "South African comedy",
+  "Trevor Noah standup",
+  "Carl Joshua Ncube",
+  "Loyiso Gola",
+  "David Kau comedy",
+  "Nigerian comedy",
+  "Kenyan comedy"
 ];
 
 // Function to generate news content
-function generateNewsContent() {
-  const country = NEWS_COUNTRIES[Math.floor(Math.random() * NEWS_COUNTRIES.length)];
-  const headlines = [
-    `Breaking news from ${country}: Major development in technology sector.`,
-    `${country} reports economic growth in latest quarter.`,
-    `Sports update from ${country}: National team wins international championship.`,
-    `Weather alert in ${country}: Unusual patterns expected this week.`,
-    `Cultural event in ${country}: Annual festival attracts global attention.`
-  ];
+async function generateNewsContent(country) {
+  try {
+    const countryMap = {
+      'Nigeria': 'ng', 'South Africa': 'za', 'Kenya': 'ke', 'Ghana': 'gh',
+      'Egypt': 'eg', 'Zimbabwe': 'zw', 'Tanzania': 'tz', 'Ethiopia': 'et',
+      'Uganda': 'ug', 'Morocco': 'ma', 'Algeria': 'dz', 'Angola': 'ao',
+      'Zambia': 'zm', 'Mozambique': 'mz', 'Cameroon': 'cm'
+    };
+    
+    const countryCode = countryMap[country] || 'za';
+    
+    // In a real implementation, you would use NewsAPI here
+    // const response = await axios.get(`https://newsapi.org/v2/top-headlines?country=${countryCode}&apiKey=${NEWS_API_KEY}`);
+    
+    // For now, using mock data
+    const newsTemplates = [
+      `Breaking news from ${country}: Major developments in the technology sector.`,
+      `${country} reports significant economic growth this quarter.`,
+      `Sports update: ${country} national team wins international championship.`,
+      `Cultural event in ${country}: Annual festival attracts global attention.`,
+      `Weather alert: ${country} experiences unusual climate patterns.`
+    ];
+    
+    return newsTemplates[Math.floor(Math.random() * newsTemplates.length)];
+  } catch (error) {
+    console.error('Error generating news:', error);
+    
+    // Fallback news
+    const fallbackNews = [
+      `Latest updates from ${country}: Positive developments across various sectors.`,
+      `${country} continues to make progress in economic development.`,
+      `Cultural highlights from ${country} gaining international recognition.`
+    ];
+    
+    return fallbackNews[Math.floor(Math.random() * fallbackNews.length)];
+  }
+}
+
+// African joke generator
+async function getAfricanJoke() {
+  try {
+    // Try to get joke from API first
+    // const response = await axios.get('https://v2.jokeapi.dev/joke/Any?type=single');
+    // if (response.data.joke) return response.data.joke;
+    
+    // Fallback African jokes
+    const africanJokes = [
+      "Why did the African chicken cross the road? To show the zebra it was possible!",
+      "African time: When 2pm means see you tomorrow!",
+      "How do you know you're in Africa? When the wifi password is '12345678' and it actually works!",
+      "Why did the Nigerian man bring a ladder to the bar? He heard the drinks were on the house!",
+      "South African traffic: Where robots are traffic lights and nobody knows why!",
+      "Kenyan marathon: Where everyone is running except the watchman!",
+      "Ghanaian party: When the music is so loud, the neighbors call to complain about the quiet parts!",
+      "Zimbabwean dollar: The only currency that makes you a trillionaire and broke at the same time!",
+      "Egyptian pyramid scheme: Literally!",
+      "Tanzanian safari: Where animals have right of way and tourists have no say!"
+    ];
+    
+    return africanJokes[Math.floor(Math.random() * africanJokes.length)];
+  } catch (error) {
+    console.error('Error getting joke:', error);
+    return "Why did the African chicken cross the road? To get to the other side, African style!";
+  }
+}
+
+// Comedian-specific content generator
+function getComedianContent() {
+  const allComedians = [...AFRICAN_COMEDIANS.ZIMBABWE, ...AFRICAN_COMEDIANS.SOUTH_AFRICA];
+  const randomComedian = allComedians[Math.floor(Math.random() * allComedians.length)];
   
-  return headlines[Math.floor(Math.random() * headlines.length)];
+  const comedianQuotes = {
+    "Carl Joshua Ncube": "In Zimbabwe, we don't have problems, we have opportunities to be creative!",
+    "Trevor Noah": "The difference between America and Africa? In America, you have the American dream. In Africa, we have African reality!",
+    "Loyiso Gola": "South African politics: Where every day is April Fool's Day!",
+    "Doc Vikela": "Zimbabwean electricity: We have load shedding for your shedding load!",
+    "Q Dube": "African parents: They never say 'I love you' but they'll kill for you!",
+    "David Kau": "In South Africa, we have 11 official languages and still misunderstand each other!",
+    "Celeste Ntuli": "Being a Zulu woman means you're born with a microphone in one hand and a wooden spoon in the other!",
+    "Long John": "Zimbabwean economy: Where you need a calculator to buy bread!",
+    "Riaad Moosa": "Being a doctor-comedian means I can diagnose your bad sense of humor!",
+    "Tumi Morake": "African women: We don't break glass ceilings, we rebuild the whole building!"
+  };
+  
+  return `🎤 ${randomComedian}: "${comedianQuotes[randomComedian] || 'Laughter is the best medicine, especially in Africa!'}"`;
 }
 
 // Ensure data directories exist
@@ -475,11 +370,11 @@ async function processMessage(sock, message) {
           break;
         case '.broadcast':
           if (isAdmin) {
-            await adminCommands.broadcastMessage(sock, message, args.slice(1), groupManager);
+            await groupManager.broadcastMessage(sock, message, args.slice(1));
           }
           break;
         case '.help':
-          await generalCommands.showHelp(sock, message);
+          await showHelp(sock, message);
           break;
         case '.stats':
           if (isAdmin) {
@@ -488,6 +383,17 @@ async function processMessage(sock, message) {
               text: `📊 Bot Statistics:\nGroups: ${groupCount}\nConnected: ${isConnected}\nUptime: ${process.uptime().toFixed(2)}s`
             });
           }
+          break;
+        case '.music':
+          await musicManager.handleMusicRequest(sock, message, args.slice(1));
+          break;
+        case '.comedy':
+          await groupManager.sendComedyContent(sock, sender);
+          break;
+        case '.news':
+          const country = args[1] || AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
+          const news = await generateNewsContent(country);
+          await sock.sendMessage(sender, { text: `📰 News from ${country}:\n\n${news}` });
           break;
         default:
           // Unknown command
@@ -499,34 +405,98 @@ async function processMessage(sock, message) {
   }
 }
 
-// News posting scheduler
-function startNewsScheduler() {
-  // Post news from 7 to 9 PM
+// Show help function
+async function showHelp(sock, message) {
+  const helpText = `
+🤖 WhatsApp Bot Help 🤖
+
+Admin Commands:
+.activate [code] - Activate a user
+.userinfo [number] - Get user information
+.broadcast [message] - Broadcast message to all users
+.stats - Show bot statistics
+
+Content Commands:
+.music [artist/song] - Get music information
+.comedy - Get comedy content
+.news [country] - Get news from African countries
+
+Group Features:
+- Auto-joins any group link received
+- Posts news daily 7-9 PM from 15 African countries
+- Weekend comedy updates every 20 minutes
+- Music sharing with artist details
+- Wild 'N Out videos every 5 hours
+  `;
+
+  await sock.sendMessage(message.key.remoteJid, { text: helpText });
+}
+
+// African content scheduler
+function startAfricanContentScheduler() {
+  let wildNOutCounter = 0;
+  let musicShareCounter = 0;
+  
+  // Post content regularly
   setInterval(async () => {
+    if (!isConnected) return;
+    
     const now = new Date();
     const hours = now.getHours();
     const isWeekend = now.getDay() === 0 || now.getDay() === 6;
     
-    // Check if it's between 7 PM and 9 PM
-    if (hours >= 19 && hours < 21) {
-      const newsContent = generateNewsContent();
-      await groupManager.sendToChannels(sock, newsContent);
-    }
-    
-    // Weekend updates every 20 minutes
-    if (isWeekend) {
-      const newsContent = generateNewsContent();
-      await groupManager.sendToChannels(sock, newsContent);
+    try {
+      // African news between 7 PM and 9 PM
+      if (hours >= 19 && hours < 21) {
+        const randomCountry = AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
+        const news = await generateNewsContent(randomCountry);
+        await groupManager.sendToChannels(sock, `📰 ${randomCountry} News:\n\n${news}`);
+      }
+      
+      // Weekend comedy every 20 minutes
+      if (isWeekend) {
+        wildNOutCounter++;
+        
+        // Every 5 hours (15 intervals of 20 minutes), send Wild 'N Out content
+        if (wildNOutCounter >= 15) {
+          await groupManager.sendToChannels(sock, "🎬 Wild 'N Out Africa Time! Check out the latest episodes on YouTube!");
+          wildNOutCounter = 0;
+        } else {
+          // Regular comedy content
+          const joke = await getAfricanJoke();
+          const comedianContent = getComedianContent();
+          
+          await groupManager.sendToChannels(sock, `😂 African Comedy:\n\n${joke}\n\n${comedianContent}`);
+        }
+      }
+      
+      // Music sharing every 6 hours
+      musicShareCounter++;
+      if (musicShareCounter >= 18) { // 6 hours (18 intervals of 20 minutes)
+        const musicContent = await musicManager.getRandomMusicContent();
+        await groupManager.sendToChannels(sock, musicContent);
+        musicShareCounter = 0;
+      }
+      
+      // Daily comedy at specific times
+      if ([12, 18, 22].includes(hours) && now.getMinutes() < 10) {
+        const joke = await getAfricanJoke();
+        await groupManager.sendToChannels(sock, `😄 Daily Laugh:\n\n${joke}`);
+      }
+      
+    } catch (error) {
+      console.error('Error in content scheduler:', error);
     }
   }, 20 * 60 * 1000); // Check every 20 minutes
 }
 
 async function startBot() {
   try {
-    console.log('🚀 Starting WhatsApp Bot...');
+    console.log('🚀 Starting WhatsApp Bot with African Content...');
     await ensureDirectories();
     await connectionManager.connect();
-    startNewsScheduler();
+    startAfricanContentScheduler();
+    console.log('✅ African content scheduler started');
   } catch (error) {
     console.error('Failed to start bot:', error);
     process.exit(1);
