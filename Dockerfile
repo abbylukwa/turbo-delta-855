@@ -4,7 +4,7 @@ FROM node:20-alpine
 # Set the working directory
 WORKDIR /app
 
-# Install system dependencies including ffmpeg for media processing
+# Install system dependencies including ffmpeg for media processing and additional dependencies for social media APIs
 RUN apk add --no-cache \
     python3 \
     make \
@@ -12,7 +12,14 @@ RUN apk add --no-cache \
     git \
     curl \
     ffmpeg \
-    libc6-compat
+    libc6-compat \
+    libtool \
+    autoconf \
+    automake \
+    nasm \
+    zlib-dev \
+    libpng-dev \
+    libjpeg-turbo-dev
 
 # Copy package files
 COPY package*.json ./
@@ -23,8 +30,9 @@ RUN npm install --omit=dev
 # Copy application source code
 COPY . .
 
-# Create necessary directories for persistence
-RUN mkdir -p /app/data /app/auth_info_baileys /app/downloads /app/backups
+# Create necessary directories for persistence across all platforms
+RUN mkdir -p /app/data /app/auth_info_baileys /app/downloads /app/backups \
+    /app/facebook_sessions /app/twitter_cache /app/instagram_data /app/discord_data
 
 # Set proper permissions
 RUN chmod -R 755 /app
@@ -36,12 +44,12 @@ EXPOSE 3000
 
 # Create a non-root user to run the app
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S whatsappbot -u 1001
+    adduser -S socialmediabot -u 1001
 
 # Change ownership of the app directory
-RUN chown -R whatsappbot:nodejs /app
+RUN chown -R socialmediabot:nodejs /app
 
 # Switch to the non-root user
-USER whatsappbot
+USER socialmediabot
 
 CMD ["node", "index.js"]
