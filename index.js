@@ -6,13 +6,18 @@ const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason
 const qrcode = require('qrcode-terminal');
 const express = require('express');
 const ytdl = require('ytdl-core');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
 
-// Set ffmpeg path if available
-if (ffmpegPath) {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-}
+// Import all managers
+const DownloadManager = require('./download-manager');
+const SubscriptionManager = require('./subscription-manager');
+const PaymentHandler = require('./payment-handler');
+const GeneralCommands = require('./general-commands');
+const UserManager = require('./user-manager');
+const GroupManager = require('./group-manager');
+const AdminCommands = require('./admin-commands');
+const ActivationManager = require('./activation-manager');
+const DatingManager = require('./dating-manager');
+const KeepAlive = require('./keep-alive');
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -34,133 +39,17 @@ const createSimpleLogger = () => {
   };
 };
 
-// User Manager
-class UserManager {
-  async getUserInfo(sock, message, args) {
-    await sock.sendMessage(message.key.remoteJid, {
-      text: "User info feature will be implemented here."
-    });
-  }
-}
-
-// Group Manager
-class GroupManager {
-  constructor() {
-    this.joinedGroups = new Set();
-    this.groupDiscoveryInterval = null;
-    this.lastBroadcastTime = 0;
-  }
-
-  async discoverGroups(sock) {
-    try {
-      console.log("🔍 Searching for groups...");
-      // Simulate group discovery
-      const groups = await this.scanForGroups(sock);
-      for (const groupId of groups) {
-        if (!this.joinedGroups.has(groupId)) {
-          console.log(`📍 Found new group: ${groupId}`);
-          this.joinedGroups.add(groupId);
-        }
-      }
-      console.log(`📊 Currently monitoring ${this.joinedGroups.size} groups`);
-    } catch (error) {
-      console.error('Error discovering groups:', error);
-    }
-  }
-
-  async scanForGroups(sock) {
-    return [];
-  }
-
-  async handleGroupLink(sock, message) {
-    const text = message.message?.conversation || '';
-    const groupLinkMatch = text.match(/https:\/\/chat\.whatsapp\.com\/[a-zA-Z0-9]+/);
-
-    if (groupLinkMatch) {
-      const groupLink = groupLinkMatch[0];
-      const joined = await this.joinGroup(sock, groupLink);
-
-      if (joined) {
-        await sock.sendMessage(message.key.remoteJid, {
-          text: "✅ Successfully joined the group!"
-        });
-        await this.sendChannelInfo(sock, message.key.remoteJid);
-      } else {
-        await sock.sendMessage(message.key.remoteJid, {
-          text: "❌ Failed to join the group. The link might be invalid."
-        });
-      }
-    }
-  }
-
-  async joinGroup(sock, groupLink) {
-    try {
-      const groupId = groupLink.split('https://chat.whatsapp.com/')[1];
-      if (!groupId) return false;
-
-      await sock.groupAcceptInvite(groupId);
-      this.joinedGroups.add(groupId);
-      console.log(`✅ Joined group: ${groupId}`);
-      return true;
-    } catch (error) {
-      console.error('Error joining group:', error);
-      return false;
-    }
-  }
-
-  async broadcastToGroups(sock, message) {
-    if (this.joinedGroups.size === 0) {
-      console.log("No groups to broadcast to");
-      return;
-    }
-
-    console.log(`📢 Broadcasting to ${this.joinedGroups.size} groups...`);
-    for (const groupId of this.joinedGroups) {
-      try {
-        await sock.sendMessage(groupId, { text: message });
-        await delay(1000);
-      } catch (error) {
-        console.error(`Error broadcasting to group ${groupId}:`, error);
-        this.joinedGroups.delete(groupId);
-      }
-    }
-    this.lastBroadcastTime = Date.now();
-    console.log("✅ Broadcast completed");
-  }
-
-  async sendChannelInfo(sock, targetJid) {
-    const channelInfo = `
-🌟 JOIN OUR OFFICIAL CHANNELS 🌟
-
-📰 NEWS & COMEDY CHANNEL:
-Stay updated with the latest news from across Africa and enjoy daily comedy content!
-https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
-
-🎵 MUSIC CHANNEL:
-Get the latest music updates, artist features, and exclusive content!
-https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
-
-👉 Tap the links above to join both channels now!
-    `;
-    await sock.sendMessage(targetJid, { text: channelInfo });
-  }
-
-  startGroupDiscovery(sock) {
-    this.groupDiscoveryInterval = setInterval(() => {
-      this.discoverGroups(sock);
-    }, 5 * 60 * 1000);
-  }
-
-  stopGroupDiscovery() {
-    if (this.groupDiscoveryInterval) {
-      clearInterval(this.groupDiscoveryInterval);
-    }
-  }
-}
-
-// Initialize managers
+// Initialize all managers
 const userManager = new UserManager();
+const subscriptionManager = new SubscriptionManager();
+const downloadManager = new DownloadManager();
 const groupManager = new GroupManager();
+const paymentHandler = new PaymentHandler(subscriptionManager, userManager);
+const activationManager = new ActivationManager(userManager);
+const datingManager = new DatingManager(userManager, subscriptionManager);
+const generalCommands = new GeneralCommands(userManager, downloadManager, subscriptionManager);
+const adminCommands = new AdminCommands(userManager, groupManager, paymentHandler);
+const keepAlive = new KeepAlive();
 
 // Store for connection
 let sock = null;
@@ -174,15 +63,6 @@ const AFRICAN_COUNTRIES = [
   "Nigeria", "South Africa", "Kenya", "Ghana", "Egypt",
   "Zimbabwe", "Tanzania", "Ethiopia", "Uganda", "Morocco",
   "Algeria", "Angola", "Zambia", "Mozambique", "Cameroon"
-];
-
-// YouTube music search queries
-const YOUTUBE_MUSIC_QUERIES = [
-  "Burna Boy latest song",
-  "Wizkid new music",
-  "African music 2024",
-  "Amapiano latest",
-  "Afrobeats new release"
 ];
 
 // Function to get real news from API
@@ -240,79 +120,6 @@ async function getRealJokes() {
   }
 }
 
-// Function to download YouTube video and convert to MP3/MP4
-async function downloadYouTubeMusic(videoUrl) {
-  try {
-    const videoInfo = await ytdl.getInfo(videoUrl);
-    const videoTitle = videoInfo.videoDetails.title;
-    const videoId = videoInfo.videoDetails.videoId;
-
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    const mp4Path = path.join(tempDir, `${videoId}.mp4`);
-    console.log(`Downloading: ${videoTitle}`);
-
-    const videoStream = ytdl(videoUrl, { quality: 'highest' });
-    const writeStream = fs.createWriteStream(mp4Path);
-
-    await new Promise((resolve, reject) => {
-      videoStream.pipe(writeStream);
-      videoStream.on('end', resolve);
-      videoStream.on('error', reject);
-    });
-
-    console.log('MP4 download completed');
-    return {
-      title: videoTitle,
-      mp4Path: mp4Path,
-      videoId: videoId
-    };
-  } catch (error) {
-    console.error('Error downloading YouTube music:', error);
-    throw error;
-  }
-}
-
-// Function to search for music on YouTube
-async function searchYouTubeMusic(query) {
-  try {
-    const mockVideos = [
-      "https://www.youtube.com/watch?v=abcdefghijk",
-      "https://www.youtube.com/watch?v=lmnopqrstuv",
-      "https://www.youtube.com/watch?v=wxyz1234567"
-    ];
-    return mockVideos[Math.floor(Math.random() * mockVideos.length)];
-  } catch (error) {
-    console.error('Error searching YouTube music:', error);
-    return null;
-  }
-}
-
-// Function to get music content
-async function getMusicContent() {
-  try {
-    const randomQuery = YOUTUBE_MUSIC_QUERIES[Math.floor(Math.random() * YOUTUBE_MUSIC_QUERIES.length)];
-    const videoUrl = await searchYouTubeMusic(randomQuery);
-    if (!videoUrl) throw new Error('No video found');
-
-    const musicData = await downloadYouTubeMusic(videoUrl);
-    return {
-      title: musicData.title,
-      mp4Path: musicData.mp4Path,
-      description: `🎵 New Music: ${musicData.title}\n\nDownloaded from YouTube\n\n#NewMusic #AfricanMusic #YouTube`
-    };
-  } catch (error) {
-    console.error('Error getting music content:', error);
-    return {
-      title: "African Music Mix",
-      description: "🎵 Enjoy the latest African music hits! #AfricanMusic #NewReleases"
-    };
-  }
-}
-
 // Function to clean up temporary files
 function cleanupTempFiles() {
   try {
@@ -329,8 +136,12 @@ function cleanupTempFiles() {
 // Ensure data directories exist
 async function ensureDirectories() {
   try {
-    if (!fs.existsSync(path.join(__dirname, 'temp'))) {
-      fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
+    const dirs = ['temp', 'downloads', 'data', 'auth_info_baileys'];
+    for (const dir of dirs) {
+      const dirPath = path.join(__dirname, dir);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
     }
     console.log('✅ Data directories created successfully');
   } catch (error) {
@@ -479,6 +290,7 @@ class ConnectionManager {
 
     groupManager.stopGroupDiscovery();
     cleanupTempFiles();
+    keepAlive.stopPinging();
 
     if (sock) {
       sock.ws.close();
@@ -506,54 +318,98 @@ async function processMessage(sock, message) {
     if (!text) return;
 
     const sender = message.key.remoteJid;
-    const isAdmin = sender === COMMAND_NUMBER;
+    const phoneNumber = sender.split('@')[0];
+    const isAdmin = sender === COMMAND_NUMBER || adminCommands.isAdmin(phoneNumber);
     const args = text.trim().split(' ');
     const command = args[0].toLowerCase();
+
+    // Update user activity
+    userManager.incrementStat(phoneNumber, 'messagesSent');
+
+    // Handle activation messages first
+    if (text.startsWith('!activate ')) {
+      const code = text.substring('!activate '.length).trim();
+      const result = await activationManager.handleActivation(sock, sender, phoneNumber, '', code);
+      if (result.success && result.message) {
+        await sock.sendMessage(sender, { text: result.message });
+      }
+      userManager.incrementStat(phoneNumber, 'commandsUsed');
+      return;
+    }
+
+    // Handle payment and subscription messages
+    const paymentHandled = await paymentHandler.handleMessage(sock, sender, phoneNumber, '', text, isAdmin);
+    if (paymentHandled) {
+      userManager.incrementStat(phoneNumber, 'commandsUsed');
+      return;
+    }
+
+    // Handle admin commands
+    if (isAdmin) {
+      const adminHandled = await adminCommands.handleAdminCommand(sock, sender, phoneNumber, '', text, message);
+      if (adminHandled) {
+        userManager.incrementStat(phoneNumber, 'commandsUsed');
+        return;
+      }
+    }
+
+    // Handle dating commands
+    const datingHandled = await datingManager.handleDatingCommand(sock, sender, phoneNumber, text, message);
+    if (datingHandled) {
+      userManager.incrementStat(phoneNumber, 'commandsUsed');
+      return;
+    }
+
+    // Handle general commands
+    const generalHandled = await generalCommands.handleGeneralCommand(sock, sender, phoneNumber, '', text, message);
+    if (generalHandled) {
+      userManager.incrementStat(phoneNumber, 'commandsUsed');
+      return;
+    }
 
     // Handle group links (auto-join)
     if (text.includes('https://chat.whatsapp.com/')) {
       await groupManager.handleGroupLink(sock, message);
+      userManager.incrementStat(phoneNumber, 'commandsUsed');
       return;
     }
 
-    // Process commands
-    if (command.startsWith('.')) {
+    // Process admin-only commands (starting with .)
+    if (command.startsWith('.') && isAdmin) {
       switch (command) {
         case '.help':
           await showHelp(sock, message);
           break;
         case '.stats':
-          if (isAdmin) {
-            await sock.sendMessage(sender, {
-              text: `📊 Bot Statistics:\nConnected: ${isConnected}\nGroups: ${groupManager.joinedGroups.size}\nUptime: ${process.uptime().toFixed(2)}s`
-            });
-          }
+          await sock.sendMessage(sender, {
+            text: `📊 Bot Statistics:\nConnected: ${isConnected}\nGroups: ${groupManager.joinedGroups.size}\nUptime: ${process.uptime().toFixed(2)}s`
+          });
           break;
         case '.broadcast':
-          if (isAdmin && args.length > 1) {
+          if (args.length > 1) {
             const broadcastMessage = args.slice(1).join(' ');
             await groupManager.broadcastToGroups(sock, broadcastMessage);
             await sock.sendMessage(sender, { text: `✅ Broadcast sent to ${groupManager.joinedGroups.size} groups` });
           }
           break;
         case '.testnews':
-          if (isAdmin) {
-            const country = AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
-            const news = await getRealNews(country);
-            await sock.sendMessage(NEWS_CHANNEL_ID, { text: news });
-            await sock.sendMessage(sender, { text: `✅ Test news sent to news channel` });
-          }
+          const country = AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
+          const news = await getRealNews(country);
+          await sock.sendMessage(NEWS_CHANNEL_ID, { text: news });
+          await sock.sendMessage(sender, { text: `✅ Test news sent to news channel` });
           break;
         case '.testcomedy':
-          if (isAdmin) {
-            const joke = await getRealJokes();
-            await sock.sendMessage(NEWS_CHANNEL_ID, { text: joke });
-            await sock.sendMessage(sender, { text: `✅ Test comedy sent to news channel` });
-          }
+          const joke = await getRealJokes();
+          await sock.sendMessage(NEWS_CHANNEL_ID, { text: joke });
+          await sock.sendMessage(sender, { text: `✅ Test comedy sent to news channel` });
+          break;
+        case '.userinfo':
+          await userManager.getUserInfo(sock, message, args);
           break;
         default:
           break;
       }
+      userManager.incrementStat(phoneNumber, 'commandsUsed');
     }
   } catch (error) {
     console.error('Error processing message:', error);
@@ -571,6 +427,7 @@ Admin Commands:
 .broadcast [message] - Broadcast message to all groups
 .testnews - Send test news to news channel
 .testcomedy - Send test comedy to news channel
+.userinfo - Show user information
 
 Features:
 - Auto-joins any WhatsApp group link received
@@ -668,6 +525,7 @@ app.get('/', (req, res) => {
     message: 'WhatsApp Bot is running',
     connected: isConnected,
     groups: groupManager.joinedGroups.size,
+    users: Object.keys(userManager.getAllUsers()).length,
     channels: {
       news: 'https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M',
       music: 'https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S'
@@ -684,10 +542,32 @@ app.get('/health', (req, res) => {
   }
 });
 
+// Admin stats endpoint
+app.get('/admin/stats', (req, res) => {
+  if (req.query.key !== process.env.ADMIN_KEY) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  const stats = {
+    users: Object.keys(userManager.getAllUsers()).length,
+    groups: groupManager.joinedGroups.size,
+    connected: isConnected,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    subscriptions: subscriptionManager.getActiveSubscriptions().length
+  };
+
+  res.json(stats);
+});
+
 // Start the HTTP server
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
+  
+  // Start keep-alive pinging
+  keepAlive.startPinging(`http://0.0.0.0:${port}/health`, 300000);
+  
   startBot();
 });
 
