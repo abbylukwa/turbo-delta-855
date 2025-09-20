@@ -22,3 +22,24 @@ services:
         value: ""
       - key: TWITTER_API_KEY
         value: ""
+      - key: TWITTER_API_SECRET
+        value: ""
+      - key: INSTAGRAM_USERNAME
+        value: ""
+      - key: INSTAGRAM_PASSWORD
+        value: ""
+      - key: DISCORD_TOKEN
+        value: ""
+      - key: LINKEDIN_CLIENT_ID
+        value: ""
+      - key: LINKEDIN_CLIENT_SECRET
+        value: ""
+    healthCheckPath: /health
+    autoDeploy: true
+
+databases:
+  - name: social-media-bot-db
+    plan: free
+    databaseName: social_media_bot
+    user: social_media_user
+    ipAllowList: []
