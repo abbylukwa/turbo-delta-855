@@ -423,6 +423,7 @@ class ConnectionManager {
   constructor() {
     this.isConnecting = false;
     this.reconnectTimeout = null;
+    this.qrCodeGenerated = false;
   }
 
   async connect() {
@@ -451,14 +452,27 @@ class ConnectionManager {
       });
 
       sock.ev.on('creds.update', saveCreds);
+      
+      // Handle connection updates including QR code
       sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
         
-        // Handle QR code generation manually
-        if (qr) {
-          console.log('🔄 Scan this QR code with WhatsApp:');
-          qrcode.generate(qr, { small: true });
-          console.log('QR Code generated above ↑');
+        console.log('Connection status:', connection);
+        
+        // Handle QR code generation
+        if (qr && !this.qrCodeGenerated) {
+          this.qrCodeGenerated = true;
+          console.log('\n'.repeat(5)); // Add some space
+          console.log('═'.repeat(60));
+          console.log('🔄 SCAN THIS QR CODE WITH YOUR WHATSAPP');
+          console.log('═'.repeat(60));
+          qrcode.generate(qr, { small: false }); // Use large QR code
+          console.log('═'.repeat(60));
+          console.log('1. Open WhatsApp on your phone');
+          console.log('2. Tap Menu → Linked Devices → Link a Device');
+          console.log('3. Scan the QR code above');
+          console.log('═'.repeat(60));
+          console.log('\n');
         }
 
         if (connection === 'close') {
@@ -466,6 +480,7 @@ class ConnectionManager {
             lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
           
           console.log('Connection closed due to ', lastDisconnect.error, ', reconnecting ', shouldReconnect);
+          this.qrCodeGenerated = false; // Reset QR flag for reconnection
           
           if (shouldReconnect) {
             this.reconnect();
@@ -481,6 +496,7 @@ class ConnectionManager {
         }
       });
 
+      // Handle incoming messages
       sock.ev.on('messages.upsert', async (m) => {
         if (m.type === 'notify') {
           for (const message of m.messages) {
@@ -594,7 +610,7 @@ async function processMessage(sock, message) {
             // Send MP3
             if (music.mp3Path && fs.existsSync(music.mp3Path)) {
               await sock.sendMessage(MUSIC_CHANNEL_ID, {
-                audio: { url: music.mp3Path },
+                audio: fs.readFileSync(music.mp3Path),
                 mimetype: 'audio/mpeg',
                 fileName: `${music.title}.mp3`
               });
@@ -603,7 +619,7 @@ async function processMessage(sock, message) {
             // Send MP4
             if (music.mp4Path && fs.existsSync(music.mp4Path)) {
               await sock.sendMessage(MUSIC_CHANNEL_ID, {
-                video: { url: music.mp4Path },
+                video: fs.readFileSync(music.mp4Path),
                 mimetype: 'video/mp4',
                 caption: music.description,
                 fileName: `${music.title}.mp4`
@@ -723,7 +739,7 @@ https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
         // Send MP3
         if (music.mp3Path && fs.existsSync(music.mp3Path)) {
           await sock.sendMessage(MUSIC_CHANNEL_ID, {
-            audio: { url: music.mp3Path },
+            audio: fs.readFileSync(music.mp3Path),
             mimetype: 'audio/mpeg',
             fileName: `${music.title}.mp3`
           });
@@ -732,7 +748,7 @@ https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
         // Send MP4
         if (music.mp4Path && fs.existsSync(music.mp4Path)) {
           await sock.sendMessage(MUSIC_CHANNEL_ID, {
-            video: { url: music.mp4Path },
+            video: fs.readFileSync(music.mp4Path),
             mimetype: 'video/mp4',
             caption: music.description,
             fileName: `${music.title}.mp4`
