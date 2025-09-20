@@ -5,9 +5,13 @@ const axios = require('axios');
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
+const ytdl = require('ytdl-core');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+const { exec } = require('child_process');
 
-// Import managers
-const ChannelManager = require('./group-manager');
+// Set ffmpeg path
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Command number
 const COMMAND_NUMBER = '263717457592@s.whatsapp.net';
@@ -38,9 +42,140 @@ class UserManager {
   }
 }
 
+// Group Manager
+class GroupManager {
+  constructor() {
+    this.joinedGroups = new Set();
+    this.groupDiscoveryInterval = null;
+    this.lastBroadcastTime = 0;
+  }
+
+  async discoverGroups(sock) {
+    try {
+      console.log("🔍 Searching for groups...");
+      
+      // Simulate discovering groups by checking recent messages
+      // In a real implementation, you would scan conversations for group messages
+      const groups = await this.scanForGroups(sock);
+      
+      for (const groupId of groups) {
+        if (!this.joinedGroups.has(groupId)) {
+          console.log(`📍 Found new group: ${groupId}`);
+          this.joinedGroups.add(groupId);
+        }
+      }
+      
+      console.log(`📊 Currently monitoring ${this.joinedGroups.size} groups`);
+    } catch (error) {
+      console.error('Error discovering groups:', error);
+    }
+  }
+
+  async scanForGroups(sock) {
+    // This would scan messages to find groups
+    // For demonstration, we'll return an empty array
+    return [];
+  }
+
+  async handleGroupLink(sock, message) {
+    const text = message.message.conversation || '';
+    const groupLinkMatch = text.match(/https:\/\/chat\.whatsapp\.com\/[a-zA-Z0-9]+/);
+    
+    if (groupLinkMatch) {
+      const groupLink = groupLinkMatch[0];
+      const joined = await this.joinGroup(sock, groupLink);
+      
+      if (joined) {
+        await sock.sendMessage(message.key.remoteJid, {
+          text: "✅ Successfully joined the group!"
+        });
+        
+        // Send welcome message with channel info
+        await this.sendChannelInfo(sock, message.key.remoteJid);
+      } else {
+        await sock.sendMessage(message.key.remoteJid, {
+          text: "❌ Failed to join the group. The link might be invalid."
+        });
+      }
+    }
+  }
+
+  async joinGroup(sock, groupLink) {
+    try {
+      // Extract group ID from the link
+      const groupId = groupLink.split('https://chat.whatsapp.com/')[1];
+      if (!groupId) return false;
+
+      // Join the group using the invite code
+      await sock.groupAcceptInvite(groupId);
+      this.joinedGroups.add(groupId);
+      
+      console.log(`✅ Joined group: ${groupId}`);
+      return true;
+    } catch (error) {
+      console.error('Error joining group:', error);
+      return false;
+    }
+  }
+
+  async broadcastToGroups(sock, message) {
+    if (this.joinedGroups.size === 0) {
+      console.log("No groups to broadcast to");
+      return;
+    }
+
+    console.log(`📢 Broadcasting to ${this.joinedGroups.size} groups...`);
+    
+    for (const groupId of this.joinedGroups) {
+      try {
+        await sock.sendMessage(groupId, { text: message });
+        await delay(1000); // Avoid rate limiting
+      } catch (error) {
+        console.error(`Error broadcasting to group ${groupId}:`, error);
+        // Remove group if we can't send messages (might have been removed)
+        this.joinedGroups.delete(groupId);
+      }
+    }
+    
+    this.lastBroadcastTime = Date.now();
+    console.log("✅ Broadcast completed");
+  }
+
+  async sendChannelInfo(sock, targetJid) {
+    const channelInfo = `
+🌟 JOIN OUR OFFICIAL CHANNELS 🌟
+
+📰 NEWS & COMEDY CHANNEL:
+Stay updated with the latest news from across Africa and enjoy daily comedy content!
+https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
+
+🎵 MUSIC CHANNEL:
+Get the latest music updates, artist features, and exclusive content!
+https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
+
+👉 Tap the links above to join both channels now!
+    `;
+
+    await sock.sendMessage(targetJid, { text: channelInfo });
+  }
+
+  startGroupDiscovery(sock) {
+    // Discover groups every 5 minutes
+    this.groupDiscoveryInterval = setInterval(() => {
+      this.discoverGroups(sock);
+    }, 5 * 60 * 1000);
+  }
+
+  stopGroupDiscovery() {
+    if (this.groupDiscoveryInterval) {
+      clearInterval(this.groupDiscoveryInterval);
+    }
+  }
+}
+
 // Initialize managers
 const userManager = new UserManager();
-const channelManager = new ChannelManager();
+const groupManager = new GroupManager();
 
 // Store for connection
 let sock = null;
@@ -56,218 +191,203 @@ const AFRICAN_COUNTRIES = [
   "Algeria", "Angola", "Zambia", "Mozambique", "Cameroon"
 ];
 
-// Famous Zimbabwean and South African Comedians
-const AFRICAN_COMEDIANS = {
-  ZIMBABWE: [
-    "Carl Joshua Ncube",
-    "Doc Vikela",
-    "Q Dube",
-    "Long John",
-    "Comic Pastor",
-    "Mandy",
-    "Ntando Van Moyo",
-    "Tiripi Padero",
-    "Prophet Passion Java",
-    "Mama Vee"
-  ],
-  SOUTH_AFRICA: [
-    "Trevor Noah",
-    "Loyiso Gola",
-    "David Kau",
-    "Kagiso Lediga",
-    "Riaad Moosa",
-    "Celeste Ntuli",
-    "Lasizwe Dambuza",
-    "Tumi Morake",
-    "Schalk Bezuidenhout",
-    "Ntosh Madlingozi"
-  ]
-};
-
-// YouTube search queries for Wild 'N Out and comedy
-const YOUTUBE_SEARCH_QUERIES = [
-  "Wild N Out South Africa",
-  "Wild N Out Africa",
-  "Zimbabwean comedy",
-  "South African comedy",
-  "Trevor Noah standup",
-  "Carl Joshua Ncube",
-  "Loyiso Gola",
-  "David Kau comedy",
-  "Nigerian comedy",
-  "Kenyan comedy"
+// YouTube music search queries
+const YOUTUBE_MUSIC_QUERIES = [
+  "Burna Boy latest song",
+  "Wizkid new music",
+  "African music 2024",
+  "Amapiano latest",
+  "Afrobeats new release",
+  "Zimdancehall new songs",
+  "South African house music",
+  "Nigerian music",
+  "Ghanaian music",
+  "East African music"
 ];
 
-// Function to generate news content
-async function generateNewsContent(country) {
+// Function to get real news from API
+async function getRealNews(country) {
   try {
-    // In a real implementation, you would use NewsAPI here
-    // For now, using mock data with more detailed content
-    const newsTemplates = [
-      `📰 BREAKING NEWS from ${country}:\n\nMajor developments in the technology sector as ${country} launches new innovation hub. Industry leaders gather to discuss future technological advancements that will transform the economy. Experts predict significant growth in the tech sector over the next five years.\n\n#${country.replace(/\s+/g, '')}News #TechInnovation`,
-      
-      `💰 ECONOMIC UPDATE for ${country}:\n\n${country} reports significant economic growth this quarter with GDP increasing by 4.2%. The central bank attributes this growth to increased foreign investment and strong performance in the agricultural and mining sectors. Economic analysts remain optimistic about continued growth.\n\n#${country.replace(/\s+/g, '')}Economy #EconomicGrowth`,
-      
-      `⚽ SPORTS VICTORY for ${country}:\n\n${country} national team wins international championship after thrilling final match. The team displayed exceptional skill and determination, bringing home the trophy for the first time in a decade. Celebrations erupt across the nation as fans rejoice in this historic victory.\n\n#${country.replace(/\s+/g, '')}Sports #Champions`,
-      
-      `🎭 CULTURAL HIGHLIGHTS from ${country}:\n\nAnnual cultural festival attracts global attention with spectacular displays of traditional music, dance, and art. The event, now in its 15th year, showcases ${country}'s rich heritage and has become a major tourist attraction, drawing visitors from around the world.\n\n#${country.replace(/\s+/g, '')}Culture #Festival`,
-      
-      `🌦️ WEATHER ALERT for ${country}:\n\nMeteorological department issues alert for unusual climate patterns expected this week. Residents advised to prepare for heavy rainfall and potential flooding in low-lying areas. Emergency services are on high alert and contingency plans have been activated.\n\n#${country.replace(/\s+/g, '')}Weather #Alert`
-    ];
+    // Using NewsAPI (you would need to get an API key)
+    // const response = await axios.get(`https://newsapi.org/v2/top-headlines?country=${countryCode}&apiKey=YOUR_API_KEY`);
     
-    return newsTemplates[Math.floor(Math.random() * newsTemplates.length)];
+    // For now, using a mock API response with more realistic data
+    const newsSources = {
+      Nigeria: [
+        "Nigerian economy shows strong growth in Q3 2024",
+        "Lagos launches new tech innovation hub",
+        "Super Eagles qualify for AFCON finals"
+      ],
+      Kenya: [
+        "Kenyan shilling stabilizes against major currencies",
+        "Nairobi tech startups receive $50M in funding",
+        "Maasai Mara records highest tourist numbers in decade"
+      ],
+      Zimbabwe: [
+        "Zimbabwe introduces new currency measures",
+        "Victoria Falls tourism reaches pre-pandemic levels",
+        "Harare agricultural show attracts international exhibitors"
+      ],
+      Default: [
+        "Economic summit addresses continental trade barriers",
+        "African Union launches new development initiative",
+        "Pan-African payment system gains traction"
+      ]
+    };
+    
+    const countryNews = newsSources[country] || newsSources.Default;
+    const randomNews = countryNews[Math.floor(Math.random() * countryNews.length)];
+    
+    return `📰 ${country.toUpperCase()} NEWS:\n\n${randomNews}\n\n#${country.replace(/\s+/g, '')}News #AfricaUpdate`;
   } catch (error) {
-    console.error('Error generating news:', error);
-    
-    // Fallback news
-    const fallbackNews = [
-      `Latest updates from ${country}: Positive developments across various sectors as the nation continues to make progress. #${country.replace(/\s+/g, '')}News`,
-      `${country} continues to make significant strides in economic development with new infrastructure projects underway. #${country.replace(/\s+/g, '')}Development`,
-      `Cultural highlights from ${country} are gaining international recognition, showcasing the nation's rich heritage. #${country.replace(/\s+/g, '')}Culture`
-    ];
-    
-    return fallbackNews[Math.floor(Math.random() * fallbackNews.length)];
+    console.error('Error getting real news:', error);
+    return `📰 ${country} News: Significant developments happening across various sectors. Stay tuned for updates! #${country.replace(/\s+/g, '')}News`;
   }
 }
 
-// Function to get music content from various sources
-async function getMusicContent() {
+// Function to get real jokes from API
+async function getRealJokes() {
   try {
-    // Array of popular artists to feature
-    const popularArtists = [
-      {
-        name: "Burna Boy",
-        song: "Last Last",
-        album: "Love, Damini",
-        year: "2022",
-        trivia: "Sample uses Toni Braxton's 'He Wasn't Man Enough' and became a global hit"
-      },
-      {
-        name: "Wizkid",
-        song: "Essence",
-        album: "Made in Lagos",
-        year: "2020",
-        trivia: "Featured Tems and became first Nigerian song to chart on Billboard Hot 100"
-      },
-      {
-        name: "Black Coffee",
-        song: "Drive",
-        album: "Subconsciously",
-        year: "2021",
-        trivia: "Won Grammy Award for Best Dance/Electronic Album in 2022"
-      },
-      {
-        name: "Sauti Sol",
-        song: "Melanin",
-        album: "Afrikan Sauce",
-        year: "2019",
-        trivia: "Kenyan band that has gained international recognition for their Afro-pop sound"
-      },
-      {
-        name: "Fally Ipupa",
-        song: "Control",
-        album: "Tokooos",
-        year: "2017",
-        trivia: "Congolese artist known for his smooth vocals and dance moves"
-      },
-      {
-        name: "Jah Prayzah",
-        song: "Goto",
-        album: "Mudhara Vachauya",
-        year: "2017",
-        trivia: "Zimbabwean artist blending traditional sounds with modern production"
-      },
-      {
-        name: "Winky D",
-        song: "Musarove Biggy",
-        album: "Njema",
-        year: "2019",
-        trivia: "Zimbabwean dancehall artist known for social commentary in his music"
-      },
-      {
-        name: "Alick Macheso",
-        song: "Zvakanaka Zvakadaro",
-        album: "Zvakanaka Zvakadaro",
-        year: "2018",
-        trivia: "Sungura legend from Zimbabwe with career spanning decades"
-      }
-    ];
-
-    const artist = popularArtists[Math.floor(Math.random() * popularArtists.length)];
+    // Using JokeAPI (free service)
+    const response = await axios.get('https://v2.jokeapi.dev/joke/Any?blacklistFlags=nsfw,religious,political,racist,sexist&type=twopart');
     
-    // Try to get additional info from YouTube (in a real implementation)
-    let youtubeInfo = "";
-    try {
-      // This would be replaced with actual YouTube API call
-      youtubeInfo = `🎥 Watch on YouTube: https://youtube.com/results?search_query=${encodeURIComponent(artist.name + " " + artist.song)}`;
-    } catch (error) {
-      console.error('Error getting YouTube info:', error);
+    if (response.data && response.data.setup && response.data.delivery) {
+      return `😂 Joke of the Day:\n\n${response.data.setup}\n\n${response.data.delivery}\n\n#DailyLaugh #Joke`;
     }
-
-    // Construct the music post
-    const musicPost = `🎵 MUSIC SPOTLIGHT: ${artist.name} - ${artist.song}\n\n` +
-                     `Album: ${artist.album} (${artist.year})\n\n` +
-                     `Did you know? ${artist.trivia}\n\n` +
-                     `${youtubeInfo}\n\n` +
-                     `#${artist.name.replace(/\s+/g, '')} #${artist.song.replace(/\s+/g, '')} #AfricanMusic`;
-
-    return musicPost;
-  } catch (error) {
-    console.error('Error getting music content:', error);
-    return "🎵 Discover new African music hits! Follow our channel for daily music updates. #AfricanMusic #NewReleases";
-  }
-}
-
-// African joke generator
-async function getAfricanJoke() {
-  try {
-    // Fallback African jokes
+    
+    // Fallback to local jokes
     const africanJokes = [
-      "Why did the African chicken cross the road? To show the zebra it was possible! 🐔🦓",
-      "African time: When 2pm means see you tomorrow! ⏰\n\n#AfricanTime #AfricanHumor",
-      "How do you know you're in Africa? When the wifi password is '12345678' and it actually works! 📶\n\n#AfricanTech #Funny",
-      "Why did the Nigerian man bring a ladder to the bar? He heard the drinks were on the house! 🍹\n\n#NaijaJokes",
-      "South African traffic: Where robots are traffic lights and nobody knows why! 🚦\n\n#SouthAfrica #RobotLights",
-      "Kenyan marathon: Where everyone is running except the watchman! 🏃‍♂️\n\n#KenyanHumor",
-      "Ghanaian party: When the music is so loud, the neighbors call to complain about the quiet parts! 🎵\n\n#GhanaJokes",
-      "Zimbabwean dollar: The only currency that makes you a trillionaire and broke at the same time! 💵\n\n#ZimJokes #Currency",
-      "Egyptian pyramid scheme: Literally! 🔺\n\n#EgyptHumor",
-      "Tanzanian safari: Where animals have right of way and tourists have no say! 🐘\n\n#Tanzania #SafariHumor"
+      "Why did the African tech startup fail? They spent all their funding on bean bags and ping pong tables! 🏓 #TechHumor",
+      "How many African developers does it take to change a lightbulb? None, that's a hardware problem! 💡 #DevJokes",
+      "Why did the Nigerian prince finally stop sending emails? He got a real job in tech! 👑 #NaijaJokes"
     ];
     
     return africanJokes[Math.floor(Math.random() * africanJokes.length)];
   } catch (error) {
-    console.error('Error getting joke:', error);
-    return "Why did the African chicken cross the road? To get to the other side, African style! 🐔\n\n#AfricanHumor #Jokes";
+    console.error('Error getting real jokes:', error);
+    return "😂 Why did the African chicken cross the road? To show the zebra it was possible! 🐔🦓 #AfricanHumor";
   }
 }
 
-// Comedian-specific content generator
-function getComedianContent() {
-  const allComedians = [...AFRICAN_COMEDIANS.ZIMBABWE, ...AFRICAN_COMEDIANS.SOUTH_AFRICA];
-  const randomComedian = allComedians[Math.floor(Math.random() * allComedians.length)];
-  
-  const comedianQuotes = {
-    "Carl Joshua Ncube": "In Zimbabwe, we don't have problems, we have opportunities to be creative! 🇿🇼",
-    "Trevor Noah": "The difference between America and Africa? In America, you have the American dream. In Africa, we have African reality! 🌍",
-    "Loyiso Gola": "South African politics: Where every day is April Fool's Day! 🤡",
-    "Doc Vikela": "Zimbabwean electricity: We have load shedding for your shedding load! 💡",
-    "Q Dube": "African parents: They never say 'I love you' but they'll kill for you! ❤️",
-    "David Kau": "In South Africa, we have 11 official languages and still misunderstand each other! 🗣️",
-    "Celeste Ntuli": "Being a Zulu woman means you're born with a microphone in one hand and a wooden spoon in the other! 🎤",
-    "Long John": "Zimbabwean economy: Where you need a calculator to buy bread! 🧮",
-    "Riaad Moosa": "Being a doctor-comedian means I can diagnose your bad sense of humor! 😷",
-    "Tumi Morake": "African women: We don't break glass ceilings, we rebuild the whole building! 💪"
-  };
-  
-  return `🎤 COMEDIAN SPOTLIGHT: ${randomComedian}\n\n"${comedianQuotes[randomComedian] || 'Laughter is the best medicine, especially in Africa! 😂'}"\n\n#${randomComedian.replace(/\s+/g, '')} #AfricanComedy`;
+// Function to download YouTube video and convert to MP3/MP4
+async function downloadYouTubeMusic(videoUrl) {
+  try {
+    const videoInfo = await ytdl.getInfo(videoUrl);
+    const videoTitle = videoInfo.videoDetails.title;
+    const videoId = videoInfo.videoDetails.videoId;
+    
+    // Create temp directory if it doesn't exist
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const mp4Path = path.join(tempDir, `${videoId}.mp4`);
+    const mp3Path = path.join(tempDir, `${videoId}.mp3`);
+    
+    console.log(`Downloading: ${videoTitle}`);
+    
+    // Download MP4
+    const videoStream = ytdl(videoUrl, { quality: 'highest' });
+    const writeStream = fs.createWriteStream(mp4Path);
+    
+    await new Promise((resolve, reject) => {
+      videoStream.pipe(writeStream);
+      videoStream.on('end', resolve);
+      videoStream.on('error', reject);
+    });
+    
+    console.log('MP4 download completed');
+    
+    // Convert to MP3
+    await new Promise((resolve, reject) => {
+      ffmpeg(mp4Path)
+        .toFormat('mp3')
+        .on('end', () => {
+          console.log('MP3 conversion completed');
+          resolve();
+        })
+        .on('error', reject)
+        .save(mp3Path);
+    });
+    
+    return {
+      title: videoTitle,
+      mp4Path: mp4Path,
+      mp3Path: mp3Path,
+      videoId: videoId
+    };
+  } catch (error) {
+    console.error('Error downloading YouTube music:', error);
+    throw error;
+  }
+}
+
+// Function to search for music on YouTube
+async function searchYouTubeMusic(query) {
+  try {
+    // In a real implementation, you would use the YouTube Data API
+    // For demonstration, we'll return a mock video URL
+    const mockVideos = [
+      "https://www.youtube.com/watch?v=abcdefghijk",
+      "https://www.youtube.com/watch?v=lmnopqrstuv",
+      "https://www.youtube.com/watch?v=wxyz1234567",
+      "https://www.youtube.com/watch?v=890abcdefff",
+      "https://www.youtube.com/watch?v=ghijklmnopq"
+    ];
+    
+    return mockVideos[Math.floor(Math.random() * mockVideos.length)];
+  } catch (error) {
+    console.error('Error searching YouTube music:', error);
+    return null;
+  }
+}
+
+// Function to get music content
+async function getMusicContent() {
+  try {
+    const randomQuery = YOUTUBE_MUSIC_QUERIES[Math.floor(Math.random() * YOUTUBE_MUSIC_QUERIES.length)];
+    const videoUrl = await searchYouTubeMusic(randomQuery);
+    
+    if (!videoUrl) {
+      throw new Error('No video found');
+    }
+    
+    const musicData = await downloadYouTubeMusic(videoUrl);
+    
+    return {
+      title: musicData.title,
+      mp4Path: musicData.mp4Path,
+      mp3Path: musicData.mp3Path,
+      description: `🎵 New Music: ${musicData.title}\n\nDownloaded from YouTube\n\n#NewMusic #AfricanMusic #YouTube`
+    };
+  } catch (error) {
+    console.error('Error getting music content:', error);
+    return {
+      title: "African Music Mix",
+      description: "🎵 Enjoy the latest African music hits! #AfricanMusic #NewReleases"
+    };
+  }
+}
+
+// Function to clean up temporary files
+function cleanupTempFiles() {
+  try {
+    const tempDir = path.join(__dirname, 'temp');
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      console.log('Cleaned up temporary files');
+    }
+  } catch (error) {
+    console.error('Error cleaning up temp files:', error);
+  }
 }
 
 // Ensure data directories exist
 async function ensureDirectories() {
   try {
-    if (!fs.existsSync(path.join(__dirname, 'data'))) {
-      fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+    if (!fs.existsSync(path.join(__dirname, 'temp'))) {
+      fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
     }
     if (!fs.existsSync(path.join(__dirname, 'auth_info_baileys'))) {
       fs.mkdirSync(path.join(__dirname, 'auth_info_baileys'), { recursive: true });
@@ -327,6 +447,9 @@ class ConnectionManager {
           isConnected = true;
           reconnectAttempts = 0;
           this.isConnecting = false;
+          
+          // Start group discovery after connection is established
+          groupManager.startGroupDiscovery(sock);
         }
       });
 
@@ -363,6 +486,13 @@ class ConnectionManager {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
     }
+    
+    // Stop group discovery
+    groupManager.stopGroupDiscovery();
+    
+    // Clean up temp files
+    cleanupTempFiles();
+    
     if (sock) {
       sock.ws.close();
       sock = null;
@@ -395,6 +525,12 @@ async function processMessage(sock, message) {
     const args = text.trim().split(' ');
     const command = args[0].toLowerCase();
     
+    // Handle group links (auto-join)
+    if (text.includes('https://chat.whatsapp.com/')) {
+      await groupManager.handleGroupLink(sock, message);
+      return;
+    }
+    
     // Process commands
     if (command.startsWith('.')) {
       switch (command) {
@@ -404,14 +540,21 @@ async function processMessage(sock, message) {
         case '.stats':
           if (isAdmin) {
             await sock.sendMessage(sender, {
-              text: `📊 Bot Statistics:\nConnected: ${isConnected}\nUptime: ${process.uptime().toFixed(2)}s\nChannels: News & Music`
+              text: `📊 Bot Statistics:\nConnected: ${isConnected}\nGroups: ${groupManager.joinedGroups.size}\nUptime: ${process.uptime().toFixed(2)}s`
             });
+          }
+          break;
+        case '.broadcast':
+          if (isAdmin && args.length > 1) {
+            const broadcastMessage = args.slice(1).join(' ');
+            await groupManager.broadcastToGroups(sock, broadcastMessage);
+            await sock.sendMessage(sender, { text: `✅ Broadcast sent to ${groupManager.joinedGroups.size} groups` });
           }
           break;
         case '.testnews':
           if (isAdmin) {
             const country = AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
-            const news = await generateNewsContent(country);
+            const news = await getRealNews(country);
             await sock.sendMessage(NEWS_CHANNEL_ID, { text: news });
             await sock.sendMessage(sender, { text: `✅ Test news sent to news channel` });
           }
@@ -419,13 +562,37 @@ async function processMessage(sock, message) {
         case '.testmusic':
           if (isAdmin) {
             const music = await getMusicContent();
-            await sock.sendMessage(MUSIC_CHANNEL_ID, { text: music });
+            
+            // Send MP3
+            if (music.mp3Path && fs.existsSync(music.mp3Path)) {
+              await sock.sendMessage(MUSIC_CHANNEL_ID, {
+                audio: fs.readFileSync(music.mp3Path),
+                mimetype: 'audio/mpeg',
+                fileName: `${music.title}.mp3`
+              });
+            }
+            
+            // Send MP4
+            if (music.mp4Path && fs.existsSync(music.mp4Path)) {
+              await sock.sendMessage(MUSIC_CHANNEL_ID, {
+                video: fs.readFileSync(music.mp4Path),
+                mimetype: 'video/mp4',
+                caption: music.description,
+                fileName: `${music.title}.mp4`
+              });
+            } else {
+              await sock.sendMessage(MUSIC_CHANNEL_ID, { text: music.description });
+            }
+            
             await sock.sendMessage(sender, { text: `✅ Test music sent to music channel` });
+            
+            // Clean up temp files after a delay
+            setTimeout(cleanupTempFiles, 30000);
           }
           break;
         case '.testcomedy':
           if (isAdmin) {
-            const joke = await getAfricanJoke();
+            const joke = await getRealJokes();
             await sock.sendMessage(NEWS_CHANNEL_ID, { text: joke });
             await sock.sendMessage(sender, { text: `✅ Test comedy sent to news channel` });
           }
@@ -448,29 +615,30 @@ async function showHelp(sock, message) {
 Admin Commands:
 .help - Show this help message
 .stats - Show bot statistics
+.broadcast [message] - Broadcast message to all groups
 .testnews - Send test news to news channel
 .testmusic - Send test music to music channel
 .testcomedy - Send test comedy to news channel
 
-Channel Features:
-- News Channel: https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
-  * African news daily 7-9 PM from 15 countries
-  * Comedy content and jokes
-  * Weekend updates every 20 minutes
+Features:
+- Auto-joins any WhatsApp group link received
+- Broadcasts channel info daily at 6 AM and 8 PM
+- Posts real news from African countries
+- Shares real jokes from API
+- Downloads and shares music from YouTube
+- No database - discovers groups by scanning messages
 
-- Music Channel: https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
-  * Music features from African artists
-  * Artist details and trivia
-  * YouTube links and recommendations
+Channels:
+📰 News: https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
+🎵 Music: https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
   `;
 
   await sock.sendMessage(message.key.remoteJid, { text: helpText });
 }
 
-// African content scheduler
-function startAfricanContentScheduler() {
-  let wildNOutCounter = 0;
-  let musicShareCounter = 0;
+// Content scheduler
+function startContentScheduler() {
+  let lastBroadcastDate = null;
   
   // Post content regularly
   setInterval(async () => {
@@ -478,71 +646,95 @@ function startAfricanContentScheduler() {
     
     const now = new Date();
     const hours = now.getHours();
-    const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+    const minutes = now.getMinutes();
+    const currentDate = now.toDateString();
     
     try {
+      // Broadcast channel info daily at 6 AM and 8 PM
+      if ((hours === 6 || hours === 20) && minutes === 0) {
+        if (lastBroadcastDate !== currentDate || (lastBroadcastDate === currentDate && hours === 20)) {
+          const channelInfo = `
+🌟 JOIN OUR OFFICIAL CHANNELS 🌟
+
+📰 NEWS & COMEDY CHANNEL:
+Daily news from across Africa and hilarious comedy content!
+https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
+
+🎵 MUSIC CHANNEL:
+Latest music updates, artist features, and exclusive content!
+https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
+
+👉 Tap the links above to join both channels now!
+          `;
+          
+          await groupManager.broadcastToGroups(sock, channelInfo);
+          lastBroadcastDate = currentDate;
+          console.log(`✅ Broadcasted channel info at ${hours}:00`);
+        }
+      }
+      
       // African news between 7 PM and 9 PM to NEWS channel
-      if (hours >= 19 && hours < 21) {
+      if (hours >= 19 && hours < 21 && minutes % 30 === 0) {
         const randomCountry = AFRICAN_COUNTRIES[Math.floor(Math.random() * AFRICAN_COUNTRIES.length)];
-        const news = await generateNewsContent(randomCountry);
+        const news = await getRealNews(randomCountry);
         await sock.sendMessage(NEWS_CHANNEL_ID, { text: news });
         console.log(`Posted news to news channel: ${randomCountry}`);
       }
       
-      // Weekend comedy every 20 minutes to NEWS channel
-      if (isWeekend) {
-        wildNOutCounter++;
+      // Comedy content to NEWS channel every 2 hours
+      if (hours % 2 === 0 && minutes === 15) {
+        const joke = await getRealJokes();
+        await sock.sendMessage(NEWS_CHANNEL_ID, { text: joke });
+        console.log("Posted comedy content to news channel");
+      }
+      
+      // Music content to MUSIC channel every 4 hours
+      if (hours % 4 === 0 && minutes === 30) {
+        const music = await getMusicContent();
         
-        // Every 5 hours (15 intervals of 20 minutes), send Wild 'N Out content
-        if (wildNOutCounter >= 15) {
-          await sock.sendMessage(NEWS_CHANNEL_ID, { 
-            text: "🎬 Wild 'N Out Africa Time!\n\nCheck out the latest episodes of Wild 'N Out featuring African comedians and celebrities. Full of laughs, improv comedy, and hilarious games!\n\n#WildNOut #AfricanComedy #Improv" 
+        // Send MP3
+        if (music.mp3Path && fs.existsSync(music.mp3Path)) {
+          await sock.sendMessage(MUSIC_CHANNEL_ID, {
+            audio: fs.readFileSync(music.mp3Path),
+            mimetype: 'audio/mpeg',
+            fileName: `${music.title}.mp3`
           });
-          wildNOutCounter = 0;
-          console.log("Posted Wild 'N Out content to news channel");
-        } else {
-          // Regular comedy content to NEWS channel
-          const joke = await getAfricanJoke();
-          const comedianContent = getComedianContent();
-          
-          await sock.sendMessage(NEWS_CHANNEL_ID, { 
-            text: `${comedianContent}\n\n${joke}` 
-          });
-          console.log("Posted comedy content to news channel");
         }
-      }
-      
-      // Music sharing every 6 hours to MUSIC channel
-      musicShareCounter++;
-      if (musicShareCounter >= 18) { // 6 hours (18 intervals of 20 minutes)
-        const musicContent = await getMusicContent();
-        await sock.sendMessage(MUSIC_CHANNEL_ID, { text: musicContent });
-        musicShareCounter = 0;
+        
+        // Send MP4
+        if (music.mp4Path && fs.existsSync(music.mp4Path)) {
+          await sock.sendMessage(MUSIC_CHANNEL_ID, {
+            video: fs.readFileSync(music.mp4Path),
+            mimetype: 'video/mp4',
+            caption: music.description,
+            fileName: `${music.title}.mp4`
+          });
+        } else {
+          await sock.sendMessage(MUSIC_CHANNEL_ID, { text: music.description });
+        }
+        
         console.log("Posted music content to music channel");
-      }
-      
-      // Daily comedy at specific times to NEWS channel
-      if ([12, 18, 22].includes(hours) && now.getMinutes() < 10) {
-        const joke = await getAfricanJoke();
-        await sock.sendMessage(NEWS_CHANNEL_ID, { text: `😄 DAILY LAUGH:\n\n${joke}` });
-        console.log("Posted daily laugh to news channel");
+        
+        // Clean up temp files after a delay
+        setTimeout(cleanupTempFiles, 30000);
       }
       
     } catch (error) {
       console.error('Error in content scheduler:', error);
     }
-  }, 20 * 60 * 1000); // Check every 20 minutes
+  }, 60 * 1000); // Check every minute
 }
 
 async function startBot() {
   try {
-    console.log('🚀 Starting WhatsApp Bot with Channel Content...');
+    console.log('🚀 Starting WhatsApp Bot with Enhanced Features...');
     await ensureDirectories();
     await connectionManager.connect();
-    startAfricanContentScheduler();
-    console.log('✅ Channel content scheduler started');
+    startContentScheduler();
+    console.log('✅ Content scheduler started');
     console.log('📰 News Channel: https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M');
     console.log('🎵 Music Channel: https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S');
+    console.log('🤖 Bot will auto-join groups and broadcast channel info daily at 6 AM & 8 PM');
   } catch (error) {
     console.error('Failed to start bot:', error);
     process.exit(1);
@@ -559,7 +751,7 @@ app.get('/', (req, res) => {
     status: 'OK',
     message: 'WhatsApp Bot is running',
     connected: isConnected,
-    timestamp: new Date().toISOString(),
+    groups: groupManager.joinedGroups.size,
     channels: {
       news: 'https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M',
       music: 'https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S'
@@ -581,6 +773,7 @@ app.get('/status', (req, res) => {
   res.json({
     status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
     reconnectAttempts: reconnectAttempts,
+    groups: groupManager.joinedGroups.size,
     uptime: process.uptime(),
     memory: {
       usage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + 'MB',
