@@ -2,35 +2,23 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install system dependencies including canvas requirements
+# Install system dependencies
 RUN apk add --no-cache \
     python3 \
     make \
     g++ \
     git \
     curl \
-    ffmpeg \
-    libc6-compat \
-    libtool \
-    autoconf \
-    automake \
-    nasm \
-    zlib-dev \
-    libpng-dev \
-    libjpeg-turbo-dev \
-    pango-dev \
-    cairo-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    librsvg-dev
+    ffmpeg
 
 COPY package*.json ./
 
-RUN npm install --omit=dev
+RUN npm install
 
 COPY . .
+
+# Create necessary directories
+RUN mkdir -p downloads temp data auth_info_baileys
 
 EXPOSE 3000
 
