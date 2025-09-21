@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node test-connection.js",
+    "keep-alive": "node keep-alive.js",
     "migrate": "node migrate.js",
     "docker:build": "docker build -t whatsapp-bot .",
     "docker:run": "docker run -p 3000:3000 whatsapp-bot"
@@ -16,11 +16,8 @@
     "qrcode-terminal": "^0.12.0",
     "express": "^4.18.2",
     "axios": "^1.6.0",
-    "ytdl-core": "^4.11.5",
-    "fluent-ffmpeg": "^2.1.2",
-    "ffmpeg-static": "^5.2.0",
-    "cheerio": "^1.0.0-rc.12",
-    "mime-types": "^2.1.35"
+    "pg": "^8.11.3",
+    "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
@@ -29,8 +26,7 @@
     "whatsapp",
     "bot",
     "automation",
-    "youtube",
-    "downloader",
+    "downloads",
     "subscription",
     "dating",
     "group-management"
