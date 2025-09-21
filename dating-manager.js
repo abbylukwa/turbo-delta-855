@@ -1,456 +1,316 @@
-const { Sequelize, DataTypes } = require('sequelize');
-const express = require('express');
-const cors = require('cors');
+const { Pool } = require('pg');
 
 class DatingManager {
-    constructor(userManager, subscriptionManager) {
-        this.userManager = userManager;
-        this.subscriptionManager = subscriptionManager;
-        this.app = express();
-        this.port = process.env.WEBSITE_PORT || 8080;
+  constructor(pool) {
+    this.pool = pool;
+  }
 
-        // Parse MySQL connection string
-        const connectionString = "Server=MYSQL5047.site4now.net;Database=db_abe793_dating;Uid=abe793_dating;Pwd=Abner0121";
-        const config = this.parseMySqlConnectionString(connectionString);
-
-        // Initialize MySQL database connection
-        this.sequelize = new Sequelize(config.database, config.username, config.password, {
-            host: config.server,
-            dialect: 'mysql',
-            logging: false,
-            pool: {
-                max: 5,
-                min: 0,
-                acquire: 30000,
-                idle: 10000
-            },
-            dialectOptions: {
-                connectTimeout: 60000
-            }
-        });
-
-        // Initialize models
-        this.UserProfile = null;
-        this.Connection = null;
-        this.DatingMessage = null;
-
-        this.userStates = {};
-        this.userLastActivity = {};
-
-        // Setup Express server for website
-        this.setupExpress();
-        this.initializeDatabase();
+  async handleDatingCommand(sock, message, args, sender) {
+    const command = args[0]?.toLowerCase() || 'help';
+    
+    switch (command) {
+      case 'create':
+        await this.createProfile(sock, message, args.slice(1), sender);
+        break;
+      case 'view':
+        await this.viewProfile(sock, sender);
+        break;
+      case 'edit':
+        await this.editProfile(sock, message, args.slice(1), sender);
+        break;
+      case 'search':
+        await this.searchProfiles(sock, sender, args.slice(1));
+        break;
+      case 'matches':
+        await this.viewMatches(sock, sender);
+        break;
+      case 'message':
+        await this.sendMessage(sock, message, args.slice(1), sender);
+        break;
+      case 'inbox':
+        await this.viewInbox(sock, sender);
+        break;
+      case 'help':
+      default:
+        await this.showHelp(sock, sender);
+        break;
     }
+  }
 
-    // Parse MySQL connection string
-    parseMySqlConnectionString(connectionString) {
-        const config = {};
-        const parts = connectionString.split(';');
-        
-        parts.forEach(part => {
-            const [key, value] = part.split('=');
-            if (key && value) {
-                switch (key.trim().toLowerCase()) {
-                    case 'server':
-                        config.server = value.trim();
-                        break;
-                    case 'database':
-                        config.database = value.trim();
-                        break;
-                    case 'uid':
-                        config.username = value.trim();
-                        break;
-                    case 'pwd':
-                        config.password = value.trim();
-                        break;
-                }
-            }
+  async createProfile(sock, message, args, sender) {
+    try {
+      // Check if profile already exists
+      const existingProfile = await this.pool.query(
+        'SELECT * FROM dating_profiles WHERE phone_number = $1',
+        [sender]
+      );
+
+      if (existingProfile.rows.length > 0) {
+        await sock.sendMessage(sender, {
+          text: '❌ You already have a dating profile. Use .dating edit to update it.'
         });
+        return;
+      }
 
-        return config;
+      // Parse profile information from message
+      const text = message.message.conversation || message.message.extendedTextMessage.text;
+      const profileData = this.parseProfileData(text);
+
+      // Insert into database
+      await this.pool.query(
+        `INSERT INTO dating_profiles 
+         (phone_number, name, age, gender, location, bio, interests) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [sender, profileData.name, profileData.age, profileData.gender, 
+         profileData.location, profileData.bio, profileData.interests]
+      );
+
+      await sock.sendMessage(sender, {
+        text: '✅ Dating profile created successfully! Use .dating view to see your profile.'
+      });
+
+    } catch (error) {
+      console.error('Error creating dating profile:', error);
+      await sock.sendMessage(sender, {
+        text: '❌ Error creating dating profile. Please try again.'
+      });
     }
+  }
 
-    setupExpress() {
-        this.app.use(cors());
-        this.app.use(express.json());
-        this.app.use(express.static('public'));
+  async viewProfile(sock, sender) {
+    try {
+      const result = await this.pool.query(
+        'SELECT * FROM dating_profiles WHERE phone_number = $1',
+        [sender]
+      );
 
-        // API Routes
-        this.app.get('/api/stats', async (req, res) => {
-            try {
-                const stats = await this.getDatabaseStats();
-                res.json(stats);
-            } catch (error) {
-                res.status(500).json({ error: 'Failed to fetch stats' });
-            }
+      if (result.rows.length === 0) {
+        await sock.sendMessage(sender, {
+          text: '❌ No dating profile found. Use .dating create to create one.'
         });
+        return;
+      }
 
-        this.app.get('/api/users', async (req, res) => {
-            try {
-                const users = await this.UserProfile.findAll();
-                res.json(users);
-            } catch (error) {
-                res.status(500).json({ error: 'Failed to fetch users' });
-            }
-        });
+      const profile = result.rows[0];
+      const profileText = this.formatProfile(profile);
 
-        this.app.get('/api/users/recent', async (req, res) => {
-            try {
-                const users = await this.UserProfile.findAll({
-                    order: [['createdAt', 'DESC']],
-                    limit: 5
-                });
-                res.json(users);
-            } catch (error) {
-                res.status(500).json({ error: 'Failed to fetch recent users' });
-            }
-        });
+      await sock.sendMessage(sender, { text: profileText });
 
-        this.app.get('/api/matches/recent', async (req, res) => {
-            try {
-                const matches = await this.Connection.findAll({
-                    where: { status: 'accepted' },
-                    order: [['createdAt', 'DESC']],
-                    limit: 5,
-                    include: [
-                        { model: this.UserProfile, as: 'initiatorProfile' },
-                        { model: this.UserProfile, as: 'receiverProfile' }
-                    ]
-                });
-                
-                const formattedMatches = matches.map(match => ({
-                    user1: match.initiatorProfile?.name || match.user1,
-                    user2: match.receiverProfile?.name || match.user2,
-                    status: match.status,
-                    createdAt: match.createdAt
-                }));
-                
-                res.json(formattedMatches);
-            } catch (error) {
-                res.status(500).json({ error: 'Failed to fetch recent matches' });
-            }
-        });
-
-        // Start server
-        this.app.listen(this.port, () => {
-            console.log(`🌐 Dating Manager website running on port ${this.port}`);
-        });
+    } catch (error) {
+      console.error('Error viewing dating profile:', error);
+      await sock.sendMessage(sender, {
+        text: '❌ Error retrieving dating profile.'
+      });
     }
+  }
 
-    async initializeDatabase() {
-        try {
-            await this.sequelize.authenticate();
-            console.log('✅ MySQL Dating Database connected successfully');
+  async searchProfiles(sock, sender, filters) {
+    try {
+      // Build search query based on filters
+      let query = `
+        SELECT * FROM dating_profiles 
+        WHERE phone_number != $1 AND is_active = TRUE
+      `;
+      const queryParams = [sender];
 
-            this.defineModels();
-            await this.sequelize.sync({ alter: true });
-            console.log('✅ Dating database synchronized');
+      // Add filters if provided
+      if (filters.length > 0) {
+        const filterConditions = [];
+        filters.forEach((filter, index) => {
+          const [field, value] = filter.split(':');
+          if (field && value) {
+            filterConditions.push(`${field} ILIKE $${index + 2}`);
+            queryParams.push(`%${value}%`);
+          }
+        });
 
-        } catch (error) {
-            console.error('❌ Unable to connect to dating database:', error);
+        if (filterConditions.length > 0) {
+          query += ` AND (${filterConditions.join(' OR ')})`;
         }
+      }
+
+      query += ' ORDER BY RANDOM() LIMIT 10';
+
+      const result = await this.pool.query(query, queryParams);
+
+      if (result.rows.length === 0) {
+        await sock.sendMessage(sender, {
+          text: '❌ No profiles found matching your criteria.'
+        });
+        return;
+      }
+
+      let response = '👥 Dating Profiles Found:\n\n';
+      result.rows.forEach((profile, index) => {
+        response += `${index + 1}. ${profile.name} (${profile.age})\n`;
+        response += `   📍 ${profile.location}\n`;
+        response += `   💬 ${profile.bio?.substring(0, 50)}...\n`;
+        response += `   👉 Use .dating message ${index + 1} to message them\n\n`;
+      });
+
+      // Store search results for messaging
+      this.lastSearchResults = result.rows;
+
+      await sock.sendMessage(sender, { text: response });
+
+    } catch (error) {
+      console.error('Error searching dating profiles:', error);
+      await sock.sendMessage(sender, {
+        text: '❌ Error searching dating profiles.'
+      });
     }
+  }
 
-    defineModels() {
-        // User Profile Model - Updated for MySQL compatibility
-        this.UserProfile = this.sequelize.define('UserProfile', {
-            id: {
-                type: DataTypes.INTEGER,
-                primaryKey: true,
-                autoIncrement: true
-            },
-            phoneNumber: {
-                type: DataTypes.STRING(20),
-                allowNull: false,
-                unique: true
-            },
-            name: {
-                type: DataTypes.STRING(100),
-                allowNull: true
-            },
-            age: {
-                type: DataTypes.INTEGER,
-                allowNull: true
-            },
-            gender: {
-                type: DataTypes.STRING(20),
-                allowNull: true
-            },
-            location: {
-                type: DataTypes.STRING(100),
-                allowNull: true
-            },
-            interestedIn: {
-                type: DataTypes.STRING(20),
-                allowNull: true
-            },
-            bio: {
-                type: DataTypes.TEXT,
-                allowNull: true
-            },
-            profilePhoto: {
-                type: DataTypes.STRING(255),
-                allowNull: true
-            },
-            datingEnabled: {
-                type: DataTypes.BOOLEAN,
-                defaultValue: false
-            },
-            profileComplete: {
-                type: DataTypes.BOOLEAN,
-                defaultValue: false
-            },
-            profileViews: {
-                type: DataTypes.INTEGER,
-                defaultValue: 0
-            },
-            lastActive: {
-                type: DataTypes.DATE,
-                allowNull: true
-            },
-            isPremium: {
-                type: DataTypes.BOOLEAN,
-                defaultValue: false
-            }
-        }, {
-            tableName: 'user_profiles',
-            indexes: [
-                {
-                    fields: ['phoneNumber']
-                },
-                {
-                    fields: ['location']
-                },
-                {
-                    fields: ['age']
-                },
-                {
-                    fields: ['gender']
-                },
-                {
-                    fields: ['datingEnabled', 'profileComplete']
-                }
-            ]
+  async sendMessage(sock, message, args, sender) {
+    try {
+      if (args.length < 2) {
+        await sock.sendMessage(sender, {
+          text: 'Usage: .dating message [profile_number] [your_message]'
         });
+        return;
+      }
 
-        // Connection Model (Matches) - Updated for MySQL
-        this.Connection = this.sequelize.define('Connection', {
-            id: {
-                type: DataTypes.INTEGER,
-                primaryKey: true,
-                autoIncrement: true
-            },
-            user1: {
-                type: DataTypes.STRING(20),
-                allowNull: false
-            },
-            user2: {
-                type: DataTypes.STRING(20),
-                allowNull: false
-            },
-            status: {
-                type: DataTypes.ENUM('pending', 'accepted', 'rejected', 'blocked'),
-                defaultValue: 'pending'
-            },
-            initiator: {
-                type: DataTypes.STRING(20),
-                allowNull: false
-            },
-            compatibilityScore: {
-                type: DataTypes.FLOAT,
-                defaultValue: 0
-            },
-            lastInteraction: {
-                type: DataTypes.DATE,
-                defaultValue: DataTypes.NOW
-            }
-        }, {
-            tableName: 'connections',
-            indexes: [
-                {
-                    fields: ['user1', 'user2'],
-                    unique: true
-                },
-                {
-                    fields: ['status']
-                },
-                {
-                    fields: ['user1']
-                },
-                {
-                    fields: ['user2']
-                }
-            ]
-        });
+      const profileIndex = parseInt(args[0]) - 1;
+      const messageText = args.slice(1).join(' ');
 
-        // Dating Message Model - Updated for MySQL
-        this.DatingMessage = this.sequelize.define('DatingMessage', {
-            id: {
-                type: DataTypes.INTEGER,
-                primaryKey: true,
-                autoIncrement: true
-            },
-            sender: {
-                type: DataTypes.STRING(20),
-                allowNull: false
-            },
-            receiver: {
-                type: DataTypes.STRING(20),
-                allowNull: false
-            },
-            message: {
-                type: DataTypes.TEXT,
-                allowNull: false
-            },
-            messageType: {
-                type: DataTypes.ENUM('text', 'image', 'video', 'audio'),
-                defaultValue: 'text'
-            },
-            isRead: {
-                type: DataTypes.BOOLEAN,
-                defaultValue: false
-            },
-            timestamp: {
-                type: DataTypes.DATE,
-                defaultValue: DataTypes.NOW
-            }
-        }, {
-            tableName: 'dating_messages',
-            indexes: [
-                {
-                    fields: ['sender', 'receiver']
-                },
-                {
-                    fields: ['timestamp']
-                },
-                {
-                    fields: ['isRead']
-                }
-            ]
+      if (!this.lastSearchResults || !this.lastSearchResults[profileIndex]) {
+        await sock.sendMessage(sender, {
+          text: '❌ Invalid profile number. Please search again.'
         });
+        return;
+      }
 
-        // Define associations
-        this.UserProfile.hasMany(this.Connection, { 
-            foreignKey: 'user1', 
-            as: 'initiatedConnections' 
-        });
-        this.UserProfile.hasMany(this.Connection, { 
-            foreignKey: 'user2', 
-            as: 'receivedConnections' 
-        });
-        this.Connection.belongsTo(this.UserProfile, { 
-            foreignKey: 'user1', 
-            as: 'initiatorProfile' 
-        });
-        this.Connection.belongsTo(this.UserProfile, { 
-            foreignKey: 'user2', 
-            as: 'receiverProfile' 
-        });
+      const receiver = this.lastSearchResults[profileIndex].phone_number;
 
-        this.UserProfile.hasMany(this.DatingMessage, { 
-            foreignKey: 'sender', 
-            as: 'sentMessages' 
+      // Save message to database
+      await this.pool.query(
+        'INSERT INTO dating_messages (sender_phone, receiver_phone, message) VALUES ($1, $2, $3)',
+        [sender, receiver, messageText]
+      );
+
+      await sock.sendMessage(sender, {
+        text: '✅ Message sent successfully!'
+      });
+
+      // Notify receiver if they're online
+      try {
+        await sock.sendMessage(receiver, {
+          text: `💌 You have a new dating message! Use .dating inbox to view it.`
         });
-        this.UserProfile.hasMany(this.DatingMessage, { 
-            foreignKey: 'receiver', 
-            as: 'receivedMessages' 
-        });
+      } catch (error) {
+        console.log('Could not notify receiver:', error.message);
+      }
+
+    } catch (error) {
+      console.error('Error sending dating message:', error);
+      await sock.sendMessage(sender, {
+        text: '❌ Error sending message.'
+      });
     }
+  }
 
-    async getDatabaseStats() {
-        try {
-            const totalUsers = await this.UserProfile.count();
-            const activeUsers = await this.UserProfile.count({ 
-                where: { datingEnabled: true } 
-            });
-            const completeProfiles = await this.UserProfile.count({ 
-                where: { profileComplete: true } 
-            });
-            const totalMatches = await this.Connection.count({ 
-                where: { status: 'accepted' } 
-            });
-            const totalMessages = await this.DatingMessage.count();
-            
-            // Calculate active today (users active in last 24 hours)
-            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-            const activeToday = await this.UserProfile.count({
-                where: {
-                    lastActive: {
-                        [Sequelize.Op.gte]: twentyFourHoursAgo
-                    }
-                }
-            });
+  async viewInbox(sock, sender) {
+    try {
+      const result = await this.pool.query(
+        `SELECT m.*, p.name as sender_name 
+         FROM dating_messages m 
+         JOIN dating_profiles p ON m.sender_phone = p.phone_number 
+         WHERE m.receiver_phone = $1 
+         ORDER BY m.timestamp DESC 
+         LIMIT 10`,
+        [sender]
+      );
 
-            return {
-                totalUsers,
-                activeUsers,
-                completeProfiles,
-                totalMatches,
-                totalMessages,
-                activeToday
-            };
-        } catch (error) {
-            console.error('Error getting database stats:', error);
-            return {
-                totalUsers: 0,
-                activeUsers: 0,
-                completeProfiles: 0,
-                totalMatches: 0,
-                totalMessages: 0,
-                activeToday: 0
-            };
-        }
+      if (result.rows.length === 0) {
+        await sock.sendMessage(sender, {
+          text: '📭 Your dating inbox is empty.'
+        });
+        return;
+      }
+
+      let inboxText = '📬 Dating Inbox:\n\n';
+      result.rows.forEach((message, index) => {
+        inboxText += `From: ${message.sender_name}\n`;
+        inboxText += `Time: ${new Date(message.timestamp).toLocaleString()}\n`;
+        inboxText += `Message: ${message.message}\n`;
+        inboxText += '─'.repeat(30) + '\n\n';
+      });
+
+      await sock.sendMessage(sender, { text: inboxText });
+
+      // Mark messages as read
+      await this.pool.query(
+        'UPDATE dating_messages SET is_read = TRUE WHERE receiver_phone = $1',
+        [sender]
+      );
+
+    } catch (error) {
+      console.error('Error viewing dating inbox:', error);
+      await sock.sendMessage(sender, {
+        text: '❌ Error retrieving messages.'
+      });
     }
+  }
 
-    // ... (rest of your existing DatingManager methods remain the same)
+  parseProfileData(text) {
+    // Simple parsing logic - in real implementation, you'd use a more robust method
+    const lines = text.split('\n');
+    const data = {
+      name: '',
+      age: null,
+      gender: '',
+      location: '',
+      bio: '',
+      interests: []
+    };
 
-    async activateDatingMode(phoneNumber) {
-        try {
-            const [profile, created] = await this.UserProfile.findOrCreate({
-                where: { phoneNumber },
-                defaults: {
-                    phoneNumber,
-                    datingEnabled: true,
-                    profileComplete: false,
-                    profileViews: 0,
-                    lastActive: new Date()
-                }
-            });
+    lines.forEach(line => {
+      if (line.toLowerCase().includes('name:')) data.name = line.split(':')[1]?.trim();
+      if (line.toLowerCase().includes('age:')) data.age = parseInt(line.split(':')[1]?.trim());
+      if (line.toLowerCase().includes('gender:')) data.gender = line.split(':')[1]?.trim();
+      if (line.toLowerCase().includes('location:')) data.location = line.split(':')[1]?.trim();
+      if (line.toLowerCase().includes('bio:')) data.bio = line.split(':')[1]?.trim();
+      if (line.toLowerCase().includes('interests:')) {
+        data.interests = line.split(':')[1]?.split(',').map(i => i.trim()).filter(i => i);
+      }
+    });
 
-            if (!created) {
-                profile.datingEnabled = true;
-                profile.lastActive = new Date();
-                await profile.save();
-            }
+    return data;
+  }
 
-            console.log(`✅ Dating mode activated for ${phoneNumber}`);
-            return true;
-        } catch (error) {
-            console.error('Error activating dating mode:', error);
-            return false;
-        }
-    }
+  formatProfile(profile) {
+    return `
+👤 Dating Profile:
+───────────────
+📛 Name: ${profile.name || 'Not set'}
+🎂 Age: ${profile.age || 'Not set'}
+🚻 Gender: ${profile.gender || 'Not set'}
+📍 Location: ${profile.location || 'Not set'}
+💬 Bio: ${profile.bio || 'Not set'}
+🎯 Interests: ${profile.interests?.join(', ') || 'Not set'}
+───────────────
+Use .dating edit to update your profile
+    `.trim();
+  }
 
-    async isDatingModeEnabled(phoneNumber) {
-        try {
-            const profile = await this.UserProfile.findOne({ where: { phoneNumber } });
-            return profile && profile.datingEnabled === true;
-        } catch (error) {
-            console.error('Error checking dating mode:', error);
-            return false;
-        }
-    }
+  async showHelp(sock, sender) {
+    const helpText = `
+💕 Dating Commands:
+─────────────────
+.dating create - Create your dating profile
+.dating view - View your dating profile
+.dating edit - Edit your dating profile
+.dating search - Search for other profiles
+.dating matches - View your matches
+.dating message [number] [msg] - Send a message
+.dating inbox - View your messages
+.dating help - Show this help
+─────────────────
+💡 Tips: Be honest in your profile and respectful in messages!
+    `.trim();
 
-    // ... (all other methods remain unchanged from your original code)
-
-    async closeConnection() {
-        try {
-            await this.sequelize.close();
-            console.log('✅ Dating database connection closed');
-        } catch (error) {
-            console.error('Error closing database connection:', error);
-        }
-    }
+    await sock.sendMessage(sender, { text: helpText });
+  }
 }
 
 module.exports = DatingManager;
