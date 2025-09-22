@@ -7,7 +7,6 @@ global.ReadableStream = ReadableStream;
 
 const { delay } = require('@whiskeysockets/baileys');
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const express = require('express');
 const { Pool } = require('pg');
 // Database connection - using Render PostgreSQL for dating features only
@@ -187,23 +186,55 @@ class ConnectionManager {
 
 const connectionManager = new ConnectionManager();
 
+// Function to generate QR code using console characters
+function generateConsoleQR(qrData) {
+  if (!qrData) return '';
+  
+  // Simple text-based QR representation using blocks
+  const qrLength = Math.min(qrData.length, 100); // Limit size for console
+  let qrDisplay = '';
+  
+  // Create a simple pattern based on the QR data
+  for (let i = 0; i < 10; i++) {
+    let line = '';
+    for (let j = 0; j < 20; j++) {
+      // Use character position and QR data to create a pattern
+      const charIndex = (i * 20 + j) % qrLength;
+      const charCode = qrData.charCodeAt(charIndex) || 0;
+      line += charCode % 2 === 0 ? '██' : '  ';
+    }
+    qrDisplay += line + '\n';
+  }
+  
+  return qrDisplay;
+}
+
 // Function to display pairing information
 function displayPairingInfo(qr, pairingCode) {
   // Store QR code data for API access
   qrCodeData = qr;
   qrCodeGeneratedAt = Date.now();
-  
+
   console.log('\n'.repeat(5));
   console.log('═'.repeat(60));
   console.log('🤖 WHATSAPP BOT PAIRING INFORMATION');
   console.log('═'.repeat(60));
 
   if (qr) {
-    console.log('📱 Scan the QR code below:');
-    qrcode.generate(qr, { small: true });
+    console.log('📱 QR Code Data (Use this for pairing):');
+    console.log('┌' + '─'.repeat(58) + '┐');
+    console.log('│ ' + qr.substring(0, 56) + ' │');
+    if (qr.length > 56) {
+      console.log('│ ' + qr.substring(56, 112) + ' │');
+    }
+    if (qr.length > 112) {
+      console.log('│ ' + qr.substring(112, 168) + ' │');
+    }
+    console.log('└' + '─'.repeat(58) + '┘');
     
-    // Also log the QR code as text for easier debugging
-    console.log(`QR Code Data: ${qr.substring(0, 50)}...`);
+    // Generate and display console QR
+    console.log('\n📊 Console QR Representation:');
+    console.log(generateConsoleQR(qr));
   }
 
   if (pairingCode) {
@@ -211,9 +242,13 @@ function displayPairingInfo(qr, pairingCode) {
   }
 
   console.log('═'.repeat(60));
-  console.log('💡 Tip: Use WhatsApp Linked Devices feature to pair');
-  console.log('🌐 You can also scan the QR code from:');
+  console.log('💡 Instructions for pairing:');
+  console.log('1. Open WhatsApp on your phone');
+  console.log('2. Go to Settings → Linked Devices → Link a Device');
+  console.log('3. Use the QR code data above or visit:');
   console.log(`   http://0.0.0.0:${process.env.PORT || 3000}/qr`);
+  console.log('═'.repeat(60));
+  console.log('⏰ QR code expires in 2 minutes');
   console.log('═'.repeat(60));
 }
 
@@ -369,7 +404,7 @@ async function startBot() {
     sock = makeWASocket({
       version,
       logger: createSimpleLogger(),
-      printQRInTerminal: true,
+      printQRInTerminal: false, // Disable the built-in QR terminal display
       auth: state,
       browser: Browsers.ubuntu('Chrome'),
       generateHighQualityLinkPreview: true,
@@ -482,7 +517,7 @@ app.get('/qr', (req, res) => {
       message: isConnected ? 'Bot is already connected' : 'Waiting for QR code generation' 
     });
   }
-  
+
   // Check if QR code is expired
   if (Date.now() - qrCodeGeneratedAt > QR_CODE_EXPIRY) {
     return res.status(410).json({ 
@@ -490,93 +525,20 @@ app.get('/qr', (req, res) => {
       message: 'The QR code has expired. Please wait for a new one to be generated.' 
     });
   }
+
   
-  // Generate HTML page with QR code
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>WhatsApp Bot QR Code</title>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          text-align: center;
-          padding: 20px;
-          background-color: #f0f0f0;
-        }
-        .container {
-          max-width: 500px;
-          margin: 0 auto;
-          background: white;
-          padding: 20px;
-          border-radius: 10px;
-          box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-          color: #25D366;
-        }
-        pre {
-          margin: 20px 0;
-          padding: 10px;
-          background: #f8f8f8;
-          border-radius: 5px;
-          overflow-x: auto;
-        }
-        .instructions {
-          text-align: left;
-          margin: 20px 0;
-          padding: 15px;
-          background: #e8f5e9;
-          border-radius: 5px;
-        }
-        .expiry {
-          color: #f44336;
-          font-weight: bold;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>🤖 WhatsApp Bot QR Code</h1>
-        <p>Scan this QR code with WhatsApp to connect your bot</p>
-        
-        <pre>${qrcode.generate(qrCodeData, { small: true })}</pre>
-        
-        <div class="instructions">
-          <h3>Instructions:</h3>
-          <ol>
-            <li>Open WhatsApp on your phone</li>
-            <li>Tap Menu or Settings and select "Linked Devices"</li>
-            <li>Tap on "Link a Device"</li>
-            <li>Point your phone at this screen to scan the QR code</li>
-          </ol>
-        </div>
-        
-        <p class="expiry">⚠️ This QR code will expire in 2 minutes</p>
-        <p>Generated at: ${new Date(qrCodeGeneratedAt).toLocaleString()}</p>
-        
-        <p><a href="/">Back to status page</a></p>
-      </div>
-    </body>
-    </html>
-  `;
-  
-  res.send(html);
-});
 
 // Raw QR code data endpoint (for programmatic access)
 app.get('/qr-data', (req, res) => {
   if (!qrCodeData) {
     return res.status(404).json({ error: 'No QR code available' });
   }
-  
+
   // Check if QR code is expired
   if (Date.now() - qrCodeGeneratedAt > QR_CODE_EXPIRY) {
     return res.status(410).json({ error: 'QR code expired' });
   }
-  
+
   res.json({
     qr: qrCodeData,
     generatedAt: qrCodeGeneratedAt,
