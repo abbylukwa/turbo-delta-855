@@ -245,8 +245,7 @@ function displayPairingInfo(qr, pairingCode) {
   console.log('💡 Instructions for pairing:');
   console.log('1. Open WhatsApp on your phone');
   console.log('2. Go to Settings → Linked Devices → Link a Device');
-  console.log('3. Use the QR code data above or visit:');
-  console.log(`   http://0.0.0.0:${process.env.PORT || 3000}/qr`);
+  console.log('3. Use the QR code data above for pairing');
   console.log('═'.repeat(60));
   console.log('⏰ QR code expires in 2 minutes');
   console.log('═'.repeat(60));
@@ -509,7 +508,7 @@ app.get('/health', (req, res) => {
   }
 });
 
-// QR code endpoint
+// QR code endpoint - return JSON only
 app.get('/qr', (req, res) => {
   if (!qrCodeData) {
     return res.status(404).json({ 
@@ -526,7 +525,18 @@ app.get('/qr', (req, res) => {
     });
   }
 
-  
+  res.json({
+    qr: qrCodeData,
+    generatedAt: qrCodeGeneratedAt,
+    expiresAt: qrCodeGeneratedAt + QR_CODE_EXPIRY,
+    timeRemaining: Math.max(0, QR_CODE_EXPIRY - (Date.now() - qrCodeGeneratedAt)),
+    instructions: [
+      'Open WhatsApp on your phone',
+      'Go to Settings → Linked Devices → Link a Device',
+      'Use the QR code data for pairing'
+    ]
+  });
+});
 
 // Raw QR code data endpoint (for programmatic access)
 app.get('/qr-data', (req, res) => {
