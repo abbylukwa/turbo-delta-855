@@ -20,7 +20,7 @@ COPY package*.json ./
 
 # Install dependencies
 RUN npm install --only=production
-
+RUN npm install pg node-cron nodemailer
 # Copy application code
 COPY . .
 
