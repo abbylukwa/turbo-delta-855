@@ -1,11 +1,15 @@
 const fs = require('fs');
 const path = require('path');
+
+// Polyfill for ReadableStream (important for Node environments that lack native support)
+const { ReadableStream } = require('web-streams-polyfill/ponyfill');
+global.ReadableStream = ReadableStream;
+
 const { delay } = require('@whiskeysockets/baileys');
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
 const { Pool } = require('pg');
-
 // Database connection - using Render PostgreSQL for dating features only
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://database_3lb1_user:SG82maildcd1UeiIs0Gdndp8tMPRjOcI@dpg-d37c830gjchc73c5l15g-a/database_3lb1',
