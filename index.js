@@ -247,7 +247,8 @@ class ConnectionManager {
 
       const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-      if (!state?.auth?.creds) {
+      // Check if auth state is valid BEFORE using it
+      if (!state || !state.auth || !state.auth.creds) {
         console.log('🔄 Auth state invalid, creating fresh authentication...');
         await this.initializeFreshAuth();
         return;
@@ -327,23 +328,31 @@ class ConnectionManager {
 
   async initializeFreshAuth() {
     try {
+      // Clear any existing auth data
       const authDir = path.join(__dirname, 'auth_info_baileys');
       if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true, force: true });
       }
       fs.mkdirSync(authDir, { recursive: true });
 
-      let { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+      // Create a fresh auth state
+      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-      if (!state?.auth?.creds) {
-        console.error('❌ Auth state initialization failed');
-        throw new Error('Failed to initialize authentication state');
+      // CRITICAL FIX: Check IMMEDIATELY after getting the state
+      if (!state || !state.auth || !state.auth.creds) {
+        console.error('❌ Auth state initialization failed - state structure:', {
+          stateExists: !!state,
+          authExists: !!state?.auth,
+          credsExists: !!state?.auth?.creds
+        });
+        throw new Error('Failed to initialize authentication state - missing credentials');
       }
 
       console.log('✅ Fresh auth state initialized successfully');
 
       const { version } = await fetchLatestBaileysVersion();
 
+      // NOW it's safe to use state.auth.creds
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
