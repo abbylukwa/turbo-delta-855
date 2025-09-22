@@ -8,7 +8,7 @@ const { Pool } = require('pg');
 
 // Database connection - using Render PostgreSQL for dating features only
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://username:password@localhost:5432/dating_bot',
+  connectionString: process.env.DATABASE_URL || 'postgresql://database_3lb1_user:SG82maildcd1UeiIs0Gdndp8tMPRjOcI@dpg-d37c830gjchc73c5l15g-a/database_3lb1',
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
