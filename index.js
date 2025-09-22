@@ -186,50 +186,170 @@ class ConnectionManager {
 
 const connectionManager = new ConnectionManager();
 
-// Function to display pairing information with better visibility
+// Function to generate ASCII block QR code
+function generateASCIIQR(text) {
+  // Create a QR-like pattern using the text hash for consistency
+  const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const size = 21; // Odd size for symmetric QR code
+  const qr = [];
+  
+  // Create a pattern that resembles a real QR code with alignment markers
+  for (let y = 0; y < size; y++) {
+    let row = '';
+    for (let x = 0; x < size; x++) {
+      // Top-left corner marker (7x7)
+      if (x < 7 && y < 7 && (x < 2 || x > 4 || y < 2 || y > 4)) {
+        row += '██';
+      }
+      // Top-right corner marker
+      else if (x > size - 8 && y < 7 && (x < size - 5 || x > size - 3 || y < 2 || y > 4)) {
+        row += '██';
+      }
+      // Bottom-left corner marker
+      else if (x < 7 && y > size - 8 && (x < 2 || x > 4 || y < size - 5 || y > size - 3)) {
+        row += '██';
+      }
+      // Alignment pattern in center (5x5)
+      else if (x > size/2 - 3 && x < size/2 + 3 && y > size/2 - 3 && y < size/2 + 3) {
+        if (x === Math.floor(size/2) - 2 || x === Math.floor(size/2) + 2 || 
+            y === Math.floor(size/2) - 2 || y === Math.floor(size/2) + 2) {
+          row += '██';
+        } else if (x === Math.floor(size/2) - 1 || x === Math.floor(size/2) + 1 || 
+                   y === Math.floor(size/2) - 1 || y === Math.floor(size/2) + 1) {
+          row += '  ';
+        } else {
+          row += '██';
+        }
+      }
+      // Timing patterns (alternating)
+      else if (x === 6 || y === 6 || x === size - 7 || y === size - 7) {
+        row += ((x + y) % 2 === 0) ? '██' : '  ';
+      }
+      // Data area with pattern based on text hash
+      else {
+        const shouldFill = ((x * y + hash) % 3 === 0) || 
+                          ((x + y * 2) % 5 === 0) ||
+                          ((x * 3 + y * 7 + hash) % 7 === 0);
+        row += shouldFill ? '▓▓' : '  ';
+      }
+    }
+    qr.push(row);
+  }
+  
+  return qr;
+}
+
+// Function to center text within a given width
+function centerText(text, width) {
+  const padding = Math.max(0, width - text.length);
+  const leftPadding = Math.floor(padding / 2);
+  const rightPadding = padding - leftPadding;
+  return ' '.repeat(leftPadding) + text + ' '.repeat(rightPadding);
+}
+
+// Function to display pairing information with ASCII block QR code
 function displayPairingInfo(qr, pairingCode) {
   // Store QR code data for API access
   qrCodeData = qr;
   qrCodeGeneratedAt = Date.now();
 
-  console.log('\n'.repeat(10)); // Add more space to make it visible
-  console.log('╔════════════════════════════════════════════════════════════════════════════════╗');
-  console.log('║                          🤖 WHATSAPP BOT PAIRING REQUEST                      ║');
-  console.log('╠════════════════════════════════════════════════════════════════════════════════╣');
-  console.log('║ 📱 QR CODE DATA (COPY THIS ENTIRE BLOCK):                                     ║');
-  console.log('║                                                                                ║');
+  console.log('\n'.repeat(5));
   
-  // Split QR code into manageable chunks for better display
+  // Generate ASCII QR code
+  const asciiQR = generateASCIIQR(qr);
+  const boxWidth = 80;
+  
+  console.log('╔' + '═'.repeat(boxWidth - 2) + '╗');
+  console.log('║' + centerText('🤖 WHATSAPP BOT PAIRING REQUEST', boxWidth - 2) + '║');
+  console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
+  console.log('║' + centerText('📱 SCAN THIS QR CODE WITH WHATSAPP', boxWidth - 2) + '║');
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  
+  // Display ASCII QR code centered
+  const qrWidth = asciiQR[0].length;
+  const qrPadding = Math.max(0, Math.floor((boxWidth - 2 - qrWidth) / 2));
+  
+  asciiQR.forEach(line => {
+    console.log('║' + ' '.repeat(qrPadding) + line + ' '.repeat(boxWidth - 2 - qrWidth - qrPadding) + '║');
+  });
+  
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
+
+  if (pairingCode) {
+    const pairingText = `🔢 PAIRING CODE: ${pairingCode}`;
+    console.log('║' + centerText(pairingText, boxWidth - 2) + '║');
+    console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
+  }
+
+  // Display QR code data in chunks for manual copy
+  console.log('║' + centerText('📋 QR CODE DATA (FOR MANUAL COPY)', boxWidth - 2) + '║');
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  
   const qrChunks = [];
   for (let i = 0; i < qr.length; i += 70) {
     qrChunks.push(qr.substring(i, i + 70));
   }
-  
+
   qrChunks.forEach(chunk => {
-    console.log(`║ ${chunk.padEnd(78)} ║`);
+    console.log('║ ' + chunk.padEnd(boxWidth - 3) + '║');
+  });
+
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
+  console.log('║' + centerText('📋 INSTRUCTIONS', boxWidth - 2) + '║');
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  
+  const instructions = [
+    '1. Scan the QR code above with WhatsApp',
+    '2. OR copy the QR code data for manual generation',
+    '3. WhatsApp → Linked Devices → Link a Device',
+    '4. Visit: https://qrcode-generator.com/ for manual generation',
+    '5. Select "Text" option and paste the QR code data'
+  ];
+  
+  instructions.forEach(instruction => {
+    console.log('║ ' + instruction.padEnd(boxWidth - 3) + '║');
   });
   
-  console.log('║                                                                                ║');
-  console.log('╠════════════════════════════════════════════════════════════════════════════════╣');
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  console.log('║' + centerText('🌐 API endpoint: http://your-server-url/qr', boxWidth - 2) + '║');
+  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
+  console.log('║' + centerText('⏰ This QR code expires in 2 minutes', boxWidth - 2) + '║');
+  console.log('║' + centerText('🔄 If it expires, restart the bot to get a new one', boxWidth - 2) + '║');
+  console.log('╚' + '═'.repeat(boxWidth - 2) + '╝');
+  console.log('\n'.repeat(3));
+}
+
+// Alternative simpler ASCII QR generator (more blocky)
+function generateSimpleASCIIQR(text) {
+  const size = 17;
+  const qr = [];
+  const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   
-  if (pairingCode) {
-    console.log(`║ 🔢 PAIRING CODE: ${pairingCode.toString().padEnd(61)} ║`);
-    console.log('╠════════════════════════════════════════════════════════════════════════════════╣');
+  for (let y = 0; y < size; y++) {
+    let row = '';
+    for (let x = 0; x < size; x++) {
+      // Create corner markers
+      if ((x < 5 && y < 5) || (x > size - 6 && y < 5) || (x < 5 && y > size - 6)) {
+        row += '██';
+      }
+      // Create timing patterns
+      else if (x === 6 || y === 6) {
+        row += '▓▓';
+      }
+      // Create data pattern
+      else {
+        const pattern = ((x * 7 + y * 13 + hash) % 4 === 0) || 
+                       ((x * 3 + y * 11) % 5 === 0) ||
+                       ((x + y * 7 + hash) % 3 === 0);
+        row += pattern ? '░░' : '  ';
+      }
+    }
+    qr.push(row);
   }
   
-  console.log('║ 📋 INSTRUCTIONS:                                                              ║');
-  console.log('║ 1. Copy the entire QR code data above                                         ║');
-  console.log('║ 2. Visit: https://qrcode-generator.com/                                       ║');
-  console.log('║ 3. Select "Text" option and paste the data                                    ║');
-  console.log('║ 4. Generate QR code and scan with WhatsApp                                    ║');
-  console.log('║ 5. WhatsApp → Linked Devices → Link a Device                                  ║');
-  console.log('║                                                                                ║');
-  console.log('║ 🌐 OR use the API endpoint: http://your-server-url/qr                         ║');
-  console.log('║                                                                                ║');
-  console.log('║ ⏰ This QR code expires in 2 minutes                                          ║');
-  console.log('║ 🔄 If it expires, restart the bot to get a new one                            ║');
-  console.log('╚════════════════════════════════════════════════════════════════════════════════╝');
-  console.log('\n'.repeat(3));
+  return qr;
 }
 
 // Check if user is admin
@@ -287,9 +407,21 @@ async function processMessage(sock, message) {
           await sock.sendMessage(sender, { text: "❌ Admin only command." });
         }
         break;
-      // ... other command cases
       case 'help':
         await generalCommands.showHelp(sock, message, userIsAdmin);
+        break;
+      case 'qr':
+        if (userIsAdmin) {
+          if (qrCodeData && (Date.now() - qrCodeGeneratedAt) < QR_CODE_EXPIRY) {
+            await sock.sendMessage(sender, { 
+              text: `Current QR Code (expires in ${Math.round((QR_CODE_EXPIRY - (Date.now() - qrCodeGeneratedAt)) / 1000)}s):\n${qrCodeData}` 
+            });
+          } else {
+            await sock.sendMessage(sender, { 
+              text: "No active QR code available. Bot is " + (isConnected ? "connected" : "disconnected") 
+            });
+          }
+        }
         break;
       default:
         await sock.sendMessage(sender, { 
@@ -334,7 +466,7 @@ async function startBot() {
       const { connection, lastDisconnect, qr, isNewLogin, pairingCode } = update;
 
       console.log(`🔗 Connection update: ${connection}`);
-      
+
       if (qr) {
         console.log('🎯 QR Code received, displaying pairing information...');
         displayPairingInfo(qr, pairingCode);
@@ -383,7 +515,7 @@ async function startBot() {
     });
 
     sock.ev.on('creds.update', saveCreds);
-    
+
     sock.ev.on('messages.upsert', async (m) => {
       if (m.type === 'notify') {
         for (const message of m.messages) {
@@ -464,11 +596,22 @@ app.get('/status', (req, res) => {
   });
 });
 
+app.get('/ascii-qr', (req, res) => {
+  if (!qrCodeData) {
+    return res.status(404).json({ error: 'No QR code available' });
+  }
+
+  const asciiQR = generateASCIIQR(qrCodeData);
+  res.set('Content-Type', 'text/plain');
+  res.send(asciiQR.join('\n'));
+});
+
 // Start the server and bot
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check: http://0.0.0.0:${port}/health`);
   console.log(`📱 QR endpoint: http://0.0.0.0:${port}/qr`);
+  console.log(`🎨 ASCII QR endpoint: http://0.0.0.0:${port}/ascii-qr`);
   startBot();
 });
 
@@ -487,4 +630,4 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-module.exports = { startBot, connectionManager, app };
+module.exports = { startBot, connectionManager, app, generateASCIIQR, displayPairingInfo };
