@@ -330,27 +330,27 @@ class ConnectionManager {
       this.qrCodeGenerated = true;
       
       // Clear console and display QR code prominently
-      console.log('\n'.repeat(10));
-      console.log('╔════════════════════════════════════════════════════════════════╗');
-      console.log('║                    WHATSAPP QR CODE REQUIRED                   ║');
-      console.log('╠════════════════════════════════════════════════════════════════╣');
-      console.log('║ SCAN THIS QR CODE WITH YOUR WHATSAPP TO CONNECT THE BOT:      ║');
-      console.log('║                                                                ║');
+      console.log('\n'.repeat(3));
+      console.log('╔══════════════════════════════════════════════════╗');
+      console.log('║               WHATSAPP QR CODE                  ║');
+      console.log('╠══════════════════════════════════════════════════╣');
+      console.log('║ Scan with WhatsApp:                             ║');
+      console.log('║                                                  ║');
       
-      // Generate QR code
+      // Generate smaller QR code
       qrcode.generate(qr, { 
-        small: false 
+        small: true  // Smaller QR code
       });
       
-      console.log('║                                                                ║');
-      console.log('║ INSTRUCTIONS:                                                  ║');
-      console.log('║ 1. Open WhatsApp on your phone                                 ║');
-      console.log('║ 2. Tap Menu → Linked Devices → Link a Device                   ║');
-      console.log('║ 3. Point your camera at the QR code above                      ║');
-      console.log('║ 4. Wait for connection confirmation                            ║');
-      console.log('║                                                                ║');
-      console.log('║ The bot will automatically connect once you scan the QR code.  ║');
-      console.log('╚════════════════════════════════════════════════════════════════╝');
+      console.log('║                                                  ║');
+      console.log('║ Instructions:                                   ║');
+      console.log('║ 1. WhatsApp → Menu → Linked Devices             ║');
+      console.log('║ 2. Tap "Link a Device"                          ║');
+      console.log('║ 3. Scan the QR code                             ║');
+      console.log('║ 4. Wait for connection                          ║');
+      console.log('║                                                  ║');
+      console.log('║ Bot connects automatically after scanning.      ║');
+      console.log('╚══════════════════════════════════════════════════╝');
       console.log('\n');
     }
   }
@@ -372,9 +372,7 @@ class ConnectionManager {
       
       console.log('✅ Fresh auth state created:', {
         stateExists: !!authState.state,
-        stateKeys: authState.state ? Object.keys(authState.state) : 'none',
-        hasCreds: !!authState.state?.creds,
-        hasKeys: !!authState.state?.keys
+        stateKeys: authState.state ? Object.keys(authState.state) : 'none'
       });
 
       const { version } = await fetchLatestBaileysVersion();
@@ -415,10 +413,6 @@ class ConnectionManager {
 
     } catch (error) {
       console.error('❌ Error initializing fresh auth:', error);
-      console.log('Error details:', {
-        message: error.message,
-        stack: error.stack
-      });
       setTimeout(() => {
         this.reconnect();
       }, 10000);
