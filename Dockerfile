@@ -1,4 +1,4 @@
-FROM node:18-slim
+FROM node:16-slim
 
 WORKDIR /app
 
@@ -18,8 +18,8 @@ RUN apt-get update && \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with specific flags to handle undici compatibility
-RUN NODE_OPTIONS="--no-experimental-fetch" npm install --only=production
+# Install dependencies
+RUN npm install --only=production
 
 # Copy application code
 COPY . .
@@ -43,5 +43,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
-# Start the application with compatibility flags
-CMD ["node", "--no-experimental-fetch", "index.js"]
+# Start the application
+CMD ["node", "index.js"]
