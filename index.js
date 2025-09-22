@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const qrcode = require('qrcode-terminal');
 
 // Polyfill for ReadableStream (important for Node environments that lack native support)
 const { ReadableStream } = require('web-streams-polyfill');
@@ -105,11 +106,6 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000;
 
-// QR code state management
-let qrCodeData = null;
-let qrCodeGeneratedAt = null;
-const QR_CODE_EXPIRY = 120000;
-
 // Simple logger
 const createSimpleLogger = () => {
   return {
@@ -148,208 +144,23 @@ async function ensureDirectories() {
   }
 }
 
-// Clear auth files
-async function clearAuthFiles() {
+// Cleanup temporary files
+function cleanupTempFiles() {
   try {
-    const authDir = path.join(__dirname, 'auth_info_baileys');
-    if (fs.existsSync(authDir)) {
-      fs.rmSync(authDir, { recursive: true, force: true });
-      console.log('✅ Cleared auth files');
-    }
-    fs.mkdirSync(authDir, { recursive: true });
-    return true;
+    const tempDirs = [
+      path.join(__dirname, 'temp'),
+      path.join(__dirname, 'downloads', 'temp')
+    ];
+    
+    tempDirs.forEach(dir => {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        console.log(`✅ Cleaned up temp directory: ${dir}`);
+      }
+    });
   } catch (error) {
-    console.error('Error clearing auth files:', error.message);
-    return false;
+    console.error('Error cleaning temp files:', error);
   }
-}
-
-// Connection manager
-class ConnectionManager {
-  constructor() {
-    this.isConnecting = false;
-    this.reconnectTimeout = null;
-  }
-
-  disconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    if (sock) {
-      sock.end();
-      sock = null;
-    }
-    isConnected = false;
-  }
-}
-
-const connectionManager = new ConnectionManager();
-
-// Function to generate ASCII block QR code
-function generateASCIIQR(text) {
-  // Create a QR-like pattern using the text hash for consistency
-  const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const size = 21; // Odd size for symmetric QR code
-  const qr = [];
-  
-  // Create a pattern that resembles a real QR code with alignment markers
-  for (let y = 0; y < size; y++) {
-    let row = '';
-    for (let x = 0; x < size; x++) {
-      // Top-left corner marker (7x7)
-      if (x < 7 && y < 7 && (x < 2 || x > 4 || y < 2 || y > 4)) {
-        row += '██';
-      }
-      // Top-right corner marker
-      else if (x > size - 8 && y < 7 && (x < size - 5 || x > size - 3 || y < 2 || y > 4)) {
-        row += '██';
-      }
-      // Bottom-left corner marker
-      else if (x < 7 && y > size - 8 && (x < 2 || x > 4 || y < size - 5 || y > size - 3)) {
-        row += '██';
-      }
-      // Alignment pattern in center (5x5)
-      else if (x > size/2 - 3 && x < size/2 + 3 && y > size/2 - 3 && y < size/2 + 3) {
-        if (x === Math.floor(size/2) - 2 || x === Math.floor(size/2) + 2 || 
-            y === Math.floor(size/2) - 2 || y === Math.floor(size/2) + 2) {
-          row += '██';
-        } else if (x === Math.floor(size/2) - 1 || x === Math.floor(size/2) + 1 || 
-                   y === Math.floor(size/2) - 1 || y === Math.floor(size/2) + 1) {
-          row += '  ';
-        } else {
-          row += '██';
-        }
-      }
-      // Timing patterns (alternating)
-      else if (x === 6 || y === 6 || x === size - 7 || y === size - 7) {
-        row += ((x + y) % 2 === 0) ? '██' : '  ';
-      }
-      // Data area with pattern based on text hash
-      else {
-        const shouldFill = ((x * y + hash) % 3 === 0) || 
-                          ((x + y * 2) % 5 === 0) ||
-                          ((x * 3 + y * 7 + hash) % 7 === 0);
-        row += shouldFill ? '▓▓' : '  ';
-      }
-    }
-    qr.push(row);
-  }
-  
-  return qr;
-}
-
-// Function to center text within a given width
-function centerText(text, width) {
-  const padding = Math.max(0, width - text.length);
-  const leftPadding = Math.floor(padding / 2);
-  const rightPadding = padding - leftPadding;
-  return ' '.repeat(leftPadding) + text + ' '.repeat(rightPadding);
-}
-
-// Function to display pairing information with ASCII block QR code
-function displayPairingInfo(qr, pairingCode) {
-  // Store QR code data for API access
-  qrCodeData = qr;
-  qrCodeGeneratedAt = Date.now();
-
-  console.log('\n'.repeat(5));
-  
-  // Generate ASCII QR code
-  const asciiQR = generateASCIIQR(qr);
-  const boxWidth = 80;
-  
-  console.log('╔' + '═'.repeat(boxWidth - 2) + '╗');
-  console.log('║' + centerText('🤖 WHATSAPP BOT PAIRING REQUEST', boxWidth - 2) + '║');
-  console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
-  console.log('║' + centerText('📱 SCAN THIS QR CODE WITH WHATSAPP', boxWidth - 2) + '║');
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  
-  // Display ASCII QR code centered
-  const qrWidth = asciiQR[0].length;
-  const qrPadding = Math.max(0, Math.floor((boxWidth - 2 - qrWidth) / 2));
-  
-  asciiQR.forEach(line => {
-    console.log('║' + ' '.repeat(qrPadding) + line + ' '.repeat(boxWidth - 2 - qrWidth - qrPadding) + '║');
-  });
-  
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
-
-  if (pairingCode) {
-    const pairingText = `🔢 PAIRING CODE: ${pairingCode}`;
-    console.log('║' + centerText(pairingText, boxWidth - 2) + '║');
-    console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
-  }
-
-  // Display QR code data in chunks for manual copy
-  console.log('║' + centerText('📋 QR CODE DATA (FOR MANUAL COPY)', boxWidth - 2) + '║');
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  
-  const qrChunks = [];
-  for (let i = 0; i < qr.length; i += 70) {
-    qrChunks.push(qr.substring(i, i + 70));
-  }
-
-  qrChunks.forEach(chunk => {
-    console.log('║ ' + chunk.padEnd(boxWidth - 3) + '║');
-  });
-
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  console.log('╠' + '═'.repeat(boxWidth - 2) + '╣');
-  console.log('║' + centerText('📋 INSTRUCTIONS', boxWidth - 2) + '║');
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  
-  const instructions = [
-    '1. Scan the QR code above with WhatsApp',
-    '2. OR copy the QR code data for manual generation',
-    '3. WhatsApp → Linked Devices → Link a Device',
-    '4. Visit: https://qrcode-generator.com/ for manual generation',
-    '5. Select "Text" option and paste the QR code data'
-  ];
-  
-  instructions.forEach(instruction => {
-    console.log('║ ' + instruction.padEnd(boxWidth - 3) + '║');
-  });
-  
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  console.log('║' + centerText('🌐 API endpoint: http://your-server-url/qr', boxWidth - 2) + '║');
-  console.log('║' + ' '.repeat(boxWidth - 2) + '║');
-  console.log('║' + centerText('⏰ This QR code expires in 2 minutes', boxWidth - 2) + '║');
-  console.log('║' + centerText('🔄 If it expires, restart the bot to get a new one', boxWidth - 2) + '║');
-  console.log('╚' + '═'.repeat(boxWidth - 2) + '╝');
-  console.log('\n'.repeat(3));
-}
-
-// Alternative simpler ASCII QR generator (more blocky)
-function generateSimpleASCIIQR(text) {
-  const size = 17;
-  const qr = [];
-  const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  
-  for (let y = 0; y < size; y++) {
-    let row = '';
-    for (let x = 0; x < size; x++) {
-      // Create corner markers
-      if ((x < 5 && y < 5) || (x > size - 6 && y < 5) || (x < 5 && y > size - 6)) {
-        row += '██';
-      }
-      // Create timing patterns
-      else if (x === 6 || y === 6) {
-        row += '▓▓';
-      }
-      // Create data pattern
-      else {
-        const pattern = ((x * 7 + y * 13 + hash) % 4 === 0) || 
-                       ((x * 3 + y * 11) % 5 === 0) ||
-                       ((x + y * 7 + hash) % 3 === 0);
-        row += pattern ? '░░' : '  ';
-      }
-    }
-    qr.push(row);
-  }
-  
-  return qr;
 }
 
 // Check if user is admin
@@ -395,7 +206,7 @@ async function processMessage(sock, message) {
 
     console.log(`Processing command from ${sender}: ${command}`);
 
-    // Command routing (simplified for brevity)
+    // Command routing
     switch (command) {
       case 'activate':
         await activationManager.handleActivation(sock, message, args, sender);
@@ -410,18 +221,10 @@ async function processMessage(sock, message) {
       case 'help':
         await generalCommands.showHelp(sock, message, userIsAdmin);
         break;
-      case 'qr':
-        if (userIsAdmin) {
-          if (qrCodeData && (Date.now() - qrCodeGeneratedAt) < QR_CODE_EXPIRY) {
-            await sock.sendMessage(sender, { 
-              text: `Current QR Code (expires in ${Math.round((QR_CODE_EXPIRY - (Date.now() - qrCodeGeneratedAt)) / 1000)}s):\n${qrCodeData}` 
-            });
-          } else {
-            await sock.sendMessage(sender, { 
-              text: "No active QR code available. Bot is " + (isConnected ? "connected" : "disconnected") 
-            });
-          }
-        }
+      case 'status':
+        await sock.sendMessage(sender, { 
+          text: `🤖 Bot Status:\n• Connected: ${isConnected ? '✅' : '❌'}\n• Reconnect Attempts: ${reconnectAttempts}\n• Uptime: ${Math.round(process.uptime())}s` 
+        });
         break;
       default:
         await sock.sendMessage(sender, { 
@@ -433,6 +236,278 @@ async function processMessage(sock, message) {
   }
 }
 
+// Connection manager class
+class ConnectionManager {
+  constructor() {
+    this.isConnecting = false;
+    this.reconnectTimeout = null;
+    this.qrCodeGenerated = false;
+  }
+
+  async connect() {
+    if (this.isConnecting) return;
+    this.isConnecting = true;
+
+    try {
+      console.log('🔗 Initializing WhatsApp connection...');
+      
+      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+      
+      // Check if auth state is properly initialized
+      if (!state || !state.auth) {
+        console.log('🔄 Creating new authentication state...');
+        // If state is invalid, we need to handle it differently
+        await this.initializeFreshAuth();
+        return;
+      }
+
+      const { version, isLatest } = await fetchLatestBaileysVersion();
+      console.log(`Using WA v${version.join('.')}, isLatest: ${isLatest}`);
+
+      sock = makeWASocket({
+        version,
+        logger: createSimpleLogger(),
+        auth: {
+          creds: state.auth.creds,
+          keys: state.auth.keys
+        },
+        browser: Browsers.ubuntu('Chrome'),
+        generateHighQualityLinkPreview: true,
+        markOnlineOnConnect: false,
+      });
+
+      sock.ev.on('creds.update', saveCreds);
+      
+      // Handle connection updates including QR code
+      sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        console.log('Connection status:', connection);
+        
+        // Handle QR code generation
+        if (qr && !this.qrCodeGenerated) {
+          this.qrCodeGenerated = true;
+          console.log('\n'.repeat(5)); // Add some space
+          console.log('═'.repeat(60));
+          console.log('🔄 SCAN THIS QR CODE WITH YOUR WHATSAPP');
+          console.log('═'.repeat(60));
+          qrcode.generate(qr, { small: false }); // Use large QR code
+          console.log('═'.repeat(60));
+          console.log('1. Open WhatsApp on your phone');
+          console.log('2. Tap Menu → Linked Devices → Link a Device');
+          console.log('3. Scan the QR code above');
+          console.log('═'.repeat(60));
+          console.log('\n');
+        }
+
+        if (connection === 'close') {
+          const shouldReconnect = 
+            lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+          
+          console.log('Connection closed, reconnecting:', shouldReconnect);
+          this.qrCodeGenerated = false; // Reset QR flag for reconnection
+          
+          if (shouldReconnect) {
+            this.reconnect();
+          }
+        } else if (connection === 'open') {
+          console.log('✅ Connection opened successfully');
+          isConnected = true;
+          reconnectAttempts = 0;
+          this.isConnecting = false;
+          
+          // Start group discovery after connection is established
+          groupManager.startGroupDiscovery(sock);
+          
+          // Notify admins
+          this.notifyAdmins();
+        }
+      });
+
+      // Handle incoming messages
+      sock.ev.on('messages.upsert', async (m) => {
+        if (m.type === 'notify') {
+          for (const message of m.messages) {
+            await processMessage(sock, message);
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Connection error:', error);
+      this.isConnecting = false;
+      this.reconnect();
+    }
+  }
+
+  async initializeFreshAuth() {
+    try {
+      // Clear any existing auth data
+      const authDir = path.join(__dirname, 'auth_info_baileys');
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+      }
+      fs.mkdirSync(authDir, { recursive: true });
+
+      // Create a fresh auth state
+      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+      
+      const { version } = await fetchLatestBaileysVersion();
+
+      sock = makeWASocket({
+        version,
+        logger: createSimpleLogger(),
+        auth: {
+          creds: state.auth.creds,
+          keys: state.auth.keys
+        },
+        browser: Browsers.ubuntu('Chrome'),
+        generateHighQualityLinkPreview: true,
+        markOnlineOnConnect: false,
+      });
+
+      sock.ev.on('creds.update', saveCreds);
+      
+      sock.ev.on('connection.update', (update) => {
+        const { connection, qr } = update;
+        
+        console.log('Fresh connection status:', connection);
+        
+        if (qr && !this.qrCodeGenerated) {
+          this.qrCodeGenerated = true;
+          console.log('\n'.repeat(5));
+          console.log('═'.repeat(60));
+          console.log('🔄 SCAN THIS QR CODE WITH YOUR WHATSAPP');
+          console.log('═'.repeat(60));
+          qrcode.generate(qr, { small: false });
+          console.log('═'.repeat(60));
+          console.log('1. Open WhatsApp on your phone');
+          console.log('2. Tap Menu → Linked Devices → Link a Device');
+          console.log('3. Scan the QR code above');
+          console.log('═'.repeat(60));
+          console.log('\n');
+        }
+
+        if (connection === 'open') {
+          console.log('✅ Fresh connection opened successfully');
+          isConnected = true;
+          reconnectAttempts = 0;
+          this.isConnecting = false;
+          groupManager.startGroupDiscovery(sock);
+          this.notifyAdmins();
+        }
+      });
+
+    } catch (error) {
+      console.error('Error initializing fresh auth:', error);
+      this.reconnect();
+    }
+  }
+
+  async notifyAdmins() {
+    for (const admin of CONSTANT_ADMINS) {
+      try {
+        await sock.sendMessage(admin, { 
+          text: '🤖 Bot is now connected and ready to receive commands!' 
+        });
+        console.log(`✅ Notified admin: ${admin}`);
+      } catch (error) {
+        console.error(`Failed to notify admin ${admin}:`, error);
+      }
+    }
+  }
+
+  reconnect() {
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.log('Max reconnection attempts reached');
+      return;
+    }
+
+    reconnectAttempts++;
+    console.log(`Attempting to reconnect... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.connect();
+    }, RECONNECT_INTERVAL);
+  }
+
+  disconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+    
+    if (groupManager.stopGroupDiscovery) {
+      groupManager.stopGroupDiscovery();
+    }
+    
+    cleanupTempFiles();
+    
+    if (sock) {
+      sock.ws.close();
+      sock = null;
+    }
+    isConnected = false;
+    this.isConnecting = false;
+    console.log('✅ Disconnected successfully');
+  }
+
+  getStatus() {
+    return {
+      isConnected,
+      isConnecting: this.isConnecting,
+      reconnectAttempts,
+      hasQR: this.qrCodeGenerated
+    };
+  }
+}
+
+// Initialize connection manager
+const connectionManager = new ConnectionManager();
+
+// Express server setup
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  const status = connectionManager.getStatus();
+  res.json({ 
+    status: 'OK', 
+    message: 'WhatsApp Bot is running', 
+    ...status,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  const status = connectionManager.getStatus();
+  if (status.isConnected) {
+    res.json({ status: 'OK', connected: true });
+  } else {
+    res.status(503).json({ status: 'OFFLINE', connected: false });
+  }
+});
+
+app.get('/status', (req, res) => {
+  const status = connectionManager.getStatus();
+  res.json(status);
+});
+
+app.post('/restart', (req, res) => {
+  console.log('🔄 Manual restart requested via API');
+  connectionManager.disconnect();
+  setTimeout(() => {
+    connectionManager.connect();
+    res.json({ status: 'restarting', message: 'Bot is restarting...' });
+  }, 2000);
+});
+
+app.post('/disconnect', (req, res) => {
+  console.log('🛑 Manual disconnect requested via API');
+  connectionManager.disconnect();
+  res.json({ status: 'disconnected', message: 'Bot has been disconnected' });
+});
+
+// Start function
 async function startBot() {
   try {
     console.log('🚀 Starting WhatsApp Bot...');
@@ -442,176 +517,23 @@ async function startBot() {
     console.log('🗄️ Initializing database...');
     await initializeDatabase();
 
-    console.log('🔐 Loading authentication state...');
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-
-    console.log('📡 Fetching latest WhatsApp version...');
-    const { version } = await fetchLatestBaileysVersion();
-    console.log(`✅ Using WhatsApp version: ${version}`);
-
-    sock = makeWASocket({
-      version,
-      logger: createSimpleLogger(),
-      printQRInTerminal: false,
-      auth: state,
-      browser: Browsers.ubuntu('Chrome'),
-      generateHighQualityLinkPreview: true,
-      markOnlineOnConnect: true,
-      syncFullHistory: false,
-      defaultQueryTimeoutMs: 0,
-    });
-
-    // Setup event handlers
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr, isNewLogin, pairingCode } = update;
-
-      console.log(`🔗 Connection update: ${connection}`);
-
-      if (qr) {
-        console.log('🎯 QR Code received, displaying pairing information...');
-        displayPairingInfo(qr, pairingCode);
-      }
-
-      if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-        console.log(`🔌 Connection closed: ${lastDisconnect.error?.message || 'Unknown reason'}`);
-        console.log(`🔄 Should reconnect: ${shouldReconnect}`);
-
-        if (shouldReconnect) {
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            console.log(`🔄 Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
-            setTimeout(() => startBot(), RECONNECT_INTERVAL);
-          } else {
-            console.log('❌ Max reconnection attempts reached. Please restart the bot.');
-          }
-        } else {
-          console.log('❌ Connection closed permanently. Please re-pair the device.');
-          await clearAuthFiles();
-        }
-        isConnected = false;
-      } else if (connection === 'open') {
-        console.log('✅ Connected to WhatsApp successfully!');
-        isConnected = true;
-        reconnectAttempts = 0;
-        qrCodeData = null;
-        qrCodeGeneratedAt = null;
-
-        // Notify admins
-        for (const admin of CONSTANT_ADMINS) {
-          try {
-            await sock.sendMessage(admin, { 
-              text: '🤖 Bot is now connected and ready to receive commands!' 
-            });
-          } catch (error) {
-            console.error(`Failed to notify admin ${admin}:`, error);
-          }
-        }
-
-        groupManager.startAllSchedulers();
-      } else if (connection === 'connecting') {
-        console.log('🔄 Connecting to WhatsApp...');
-      }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('messages.upsert', async (m) => {
-      if (m.type === 'notify') {
-        for (const message of m.messages) {
-          await processMessage(sock, message);
-        }
-      }
-    });
+    console.log('🔗 Starting connection manager...');
+    await connectionManager.connect();
 
   } catch (error) {
     console.error('❌ Error starting bot:', error);
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      reconnectAttempts++;
-      console.log(`🔄 Restarting bot... Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
-      setTimeout(() => startBot(), RECONNECT_INTERVAL);
-    } else {
-      console.log('❌ Max restart attempts reached. Please check your configuration.');
-    }
+    setTimeout(() => startBot(), RECONNECT_INTERVAL);
   }
 }
-
-// Express server setup
-const app = express();
-const port = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'WhatsApp Bot is running', 
-    connected: isConnected,
-    timestamp: new Date().toISOString(),
-    hasQR: !!qrCodeData,
-    qrExpired: qrCodeData && (Date.now() - qrCodeGeneratedAt) > QR_CODE_EXPIRY
-  });
-});
-
-app.get('/health', (req, res) => {
-  if (isConnected) {
-    res.json({ status: 'OK', connected: true });
-  } else {
-    res.status(503).json({ status: 'OFFLINE', connected: false });
-  }
-});
-
-app.get('/qr', (req, res) => {
-  if (!qrCodeData) {
-    return res.status(404).json({ 
-      error: 'No QR code available', 
-      message: isConnected ? 'Bot is already connected' : 'Waiting for QR code generation' 
-    });
-  }
-
-  if (Date.now() - qrCodeGeneratedAt > QR_CODE_EXPIRY) {
-    return res.status(410).json({ 
-      error: 'QR code expired', 
-      message: 'The QR code has expired. Please wait for a new one to be generated.' 
-    });
-  }
-
-  res.json({
-    qr: qrCodeData,
-    generatedAt: qrCodeGeneratedAt,
-    expiresAt: qrCodeGeneratedAt + QR_CODE_EXPIRY,
-    timeRemaining: Math.max(0, QR_CODE_EXPIRY - (Date.now() - qrCodeGeneratedAt)),
-    instructions: [
-      'Copy the QR code data',
-      'Visit: https://qrcode-generator.com/',
-      'Select "Text" option and paste the data',
-      'Generate QR code and scan with WhatsApp'
-    ]
-  });
-});
-
-app.get('/status', (req, res) => {
-  res.json({ 
-    status: isConnected ? 'CONNECTED' : 'DISCONNECTED', 
-    reconnectAttempts: reconnectAttempts, 
-    uptime: process.uptime()
-  });
-});
-
-app.get('/ascii-qr', (req, res) => {
-  if (!qrCodeData) {
-    return res.status(404).json({ error: 'No QR code available' });
-  }
-
-  const asciiQR = generateASCIIQR(qrCodeData);
-  res.set('Content-Type', 'text/plain');
-  res.send(asciiQR.join('\n'));
-});
 
 // Start the server and bot
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check: http://0.0.0.0:${port}/health`);
-  console.log(`📱 QR endpoint: http://0.0.0.0:${port}/qr`);
-  console.log(`🎨 ASCII QR endpoint: http://0.0.0.0:${port}/ascii-qr`);
+  console.log(`📊 Status endpoint: http://0.0.0.0:${port}/status`);
+  console.log(`🔄 Restart endpoint: http://0.0.0.0:${port}/restart (POST)`);
+  console.log(`🛑 Disconnect endpoint: http://0.0.0.0:${port}/disconnect (POST)`);
+  
   startBot();
 });
 
@@ -622,12 +544,25 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Received SIGTERM, shutting down...');
+  connectionManager.disconnect();
+  process.exit(0);
+});
+
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
+  connectionManager.reconnect();
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-module.exports = { startBot, connectionManager, app, generateASCIIQR, displayPairingInfo };
+module.exports = { 
+  startBot, 
+  connectionManager, 
+  app,
+  isAdmin,
+  hasActiveSubscription
+};
