@@ -1,316 +1,270 @@
+const fs = require('fs').promises;
+const path = require('path');
 const { Pool } = require('pg');
 
-class DatingManager {
-  constructor(pool) {
-    this.pool = pool;
-  }
-
-  async handleDatingCommand(sock, message, args, sender) {
-    const command = args[0]?.toLowerCase() || 'help';
-    
-    switch (command) {
-      case 'create':
-        await this.createProfile(sock, message, args.slice(1), sender);
-        break;
-      case 'view':
-        await this.viewProfile(sock, sender);
-        break;
-      case 'edit':
-        await this.editProfile(sock, message, args.slice(1), sender);
-        break;
-      case 'search':
-        await this.searchProfiles(sock, sender, args.slice(1));
-        break;
-      case 'matches':
-        await this.viewMatches(sock, sender);
-        break;
-      case 'message':
-        await this.sendMessage(sock, message, args.slice(1), sender);
-        break;
-      case 'inbox':
-        await this.viewInbox(sock, sender);
-        break;
-      case 'help':
-      default:
-        await this.showHelp(sock, sender);
-        break;
-    }
-  }
-
-  async createProfile(sock, message, args, sender) {
-    try {
-      // Check if profile already exists
-      const existingProfile = await this.pool.query(
-        'SELECT * FROM dating_profiles WHERE phone_number = $1',
-        [sender]
-      );
-
-      if (existingProfile.rows.length > 0) {
-        await sock.sendMessage(sender, {
-          text: '❌ You already have a dating profile. Use .dating edit to update it.'
+class DataMigrator {
+    constructor() {
+        this.oldDataPath = path.join(__dirname, 'old_data');
+        this.newDataPath = path.join(__dirname, 'data');
+        this.pool = new Pool({
+            connectionString: process.env.DATABASE_URL || 'postgresql://username:password@localhost:5432/dating_bot',
+            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
         });
-        return;
-      }
-
-      // Parse profile information from message
-      const text = message.message.conversation || message.message.extendedTextMessage.text;
-      const profileData = this.parseProfileData(text);
-
-      // Insert into database
-      await this.pool.query(
-        `INSERT INTO dating_profiles 
-         (phone_number, name, age, gender, location, bio, interests) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sender, profileData.name, profileData.age, profileData.gender, 
-         profileData.location, profileData.bio, profileData.interests]
-      );
-
-      await sock.sendMessage(sender, {
-        text: '✅ Dating profile created successfully! Use .dating view to see your profile.'
-      });
-
-    } catch (error) {
-      console.error('Error creating dating profile:', error);
-      await sock.sendMessage(sender, {
-        text: '❌ Error creating dating profile. Please try again.'
-      });
+        
+        // Track migration statistics
+        this.stats = {
+            users: { migrated: 0, skipped: 0 },
+            subscriptions: { migrated: 0 },
+            payments: { migrated: 0 },
+            matches: { migrated: 0, skipped: 0 }
+        };
     }
-  }
 
-  async viewProfile(sock, sender) {
-    try {
-      const result = await this.pool.query(
-        'SELECT * FROM dating_profiles WHERE phone_number = $1',
-        [sender]
-      );
-
-      if (result.rows.length === 0) {
-        await sock.sendMessage(sender, {
-          text: '❌ No dating profile found. Use .dating create to create one.'
-        });
-        return;
-      }
-
-      const profile = result.rows[0];
-      const profileText = this.formatProfile(profile);
-
-      await sock.sendMessage(sender, { text: profileText });
-
-    } catch (error) {
-      console.error('Error viewing dating profile:', error);
-      await sock.sendMessage(sender, {
-        text: '❌ Error retrieving dating profile.'
-      });
-    }
-  }
-
-  async searchProfiles(sock, sender, filters) {
-    try {
-      // Build search query based on filters
-      let query = `
-        SELECT * FROM dating_profiles 
-        WHERE phone_number != $1 AND is_active = TRUE
-      `;
-      const queryParams = [sender];
-
-      // Add filters if provided
-      if (filters.length > 0) {
-        const filterConditions = [];
-        filters.forEach((filter, index) => {
-          const [field, value] = filter.split(':');
-          if (field && value) {
-            filterConditions.push(`${field} ILIKE $${index + 2}`);
-            queryParams.push(`%${value}%`);
-          }
-        });
-
-        if (filterConditions.length > 0) {
-          query += ` AND (${filterConditions.join(' OR ')})`;
+    async migrateAll() {
+        try {
+            console.log('🚀 Starting data migration...');
+            
+            // Test database connection first
+            await this.testConnection();
+            
+            await this.ensureDirectories();
+            await this.migrateUsers();
+            await this.migrateSubscriptions();
+            await this.migratePayments();
+            await this.migrateDatingData();
+            
+            console.log('✅ Data migration completed successfully!');
+            console.log('📊 Migration Statistics:');
+            console.log(`   Users: ${this.stats.users.migrated} migrated, ${this.stats.users.skipped} skipped`);
+            console.log(`   Subscriptions: ${this.stats.subscriptions.migrated} migrated`);
+            console.log(`   Payments: ${this.stats.payments.migrated} migrated`);
+            console.log(`   Matches: ${this.stats.matches.migrated} migrated, ${this.stats.matches.skipped} skipped`);
+        } catch (error) {
+            console.error('❌ Data migration failed:', error);
+            throw error;
+        } finally {
+            await this.pool.end();
         }
-      }
-
-      query += ' ORDER BY RANDOM() LIMIT 10';
-
-      const result = await this.pool.query(query, queryParams);
-
-      if (result.rows.length === 0) {
-        await sock.sendMessage(sender, {
-          text: '❌ No profiles found matching your criteria.'
-        });
-        return;
-      }
-
-      let response = '👥 Dating Profiles Found:\n\n';
-      result.rows.forEach((profile, index) => {
-        response += `${index + 1}. ${profile.name} (${profile.age})\n`;
-        response += `   📍 ${profile.location}\n`;
-        response += `   💬 ${profile.bio?.substring(0, 50)}...\n`;
-        response += `   👉 Use .dating message ${index + 1} to message them\n\n`;
-      });
-
-      // Store search results for messaging
-      this.lastSearchResults = result.rows;
-
-      await sock.sendMessage(sender, { text: response });
-
-    } catch (error) {
-      console.error('Error searching dating profiles:', error);
-      await sock.sendMessage(sender, {
-        text: '❌ Error searching dating profiles.'
-      });
     }
-  }
 
-  async sendMessage(sock, message, args, sender) {
-    try {
-      if (args.length < 2) {
-        await sock.sendMessage(sender, {
-          text: 'Usage: .dating message [profile_number] [your_message]'
-        });
-        return;
-      }
-
-      const profileIndex = parseInt(args[0]) - 1;
-      const messageText = args.slice(1).join(' ');
-
-      if (!this.lastSearchResults || !this.lastSearchResults[profileIndex]) {
-        await sock.sendMessage(sender, {
-          text: '❌ Invalid profile number. Please search again.'
-        });
-        return;
-      }
-
-      const receiver = this.lastSearchResults[profileIndex].phone_number;
-
-      // Save message to database
-      await this.pool.query(
-        'INSERT INTO dating_messages (sender_phone, receiver_phone, message) VALUES ($1, $2, $3)',
-        [sender, receiver, messageText]
-      );
-
-      await sock.sendMessage(sender, {
-        text: '✅ Message sent successfully!'
-      });
-
-      // Notify receiver if they're online
-      try {
-        await sock.sendMessage(receiver, {
-          text: `💌 You have a new dating message! Use .dating inbox to view it.`
-        });
-      } catch (error) {
-        console.log('Could not notify receiver:', error.message);
-      }
-
-    } catch (error) {
-      console.error('Error sending dating message:', error);
-      await sock.sendMessage(sender, {
-        text: '❌ Error sending message.'
-      });
+    async testConnection() {
+        try {
+            await this.pool.query('SELECT NOW()');
+            console.log('✅ Database connection established');
+        } catch (error) {
+            console.error('❌ Database connection failed');
+            throw error;
+        }
     }
-  }
 
-  async viewInbox(sock, sender) {
-    try {
-      const result = await this.pool.query(
-        `SELECT m.*, p.name as sender_name 
-         FROM dating_messages m 
-         JOIN dating_profiles p ON m.sender_phone = p.phone_number 
-         WHERE m.receiver_phone = $1 
-         ORDER BY m.timestamp DESC 
-         LIMIT 10`,
-        [sender]
-      );
-
-      if (result.rows.length === 0) {
-        await sock.sendMessage(sender, {
-          text: '📭 Your dating inbox is empty.'
-        });
-        return;
-      }
-
-      let inboxText = '📬 Dating Inbox:\n\n';
-      result.rows.forEach((message, index) => {
-        inboxText += `From: ${message.sender_name}\n`;
-        inboxText += `Time: ${new Date(message.timestamp).toLocaleString()}\n`;
-        inboxText += `Message: ${message.message}\n`;
-        inboxText += '─'.repeat(30) + '\n\n';
-      });
-
-      await sock.sendMessage(sender, { text: inboxText });
-
-      // Mark messages as read
-      await this.pool.query(
-        'UPDATE dating_messages SET is_read = TRUE WHERE receiver_phone = $1',
-        [sender]
-      );
-
-    } catch (error) {
-      console.error('Error viewing dating inbox:', error);
-      await sock.sendMessage(sender, {
-        text: '❌ Error retrieving messages.'
-      });
+    async ensureDirectories() {
+        const directories = [this.oldDataPath, this.newDataPath];
+        for (const dir of directories) {
+            try {
+                await fs.mkdir(dir, { recursive: true });
+                console.log(`✅ Directory ensured: ${dir}`);
+            } catch (error) {
+                if (error.code !== 'EEXIST') {
+                    console.warn(`⚠️ Could not create directory ${dir}:`, error.message);
+                }
+            }
+        }
     }
-  }
 
-  parseProfileData(text) {
-    // Simple parsing logic - in real implementation, you'd use a more robust method
-    const lines = text.split('\n');
-    const data = {
-      name: '',
-      age: null,
-      gender: '',
-      location: '',
-      bio: '',
-      interests: []
-    };
+    async migrateUsers() {
+        try {
+            const oldUsersPath = path.join(this.oldDataPath, 'users.json');
+            if (!await this.fileExists(oldUsersPath)) {
+                console.log('ℹ️ No users.json file found to migrate');
+                return;
+            }
 
-    lines.forEach(line => {
-      if (line.toLowerCase().includes('name:')) data.name = line.split(':')[1]?.trim();
-      if (line.toLowerCase().includes('age:')) data.age = parseInt(line.split(':')[1]?.trim());
-      if (line.toLowerCase().includes('gender:')) data.gender = line.split(':')[1]?.trim();
-      if (line.toLowerCase().includes('location:')) data.location = line.split(':')[1]?.trim();
-      if (line.toLowerCase().includes('bio:')) data.bio = line.split(':')[1]?.trim();
-      if (line.toLowerCase().includes('interests:')) {
-        data.interests = line.split(':')[1]?.split(',').map(i => i.trim()).filter(i => i);
-      }
-    });
+            const oldUsers = JSON.parse(await fs.readFile(oldUsersPath, 'utf8'));
+            console.log(`📊 Found ${Object.keys(oldUsers).length} users to migrate`);
 
-    return data;
-  }
+            for (const [phone, userData] of Object.entries(oldUsers)) {
+                try {
+                    const result = await this.pool.query(`
+                        INSERT INTO dating_profiles (phone_number, name, age, gender, location, bio, interests)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        ON CONFLICT (phone_number) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            age = EXCLUDED.age,
+                            gender = EXCLUDED.gender,
+                            location = EXCLUDED.location,
+                            bio = EXCLUDED.bio,
+                            interests = EXCLUDED.interests,
+                            updated_at = CURRENT_TIMESTAMP
+                        RETURNING phone_number
+                    `, [
+                        phone,
+                        userData.username,
+                        userData.profile?.age || null,
+                        userData.profile?.gender || null,
+                        userData.profile?.location || null,
+                        userData.profile?.bio || null,
+                        JSON.stringify(userData.profile?.interests || []) // Ensure proper JSON format
+                    ]);
+                    
+                    if (result.rowCount > 0) {
+                        this.stats.users.migrated++;
+                    } else {
+                        this.stats.users.skipped++;
+                    }
+                } catch (error) {
+                    console.error(`❌ Error migrating user ${phone}:`, error.message);
+                    this.stats.users.skipped++;
+                }
+            }
+            
+            console.log('✅ Users migration completed');
+        } catch (error) {
+            console.error('❌ Error in users migration:', error);
+            throw error;
+        }
+    }
 
-  formatProfile(profile) {
-    return `
-👤 Dating Profile:
-───────────────
-📛 Name: ${profile.name || 'Not set'}
-🎂 Age: ${profile.age || 'Not set'}
-🚻 Gender: ${profile.gender || 'Not set'}
-📍 Location: ${profile.location || 'Not set'}
-💬 Bio: ${profile.bio || 'Not set'}
-🎯 Interests: ${profile.interests?.join(', ') || 'Not set'}
-───────────────
-Use .dating edit to update your profile
-    `.trim();
-  }
+    async migrateSubscriptions() {
+        try {
+            const oldSubsPath = path.join(this.oldDataPath, 'subscriptions.json');
+            if (!await this.fileExists(oldSubsPath)) {
+                console.log('ℹ️ No subscriptions.json file found to migrate');
+                return;
+            }
 
-  async showHelp(sock, sender) {
-    const helpText = `
-💕 Dating Commands:
-─────────────────
-.dating create - Create your dating profile
-.dating view - View your dating profile
-.dating edit - Edit your dating profile
-.dating search - Search for other profiles
-.dating matches - View your matches
-.dating message [number] [msg] - Send a message
-.dating inbox - View your messages
-.dating help - Show this help
-─────────────────
-💡 Tips: Be honest in your profile and respectful in messages!
-    `.trim();
+            const oldSubs = JSON.parse(await fs.readFile(oldSubsPath, 'utf8'));
+            await fs.writeFile(
+                path.join(this.newDataPath, 'subscriptions.json'), 
+                JSON.stringify(oldSubs, null, 2)
+            );
+            
+            this.stats.subscriptions.migrated = Object.keys(oldSubs).length;
+            console.log('✅ Subscriptions migrated to file');
+        } catch (error) {
+            console.error('❌ Error migrating subscriptions:', error);
+            throw error;
+        }
+    }
 
-    await sock.sendMessage(sender, { text: helpText });
-  }
+    async migratePayments() {
+        try {
+            const oldPaymentsPath = path.join(this.oldDataPath, 'payments.json');
+            if (!await this.fileExists(oldPaymentsPath)) {
+                console.log('ℹ️ No payments.json file found to migrate');
+                return;
+            }
+
+            const oldPayments = JSON.parse(await fs.readFile(oldPaymentsPath, 'utf8'));
+            await fs.writeFile(
+                path.join(this.newDataPath, 'payments.json'), 
+                JSON.stringify(oldPayments, null, 2)
+            );
+            
+            this.stats.payments.migrated = Object.keys(oldPayments).length;
+            console.log('✅ Payments migrated to file');
+        } catch (error) {
+            console.error('❌ Error migrating payments:', error);
+            throw error;
+        }
+    }
+
+    async migrateDatingData() {
+        try {
+            const oldDatingPath = path.join(this.oldDataPath, 'dating.json');
+            if (!await this.fileExists(oldDatingPath)) {
+                console.log('ℹ️ No dating.json file found to migrate');
+                return;
+            }
+
+            const oldDating = JSON.parse(await fs.readFile(oldDatingPath, 'utf8'));
+            
+            // Process matches in batches for better performance
+            const batchSize = 100;
+            let matchesBatch = [];
+            
+            for (const [phone, userData] of Object.entries(oldDating)) {
+                if (userData.matches && Array.isArray(userData.matches)) {
+                    for (const match of userData.matches) {
+                        matchesBatch.push([phone, match, 80, 'matched']);
+                        
+                        if (matchesBatch.length >= batchSize) {
+                            await this.processMatchesBatch(matchesBatch);
+                            matchesBatch = [];
+                        }
+                    }
+                }
+            }
+            
+            // Process any remaining matches
+            if (matchesBatch.length > 0) {
+                await this.processMatchesBatch(matchesBatch);
+            }
+            
+            console.log('✅ Dating data migrated to database');
+        } catch (error) {
+            console.error('❌ Error migrating dating data:', error);
+            throw error;
+        }
+    }
+
+    async processMatchesBatch(matchesBatch) {
+        if (matchesBatch.length === 0) return;
+        
+        try {
+            // Use a transaction for batch insert
+            const client = await this.pool.connect();
+            
+            try {
+                await client.query('BEGIN');
+                
+                for (const match of matchesBatch) {
+                    const result = await client.query(`
+                        INSERT INTO dating_matches (user1_phone, user2_phone, match_score, status)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (user1_phone, user2_phone) DO NOTHING
+                        RETURNING user1_phone
+                    `, match);
+                    
+                    if (result.rowCount > 0) {
+                        this.stats.matches.migrated++;
+                    } else {
+                        this.stats.matches.skipped++;
+                    }
+                }
+                
+                await client.query('COMMIT');
+            } catch (error) {
+                await client.query('ROLLBACK');
+                throw error;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error('❌ Error processing matches batch:', error.message);
+            // Continue with migration but skip this batch
+            this.stats.matches.skipped += matchesBatch.length;
+        }
+    }
+
+    async fileExists(filePath) {
+        try {
+            await fs.access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
 }
 
-module.exports = DatingManager;
+// Run if called directly
+if (require.main === module) {
+    const migrator = new DataMigrator();
+    migrator.migrateAll()
+        .then(() => process.exit(0))
+        .catch(error => {
+            console.error('Migration failed:', error);
+            process.exit(1);
+        });
+}
+
+module.exports = DataMigrator;
