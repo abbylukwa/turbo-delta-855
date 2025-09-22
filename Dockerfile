@@ -1,8 +1,9 @@
-FROM node:16-bullseye-slim
+
+FROM node:18-bullseye-slim
 
 WORKDIR /app
 
-# Install system dependencies including Python and build tools
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y \
     build-essential \
@@ -21,23 +22,23 @@ RUN apt-get update && \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --only=production && \
-    npm install web-streams-polyfill
+# Install with more permissive flags
+RUN npm config set legacy-peer-deps true && \
+    npm install --production --no-optional
+
+# Install web-streams-polyfill
+RUN npm install web-streams-polyfill
 
 # Copy application code
 COPY . .
 
-# Create necessary directories
+# Create directories
 RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions
 
-# Create a non-root user
-RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot
+# Create non-root user
+RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot && \
+    chown -R whatsappbot:nodejs /app
 
-# Change ownership
-RUN chown -R whatsappbot:nodejs /app
-
-# Switch to non-root user
 USER whatsappbot
 
 EXPOSE 3000
