@@ -101,6 +101,11 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000;
 
+// QR code state management
+let qrCodeData = null;
+let qrCodeGeneratedAt = null;
+const QR_CODE_EXPIRY = 120000; // 2 minutes
+
 // Simple logger implementation
 const createSimpleLogger = () => {
   return {
@@ -180,6 +185,10 @@ const connectionManager = new ConnectionManager();
 
 // Function to display pairing information
 function displayPairingInfo(qr, pairingCode) {
+  // Store QR code data for API access
+  qrCodeData = qr;
+  qrCodeGeneratedAt = Date.now();
+  
   console.log('\n'.repeat(5));
   console.log('═'.repeat(60));
   console.log('🤖 WHATSAPP BOT PAIRING INFORMATION');
@@ -188,6 +197,9 @@ function displayPairingInfo(qr, pairingCode) {
   if (qr) {
     console.log('📱 Scan the QR code below:');
     qrcode.generate(qr, { small: true });
+    
+    // Also log the QR code as text for easier debugging
+    console.log(`QR Code Data: ${qr.substring(0, 50)}...`);
   }
 
   if (pairingCode) {
@@ -196,6 +208,8 @@ function displayPairingInfo(qr, pairingCode) {
 
   console.log('═'.repeat(60));
   console.log('💡 Tip: Use WhatsApp Linked Devices feature to pair');
+  console.log('🌐 You can also scan the QR code from:');
+  console.log(`   http://0.0.0.0:${process.env.PORT || 3000}/qr`);
   console.log('═'.repeat(60));
 }
 
@@ -390,6 +404,9 @@ async function startBot() {
         console.log('✅ Connected to WhatsApp');
         isConnected = true;
         reconnectAttempts = 0;
+        // Clear QR code data after successful connection
+        qrCodeData = null;
+        qrCodeGeneratedAt = null;
 
         // Send connection success message to constant admins
         for (const admin of CONSTANT_ADMINS) {
@@ -438,7 +455,9 @@ app.get('/', (req, res) => {
     status: 'OK', 
     message: 'WhatsApp Bot is running', 
     connected: isConnected, 
-    timestamp: new Date().toISOString() 
+    timestamp: new Date().toISOString(),
+    hasQR: !!qrCodeData,
+    qrExpired: qrCodeData && (Date.now() - qrCodeGeneratedAt) > QR_CODE_EXPIRY
   });
 });
 
@@ -451,6 +470,117 @@ app.get('/health', (req, res) => {
   }
 });
 
+// QR code endpoint
+app.get('/qr', (req, res) => {
+  if (!qrCodeData) {
+    return res.status(404).json({ 
+      error: 'No QR code available', 
+      message: isConnected ? 'Bot is already connected' : 'Waiting for QR code generation' 
+    });
+  }
+  
+  // Check if QR code is expired
+  if (Date.now() - qrCodeGeneratedAt > QR_CODE_EXPIRY) {
+    return res.status(410).json({ 
+      error: 'QR code expired', 
+      message: 'The QR code has expired. Please wait for a new one to be generated.' 
+    });
+  }
+  
+  // Generate HTML page with QR code
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>WhatsApp Bot QR Code</title>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          text-align: center;
+          padding: 20px;
+          background-color: #f0f0f0;
+        }
+        .container {
+          max-width: 500px;
+          margin: 0 auto;
+          background: white;
+          padding: 20px;
+          border-radius: 10px;
+          box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+          color: #25D366;
+        }
+        pre {
+          margin: 20px 0;
+          padding: 10px;
+          background: #f8f8f8;
+          border-radius: 5px;
+          overflow-x: auto;
+        }
+        .instructions {
+          text-align: left;
+          margin: 20px 0;
+          padding: 15px;
+          background: #e8f5e9;
+          border-radius: 5px;
+        }
+        .expiry {
+          color: #f44336;
+          font-weight: bold;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🤖 WhatsApp Bot QR Code</h1>
+        <p>Scan this QR code with WhatsApp to connect your bot</p>
+        
+        <pre>${qrcode.generate(qrCodeData, { small: true })}</pre>
+        
+        <div class="instructions">
+          <h3>Instructions:</h3>
+          <ol>
+            <li>Open WhatsApp on your phone</li>
+            <li>Tap Menu or Settings and select "Linked Devices"</li>
+            <li>Tap on "Link a Device"</li>
+            <li>Point your phone at this screen to scan the QR code</li>
+          </ol>
+        </div>
+        
+        <p class="expiry">⚠️ This QR code will expire in 2 minutes</p>
+        <p>Generated at: ${new Date(qrCodeGeneratedAt).toLocaleString()}</p>
+        
+        <p><a href="/">Back to status page</a></p>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  res.send(html);
+});
+
+// Raw QR code data endpoint (for programmatic access)
+app.get('/qr-data', (req, res) => {
+  if (!qrCodeData) {
+    return res.status(404).json({ error: 'No QR code available' });
+  }
+  
+  // Check if QR code is expired
+  if (Date.now() - qrCodeGeneratedAt > QR_CODE_EXPIRY) {
+    return res.status(410).json({ error: 'QR code expired' });
+  }
+  
+  res.json({
+    qr: qrCodeData,
+    generatedAt: qrCodeGeneratedAt,
+    expiresAt: qrCodeGeneratedAt + QR_CODE_EXPIRY,
+    timeRemaining: Math.max(0, QR_CODE_EXPIRY - (Date.now() - qrCodeGeneratedAt))
+  });
+});
+
 // Bot status endpoint
 app.get('/status', (req, res) => {
   res.json({ 
@@ -460,7 +590,9 @@ app.get('/status', (req, res) => {
     memory: { 
       usage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + 'MB', 
       total: (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2) + 'MB' 
-    } 
+    },
+    qrCodeAvailable: !!qrCodeData,
+    qrCodeExpired: qrCodeData ? (Date.now() - qrCodeGeneratedAt) > QR_CODE_EXPIRY : null
   });
 });
 
@@ -468,6 +600,7 @@ app.get('/status', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 HTTP server listening on port ${port}`);
   console.log(`🌐 Health check available at http://0.0.0.0:${port}/health`);
+  console.log(`📱 QR code available at http://0.0.0.0:${port}/qr`);
   // Start the bot after the server is running
   startBot();
 });
