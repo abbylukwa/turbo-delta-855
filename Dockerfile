@@ -2,26 +2,26 @@ FROM node:16-bullseye-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Python and build tools
 RUN apt-get update && \
     apt-get install -y \
     build-essential \
+    python3 \
+    make \
+    g++ \
     libcairo2-dev \
     libpango1.0-dev \
     libjpeg-dev \
     libgif-dev \
     librsvg2-dev \
     git \
-    curl \
-    python3 \
-    make \
-    g++ && \
+    curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (all at once for better caching)
+# Install dependencies
 RUN npm install --only=production
 
 # Copy application code
@@ -39,12 +39,9 @@ RUN chown -R whatsappbot:nodejs /app
 # Switch to non-root user
 USER whatsappbot
 
-# Expose port
 EXPOSE 3000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
-# Start the application with polyfill
 CMD ["node", "polyfill.js"]
