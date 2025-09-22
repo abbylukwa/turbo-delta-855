@@ -7,7 +7,7 @@ class DataMigrator {
         this.oldDataPath = path.join(__dirname, 'old_data');
         this.newDataPath = path.join(__dirname, 'data');
         this.pool = new Pool({
-            connectionString: process.env.DATABASE_URL || 'postgresql://username:password@localhost:5432/dating_bot',
+            connectionString: process.env.DATABASE_URL || 'postgresql://database_3lb1_user:SG82maildcd1UeiIs0Gdndp8tMPRjOcI@dpg-d37c830gjchc73c5l15g-a/database_3lb1',
             ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
         });
     }
@@ -15,13 +15,13 @@ class DataMigrator {
     async migrateAll() {
         try {
             console.log('🚀 Starting data migration...');
-            
+
             await this.ensureDirectories();
             await this.migrateUsers();
             await this.migrateSubscriptions();
             await this.migratePayments();
             await this.migrateDatingData();
-            
+
             console.log('✅ Data migration completed successfully!');
         } catch (error) {
             console.error('❌ Data migration failed:', error);
@@ -45,7 +45,7 @@ class DataMigrator {
             const oldUsersPath = path.join(this.oldDataPath, 'users.json');
             if (await this.fileExists(oldUsersPath)) {
                 const oldUsers = JSON.parse(await fs.readFile(oldUsersPath, 'utf8'));
-                
+
                 for (const [phone, userData] of Object.entries(oldUsers)) {
                     await this.pool.query(`
                         INSERT INTO dating_profiles (phone_number, name, age, gender, location, bio, interests)
@@ -68,7 +68,7 @@ class DataMigrator {
                         userData.profile?.interests || []
                     ]);
                 }
-                
+
                 console.log('✅ Users migrated to database');
             }
         } catch (error) {
@@ -108,7 +108,7 @@ class DataMigrator {
             const oldDatingPath = path.join(this.oldDataPath, 'dating.json');
             if (await this.fileExists(oldDatingPath)) {
                 const oldDating = JSON.parse(await fs.readFile(oldDatingPath, 'utf8'));
-                
+
                 // Migrate matches
                 for (const [phone, userData] of Object.entries(oldDating)) {
                     if (userData.matches) {
@@ -121,7 +121,7 @@ class DataMigrator {
                         }
                     }
                 }
-                
+
                 console.log('✅ Dating data migrated to database');
             }
         } catch (error) {
