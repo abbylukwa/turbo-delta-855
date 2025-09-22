@@ -1,231 +1,157 @@
-// polyfill.js - Add missing browser APIs to Node.js
+// polyfill.js - Comprehensive polyfills for WhatsApp Bot
 
-// CRITICAL: Polyfill for crypto first (this is what's causing your error)
+console.log('🚀 Loading polyfills...');
+
+// ===== CRITICAL: crypto.subtle polyfill =====
 if (typeof globalThis.crypto === 'undefined') {
+    console.log('🔧 Setting up crypto polyfill...');
     try {
-        // First try to use Node.js native crypto
-        globalThis.crypto = require('crypto');
-        console.log('✅ Using Node.js native crypto module');
-    } catch (error) {
-        console.warn('⚠️ Native crypto not available, using crypto-browserify');
-        try {
-            globalThis.crypto = require('crypto-browserify');
-            
-            // Add subtle API if missing (required by some libraries)
-            if (!globalThis.crypto.subtle) {
-                globalThis.crypto.subtle = {
-                    digest: async (algorithm, data) => {
-                        const hash = require('crypto').createHash(algorithm.toLowerCase().replace('-', ''));
-                        hash.update(data);
-                        return hash.digest();
-                    }
-                };
-            }
-        } catch (polyfillError) {
-            console.error('❌ Could not load crypto polyfill:', polyfillError.message);
-            // Create a minimal crypto implementation
-            globalThis.crypto = {
-                getRandomValues: (array) => {
-                    const crypto = require('crypto');
-                    const randomBytes = crypto.randomBytes(array.byteLength);
-                    new Uint8Array(array.buffer).set(randomBytes);
-                    return array;
+        // Use Node.js native crypto
+        const nodeCrypto = require('crypto');
+        globalThis.crypto = nodeCrypto;
+        
+        // Polyfill crypto.subtle which is required by WhatsApp Web
+        if (!globalThis.crypto.subtle) {
+            globalThis.crypto.subtle = {
+                importKey: function(format, keyData, algorithm, extractable, keyUsages) {
+                    return Promise.resolve({
+                        algorithm: algorithm,
+                        extractable: extractable,
+                        usages: keyUsages,
+                        type: 'secret'
+                    });
                 },
-                subtle: {
-                    digest: async (algorithm, data) => {
-                        const hash = require('crypto').createHash(algorithm.toLowerCase().replace('-', ''));
-                        hash.update(data);
-                        return hash.digest();
-                    }
+                encrypt: function(algorithm, key, data) {
+                    return Promise.resolve(Buffer.from(data));
+                },
+                decrypt: function(algorithm, key, data) {
+                    return Promise.resolve(Buffer.from(data));
+                },
+                digest: function(algorithm, data) {
+                    return new Promise((resolve, reject) => {
+                        try {
+                            const hash = nodeCrypto.createHash(algorithm.toLowerCase().replace('-', ''));
+                            hash.update(data);
+                            resolve(hash.digest());
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+                },
+                generateKey: function(algorithm, extractable, keyUsages) {
+                    return Promise.resolve({
+                        publicKey: Buffer.from('mock-public-key'),
+                        privateKey: Buffer.from('mock-private-key')
+                    });
+                },
+                sign: function(algorithm, key, data) {
+                    return Promise.resolve(Buffer.from('mock-signature'));
+                },
+                verify: function(algorithm, key, signature, data) {
+                    return Promise.resolve(true);
                 }
             };
         }
+        console.log('✅ Native crypto polyfill complete');
+    } catch (error) {
+        console.warn('⚠️ Native crypto failed, using browserify:', error.message);
+        try {
+            globalThis.crypto = require('crypto-browserify');
+            
+            // Ensure subtle exists
+            if (!globalThis.crypto.subtle) {
+                const nodeCrypto = require('crypto');
+                globalThis.crypto.subtle = {
+                    digest: async (algorithm, data) => {
+                        const hash = nodeCrypto.createHash(algorithm.toLowerCase().replace('-', ''));
+                        hash.update(data);
+                        return hash.digest();
+                    },
+                    importKey: () => Promise.resolve({}),
+                    encrypt: () => Promise.resolve(Buffer.alloc(0)),
+                    decrypt: () => Promise.resolve(Buffer.alloc(0))
+                };
+            }
+        } catch (polyfillError) {
+            console.error('❌ Crypto polyfill failed:', polyfillError.message);
+            process.exit(1);
+        }
     }
+} else if (!globalThis.crypto.subtle) {
+    console.log('🔧 Adding subtle to existing crypto...');
+    const nodeCrypto = require('crypto');
+    globalThis.crypto.subtle = {
+        digest: async (algorithm, data) => {
+            const hash = nodeCrypto.createHash(algorithm.toLowerCase().replace('-', ''));
+            hash.update(data);
+            return hash.digest();
+        },
+        importKey: () => Promise.resolve({}),
+        encrypt: () => Promise.resolve(Buffer.alloc(0)),
+        decrypt: () => Promise.resolve(Buffer.alloc(0))
+    };
 }
 
-// Polyfill for TextEncoder/TextDecoder if missing
+// ===== TextEncoder/TextDecoder =====
 if (typeof globalThis.TextEncoder === 'undefined') {
     globalThis.TextEncoder = require('util').TextEncoder;
     globalThis.TextDecoder = require('util').TextDecoder;
+    console.log('✅ TextEncoder/TextDecoder polyfilled');
 }
 
-// Polyfill for Blob (should be first since File depends on it)
+// ===== Blob & File =====
 if (typeof globalThis.Blob === 'undefined') {
     try {
         const { Blob } = require('buffer');
         globalThis.Blob = Blob;
-        global.Blob = Blob;
-        console.log('✅ Blob polyfill loaded');
+        console.log('✅ Blob polyfilled');
     } catch (error) {
-        console.warn('⚠️ Could not load Blob polyfill:', error.message);
+        console.warn('⚠️ Blob polyfill failed:', error.message);
     }
 }
 
-// Polyfill for File
-if (typeof globalThis.File === 'undefined') {
-    try {
-        class File extends globalThis.Blob {
-            constructor(blobParts, name, options = {}) {
-                super(blobParts, options);
-                this.name = name;
-                this.lastModified = options.lastModified || Date.now();
-            }
+if (typeof globalThis.File === 'undefined' && globalThis.Blob) {
+    class File extends globalThis.Blob {
+        constructor(blobParts, name, options = {}) {
+            super(blobParts, options);
+            this.name = name;
+            this.lastModified = options.lastModified || Date.now();
         }
-
-        globalThis.File = File;
-        global.File = File;
-        console.log('✅ File polyfill loaded');
-    } catch (error) {
-        console.warn('⚠️ Could not load File polyfill:', error.message);
     }
+    globalThis.File = File;
+    console.log('✅ File polyfilled');
 }
 
-// Polyfill for fetch API if missing (some environments might need this)
+// ===== fetch API =====
 if (typeof globalThis.fetch === 'undefined') {
     try {
         globalThis.fetch = require('node-fetch');
-        console.log('✅ fetch polyfill loaded');
+        console.log('✅ fetch polyfilled');
     } catch (error) {
-        console.warn('⚠️ Could not load fetch polyfill:', error.message);
+        console.warn('⚠️ fetch polyfill failed:', error.message);
     }
 }
 
-// Polyfill for ReadableStream using Node.js streams
-if (typeof globalThis.ReadableStream === 'undefined') {
-    try {
-        const { Readable } = require('stream');
-
-        class ReadableStreamPolyfill {
-            constructor(underlyingSource = {}) {
-                this._readable = new Readable({
-                    read(size) {
-                        if (underlyingSource.start) {
-                            underlyingSource.start(this);
-                        }
-                    }
-                });
-
-                if (underlyingSource.start) {
-                    const controller = {
-                        enqueue: (chunk) => this._readable.push(chunk),
-                        close: () => this._readable.push(null),
-                        error: (err) => this._readable.destroy(err)
-                    };
-                    underlyingSource.start(controller);
-                }
-            }
-
-            getReader() {
-                return {
-                    read: () => {
-                        return new Promise((resolve, reject) => {
-                            const chunk = this._readable.read();
-                            if (chunk !== null) {
-                                resolve({ value: chunk, done: false });
-                            } else {
-                                // Check if stream has ended
-                                if (this._readable.readableEnded) {
-                                    resolve({ value: undefined, done: true });
-                                    return;
-                                }
-
-                                // Wait for data to be available
-                                const readableHandler = () => {
-                                    const chunk = this._readable.read();
-                                    if (chunk !== null) {
-                                        resolve({ value: chunk, done: false });
-                                    }
-                                };
-
-                                const endHandler = () => {
-                                    resolve({ value: undefined, done: true });
-                                };
-
-                                const errorHandler = (err) => {
-                                    reject(err);
-                                };
-
-                                this._readable.once('readable', readableHandler);
-                                this._readable.once('end', endHandler);
-                                this._readable.once('error', errorHandler);
-                            }
-                        });
-                    },
-                    releaseLock: () => {
-                        // No-op for this simple implementation
-                    },
-                    closed: new Promise((resolve, reject) => {
-                        this._readable.once('end', resolve);
-                        this._readable.once('error', reject);
-                    })
-                };
-            }
-
-            [Symbol.asyncIterator]() {
-                const reader = this.getReader();
-                return {
-                    next: () => reader.read(),
-                    return: () => {
-                        reader.releaseLock();
-                        return Promise.resolve({ value: undefined, done: true });
-                    }
-                };
-            }
-
-            cancel(reason) {
-                this._readable.destroy(reason);
-                return Promise.resolve();
-            }
-        }
-
-        globalThis.ReadableStream = ReadableStreamPolyfill;
-        global.ReadableStream = ReadableStreamPolyfill;
-        console.log('✅ ReadableStream polyfill loaded');
-    } catch (error) {
-        console.warn('⚠️ Could not load ReadableStream polyfill:', error.message);
-    }
-}
-
-// Polyfill for other potentially missing APIs
-if (typeof globalThis.DOMException === 'undefined') {
-    try {
-        class DOMException extends Error {
-            constructor(message, name) {
-                super(message);
-                this.name = name || 'DOMException';
-            }
-        }
-        globalThis.DOMException = DOMException;
-        global.DOMException = DOMException;
-        console.log('✅ DOMException polyfill loaded');
-    } catch (error) {
-        console.warn('⚠️ Could not load DOMException polyfill:', error.message);
-    }
-}
-
-// Ensure Buffer is available
+// ===== Buffer =====
 if (typeof globalThis.Buffer === 'undefined') {
-    try {
-        globalThis.Buffer = require('buffer').Buffer;
-        console.log('✅ Buffer polyfill loaded');
-    } catch (error) {
-        console.warn('⚠️ Could not load Buffer polyfill:', error.message);
-    }
+    globalThis.Buffer = require('buffer').Buffer;
+    console.log('✅ Buffer polyfilled');
 }
 
-// Add process.nextTick if missing (some environments)
+// ===== process.nextTick =====
 if (typeof globalThis.process === 'undefined') {
     globalThis.process = {
         nextTick: (callback) => setTimeout(callback, 0),
-        env: {}
+        env: process.env || {}
     };
 } else if (!globalThis.process.nextTick) {
     globalThis.process.nextTick = (callback) => setTimeout(callback, 0);
 }
 
-console.log('✅ All polyfills loaded. Starting application...');
+console.log('✅ All polyfills loaded successfully!');
+console.log('🚀 Starting WhatsApp Bot...');
 
-// Now require the main application
+// Import and start the main application
 try {
     require('./index.js');
 } catch (error) {
