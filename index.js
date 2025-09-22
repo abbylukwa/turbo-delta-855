@@ -260,6 +260,7 @@ class ConnectionManager {
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
+        printQRInTerminal: false, // We'll handle QR display ourselves
         auth: {
           creds: state.auth.creds,
           keys: state.auth.keys
@@ -271,24 +272,15 @@ class ConnectionManager {
 
       sock.ev.on('creds.update', saveCreds);
 
+      // Handle connection updates including QR code
       sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         console.log('Connection status:', connection);
 
-        if (qr && !this.qrCodeGenerated) {
-          this.qrCodeGenerated = true;
-          console.log('\n'.repeat(5));
-          console.log('═'.repeat(60));
-          console.log('🔄 SCAN THIS QR CODE WITH YOUR WHATSAPP');
-          console.log('═'.repeat(60));
-          qrcode.generate(qr, { small: false });
-          console.log('═'.repeat(60));
-          console.log('1. Open WhatsApp on your phone');
-          console.log('2. Tap Menu → Linked Devices → Link a Device');
-          console.log('3. Scan the QR code above');
-          console.log('═'.repeat(60));
-          console.log('\n');
+        // Handle QR code generation - FIXED: Proper QR code display
+        if (qr) {
+          this.displayQRCode(qr);
         }
 
         if (connection === 'close') {
@@ -311,6 +303,7 @@ class ConnectionManager {
         }
       });
 
+      // Handle incoming messages
       sock.ev.on('messages.upsert', async (m) => {
         if (m.type === 'notify') {
           for (const message of m.messages) {
@@ -323,6 +316,41 @@ class ConnectionManager {
       console.error('Connection error:', error);
       this.isConnecting = false;
       this.reconnect();
+    }
+  }
+
+  displayQRCode(qr) {
+    if (!this.qrCodeGenerated) {
+      this.qrCodeGenerated = true;
+      
+      // Clear console and display QR code prominently
+      console.log('\n'.repeat(10));
+      console.log('╔════════════════════════════════════════════════════════════════╗');
+      console.log('║                    WHATSAPP QR CODE REQUIRED                   ║');
+      console.log('╠════════════════════════════════════════════════════════════════╣');
+      console.log('║ SCAN THIS QR CODE WITH YOUR WHATSAPP TO CONNECT THE BOT:      ║');
+      console.log('║                                                                ║');
+      
+      // Generate QR code
+      qrcode.generate(qr, { 
+        small: false 
+      }, (qrcodeText) => {
+        const qrLines = qrcodeText.split('\n');
+        qrLines.forEach(line => {
+          console.log('║ ' + line.padEnd(70) + ' ║');
+        });
+      });
+      
+      console.log('║                                                                ║');
+      console.log('║ INSTRUCTIONS:                                                  ║');
+      console.log('║ 1. Open WhatsApp on your phone                                 ║');
+      console.log('║ 2. Tap Menu → Linked Devices → Link a Device                   ║');
+      console.log('║ 3. Point your camera at the QR code above                      ║');
+      console.log('║ 4. Wait for connection confirmation                            ║');
+      console.log('║                                                                ║');
+      console.log('║ The bot will automatically connect once you scan the QR code.  ║');
+      console.log('╚════════════════════════════════════════════════════════════════╝');
+      console.log('\n');
     }
   }
 
@@ -356,6 +384,7 @@ class ConnectionManager {
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
+        printQRInTerminal: false, // We handle QR display
         auth: {
           creds: state.auth.creds,
           keys: state.auth.keys
@@ -372,19 +401,9 @@ class ConnectionManager {
 
         console.log('Fresh connection status:', connection);
 
-        if (qr && !this.qrCodeGenerated) {
-          this.qrCodeGenerated = true;
-          console.log('\n'.repeat(5));
-          console.log('═'.repeat(60));
-          console.log('🔄 SCAN THIS QR CODE WITH YOUR WHATSAPP');
-          console.log('═'.repeat(60));
-          qrcode.generate(qr, { small: false });
-          console.log('═'.repeat(60));
-          console.log('1. Open WhatsApp on your phone');
-          console.log('2. Tap Menu → Linked Devices → Link a Device');
-          console.log('3. Scan the QR code above');
-          console.log('═'.repeat(60));
-          console.log('\n');
+        // Handle QR code display
+        if (qr) {
+          this.displayQRCode(qr);
         }
 
         if (connection === 'open') {
@@ -581,6 +600,7 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`📊 Status endpoint: http://0.0.0.0:${port}/status`);
   console.log(`🔄 Restart endpoint: http://0.0.0.0:${port}/restart (POST)`);
   console.log(`🛑 Disconnect endpoint: http://0.0.0.0:${port}/disconnect (POST)`);
+  console.log(`⏰ Starting bot in 3 seconds...`);
 
   setTimeout(() => {
     startBot();
