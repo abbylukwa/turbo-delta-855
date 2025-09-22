@@ -151,7 +151,7 @@ function cleanupTempFiles() {
       path.join(__dirname, 'temp'),
       path.join(__dirname, 'downloads', 'temp')
     ];
-    
+
     tempDirs.forEach(dir => {
       if (fs.existsSync(dir)) {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -250,13 +250,12 @@ class ConnectionManager {
 
     try {
       console.log('🔗 Initializing WhatsApp connection...');
-      
+
       const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-      
-      // Check if auth state is properly initialized
-      if (!state || !state.auth) {
-        console.log('🔄 Creating new authentication state...');
-        // If state is invalid, we need to handle it differently
+
+      // ✅ FIXED: Add proper null check for auth state
+      if (!state || !state.auth || !state.auth.creds) {
+        console.log('🔄 Auth state invalid, creating fresh authentication...');
         await this.initializeFreshAuth();
         return;
       }
@@ -277,13 +276,13 @@ class ConnectionManager {
       });
 
       sock.ev.on('creds.update', saveCreds);
-      
+
       // Handle connection updates including QR code
       sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
+
         console.log('Connection status:', connection);
-        
+
         // Handle QR code generation
         if (qr && !this.qrCodeGenerated) {
           this.qrCodeGenerated = true;
@@ -303,10 +302,10 @@ class ConnectionManager {
         if (connection === 'close') {
           const shouldReconnect = 
             lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-          
+
           console.log('Connection closed, reconnecting:', shouldReconnect);
           this.qrCodeGenerated = false; // Reset QR flag for reconnection
-          
+
           if (shouldReconnect) {
             this.reconnect();
           }
@@ -315,10 +314,10 @@ class ConnectionManager {
           isConnected = true;
           reconnectAttempts = 0;
           this.isConnecting = false;
-          
+
           // Start group discovery after connection is established
           groupManager.startGroupDiscovery(sock);
-          
+
           // Notify admins
           this.notifyAdmins();
         }
@@ -351,7 +350,20 @@ class ConnectionManager {
 
       // Create a fresh auth state
       const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-      
+
+      // ✅ FIXED: Add null check to prevent the "Cannot read properties of undefined" error
+      if (!state || !state.auth || !state.auth.creds) {
+        console.error('❌ Auth state is not properly initialized after fresh creation');
+        console.log('State object:', state);
+        console.log('Auth object:', state ? state.auth : 'undefined');
+        throw new Error('Failed to initialize authentication state - auth credentials missing');
+      }
+
+      console.log('✅ Fresh auth state initialized successfully:', {
+        hasCreds: !!state.auth.creds,
+        hasKeys: !!state.auth.keys
+      });
+
       const { version } = await fetchLatestBaileysVersion();
 
       sock = makeWASocket({
@@ -367,12 +379,12 @@ class ConnectionManager {
       });
 
       sock.ev.on('creds.update', saveCreds);
-      
+
       sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
-        
+
         console.log('Fresh connection status:', connection);
-        
+
         if (qr && !this.qrCodeGenerated) {
           this.qrCodeGenerated = true;
           console.log('\n'.repeat(5));
@@ -399,8 +411,11 @@ class ConnectionManager {
       });
 
     } catch (error) {
-      console.error('Error initializing fresh auth:', error);
-      this.reconnect();
+      console.error('❌ Error initializing fresh auth:', error);
+      // Add delay before reconnection to prevent rapid retry loops
+      setTimeout(() => {
+        this.reconnect();
+      }, 5000);
     }
   }
 
@@ -419,35 +434,39 @@ class ConnectionManager {
 
   reconnect() {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('Max reconnection attempts reached');
+      console.log('❌ Max reconnection attempts reached. Please restart the application.');
       return;
     }
 
     reconnectAttempts++;
-    console.log(`Attempting to reconnect... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+    const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000); // Max 5 minutes
+    
+    console.log(`🔄 Attempting to reconnect... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}) in ${delayTime/1000}s`);
 
     this.reconnectTimeout = setTimeout(() => {
+      this.isConnecting = false;
       this.connect();
-    }, RECONNECT_INTERVAL);
+    }, delayTime);
   }
 
   disconnect() {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
     }
-    
+
     if (groupManager.stopGroupDiscovery) {
       groupManager.stopGroupDiscovery();
     }
-    
+
     cleanupTempFiles();
-    
+
     if (sock) {
       sock.ws.close();
       sock = null;
     }
     isConnected = false;
     this.isConnecting = false;
+    this.qrCodeGenerated = false;
     console.log('✅ Disconnected successfully');
   }
 
@@ -456,7 +475,8 @@ class ConnectionManager {
       isConnected,
       isConnecting: this.isConnecting,
       reconnectAttempts,
-      hasQR: this.qrCodeGenerated
+      hasQR: this.qrCodeGenerated,
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS
     };
   }
 }
@@ -468,43 +488,84 @@ const connectionManager = new ConnectionManager();
 const app = express();
 const port = process.env.PORT || 3000;
 
+app.use(express.json());
+
 app.get('/', (req, res) => {
   const status = connectionManager.getStatus();
   res.json({ 
     status: 'OK', 
     message: 'WhatsApp Bot is running', 
     ...status,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
   });
 });
 
 app.get('/health', (req, res) => {
   const status = connectionManager.getStatus();
   if (status.isConnected) {
-    res.json({ status: 'OK', connected: true });
+    res.json({ status: 'OK', connected: true, uptime: process.uptime() });
   } else {
-    res.status(503).json({ status: 'OFFLINE', connected: false });
+    res.status(503).json({ 
+      status: 'OFFLINE', 
+      connected: false, 
+      reconnecting: status.isConnecting,
+      reconnectAttempts: status.reconnectAttempts 
+    });
   }
 });
 
 app.get('/status', (req, res) => {
   const status = connectionManager.getStatus();
-  res.json(status);
+  res.json({
+    ...status,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString()
+  });
 });
 
-app.post('/restart', (req, res) => {
-  console.log('🔄 Manual restart requested via API');
-  connectionManager.disconnect();
-  setTimeout(() => {
+app.post('/restart', async (req, res) => {
+  try {
+    console.log('🔄 Manual restart requested via API');
+    connectionManager.disconnect();
+    
+    // Wait a bit before restarting
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
     connectionManager.connect();
-    res.json({ status: 'restarting', message: 'Bot is restarting...' });
-  }, 2000);
+    res.json({ 
+      status: 'restarting', 
+      message: 'Bot is restarting...',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error during restart:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Restart failed',
+      error: error.message 
+    });
+  }
 });
 
 app.post('/disconnect', (req, res) => {
-  console.log('🛑 Manual disconnect requested via API');
-  connectionManager.disconnect();
-  res.json({ status: 'disconnected', message: 'Bot has been disconnected' });
+  try {
+    console.log('🛑 Manual disconnect requested via API');
+    connectionManager.disconnect();
+    res.json({ 
+      status: 'disconnected', 
+      message: 'Bot has been disconnected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error during disconnect:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Disconnect failed',
+      error: error.message 
+    });
+  }
 });
 
 // Start function
@@ -520,9 +581,14 @@ async function startBot() {
     console.log('🔗 Starting connection manager...');
     await connectionManager.connect();
 
+    console.log('✅ Bot startup sequence completed');
+
   } catch (error) {
     console.error('❌ Error starting bot:', error);
-    setTimeout(() => startBot(), RECONNECT_INTERVAL);
+    // Wait before retrying to prevent rapid retry loops
+    setTimeout(() => {
+      startBot();
+    }, 10000);
   }
 }
 
@@ -533,30 +599,39 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`📊 Status endpoint: http://0.0.0.0:${port}/status`);
   console.log(`🔄 Restart endpoint: http://0.0.0.0:${port}/restart (POST)`);
   console.log(`🛑 Disconnect endpoint: http://0.0.0.0:${port}/disconnect (POST)`);
-  
-  startBot();
+  console.log(`⏰ Starting bot in 3 seconds...`);
+
+  setTimeout(() => {
+    startBot();
+  }, 3000);
 });
 
 // Process handlers
 process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down gracefully...');
+  console.log('\n🛑 Received SIGINT, shutting down gracefully...');
   connectionManager.disconnect();
-  process.exit(0);
+  setTimeout(() => {
+    process.exit(0);
+  }, 2000);
 });
 
 process.on('SIGTERM', () => {
-  console.log('\n🛑 Received SIGTERM, shutting down...');
+  console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
   connectionManager.disconnect();
-  process.exit(0);
+  setTimeout(() => {
+    process.exit(0);
+  }, 2000);
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  console.error('❌ Uncaught Exception:', error);
+  // Don't exit, try to reconnect instead
   connectionManager.reconnect();
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Log but don't crash
 });
 
 module.exports = { 
