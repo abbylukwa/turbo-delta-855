@@ -27,8 +27,9 @@
     "stream-browserify": "^3.0.0",
     "buffer": "^6.0.3",
     "node-fetch": "^2.6.7",
-    "util": "^0.12.5"
-}
+    "util": "^0.12.5",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.8"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
