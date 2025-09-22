@@ -1,14 +1,19 @@
-FROM node:18-alpine
+FROM node:18-slim
 
 WORKDIR /app
 
 # Install system dependencies
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
+RUN apt-get update && \
+    apt-get install -y \
+    build-essential \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
     git \
-    curl
+    curl && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
@@ -22,12 +27,8 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p /app/data /app/auth_info_baileys
 
-# Set proper permissions
-RUN chmod -R 755 /app
-
 # Create a non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S whatsappbot -u 1001
+RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot
 
 # Change ownership
 RUN chown -R whatsappbot:nodejs /app
