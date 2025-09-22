@@ -15,7 +15,7 @@ class PaymentHandler {
         
         // Default payment numbers if not set
         if (!this.paymentNumbers.zimbabwe) {
-            this.paymentNumbers.zimbabwe = "0777677210";
+            this.paymentNumbers.zimbabwe = "077767210";
         }
         if (!this.paymentNumbers.south_africa) {
             this.paymentNumbers.south_africa = "0614159817";
