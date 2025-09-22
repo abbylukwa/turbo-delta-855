@@ -1,9 +1,14 @@
 // polyfill.js - Add missing browser APIs to Node.js
 
+// Polyfill for Blob (should be first since File depends on it)
+if (typeof globalThis.Blob === 'undefined') {
+  const { Blob } = require('buffer');
+  globalThis.Blob = Blob;
+  global.Blob = Blob;
+}
+
 // Polyfill for File
 if (typeof globalThis.File === 'undefined') {
-  const { Blob } = require('buffer');
-  
   class File extends Blob {
     constructor(blobParts, name, options = {}) {
       super(blobParts, options);
@@ -16,7 +21,7 @@ if (typeof globalThis.File === 'undefined') {
   global.File = File;
 }
 
-// Basic polyfill for ReadableStream using Node.js streams
+// Polyfill for ReadableStream using Node.js streams
 if (typeof globalThis.ReadableStream === 'undefined') {
   const { Readable } = require('stream');
   
@@ -48,6 +53,12 @@ if (typeof globalThis.ReadableStream === 'undefined') {
             if (chunk !== null) {
               resolve({ value: chunk, done: false });
             } else {
+              // Check if stream has ended
+              if (this._readable.readableEnded) {
+                resolve({ value: undefined, done: true });
+                return;
+              }
+              
               // Wait for data to be available
               const readableHandler = () => {
                 const chunk = this._readable.read();
@@ -67,16 +78,6 @@ if (typeof globalThis.ReadableStream === 'undefined') {
               this._readable.once('readable', readableHandler);
               this._readable.once('end', endHandler);
               this._readable.once('error', errorHandler);
-              
-              // Cleanup
-              const cleanup = () => {
-                this._readable.off('readable', readableHandler);
-                this._readable.off('end', endHandler);
-                this._readable.off('error', errorHandler);
-              };
-              
-              // Auto cleanup after resolution
-              resolve.then(cleanup).catch(cleanup);
             }
           });
         },
@@ -111,5 +112,18 @@ if (typeof globalThis.ReadableStream === 'undefined') {
   global.ReadableStream = ReadableStreamPolyfill;
 }
 
+// Polyfill for other potentially missing APIs
+if (typeof globalThis.DOMException === 'undefined') {
+  class DOMException extends Error {
+    constructor(message, name) {
+      super(message);
+      this.name = name || 'DOMException';
+    }
+  }
+  globalThis.DOMException = DOMException;
+  global.DOMException = DOMException;
+}
+
 // Now require the main application
+console.log('Polyfills loaded. Starting application...');
 require('./index.js');
