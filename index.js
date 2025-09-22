@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
 
-// Polyfill for ReadableStream (important for Node environments that lack native support)
+// Polyfill for ReadableStream
 const { ReadableStream } = require('web-streams-polyfill');
 global.ReadableStream = ReadableStream;
 
@@ -20,7 +20,6 @@ const pool = new Pool({
 // Initialize database tables for dating only
 async function initializeDatabase() {
   try {
-    // Create dating profiles table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS dating_profiles (
         id SERIAL PRIMARY KEY,
@@ -38,7 +37,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // Create dating matches table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS dating_matches (
         id SERIAL PRIMARY KEY,
@@ -51,7 +49,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // Create dating messages table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS dating_messages (
         id SERIAL PRIMARY KEY,
@@ -134,7 +131,6 @@ async function ensureDirectories() {
     for (const dir of directories) {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        console.log(`✅ Created directory: ${dir}`);
       }
     }
     console.log('✅ All directories created successfully');
@@ -155,7 +151,6 @@ function cleanupTempFiles() {
     tempDirs.forEach(dir => {
       if (fs.existsSync(dir)) {
         fs.rmSync(dir, { recursive: true, force: true });
-        console.log(`✅ Cleaned up temp directory: ${dir}`);
       }
     });
   } catch (error) {
@@ -206,7 +201,6 @@ async function processMessage(sock, message) {
 
     console.log(`Processing command from ${sender}: ${command}`);
 
-    // Command routing
     switch (command) {
       case 'activate':
         await activationManager.handleActivation(sock, message, args, sender);
@@ -253,8 +247,7 @@ class ConnectionManager {
 
       const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-      // ✅ FIXED: Add proper null check for auth state
-      if (!state || !state.auth || !state.auth.creds) {
+      if (!state?.auth?.creds) {
         console.log('🔄 Auth state invalid, creating fresh authentication...');
         await this.initializeFreshAuth();
         return;
@@ -277,20 +270,18 @@ class ConnectionManager {
 
       sock.ev.on('creds.update', saveCreds);
 
-      // Handle connection updates including QR code
       sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         console.log('Connection status:', connection);
 
-        // Handle QR code generation
         if (qr && !this.qrCodeGenerated) {
           this.qrCodeGenerated = true;
-          console.log('\n'.repeat(5)); // Add some space
+          console.log('\n'.repeat(5));
           console.log('═'.repeat(60));
           console.log('🔄 SCAN THIS QR CODE WITH YOUR WHATSAPP');
           console.log('═'.repeat(60));
-          qrcode.generate(qr, { small: false }); // Use large QR code
+          qrcode.generate(qr, { small: false });
           console.log('═'.repeat(60));
           console.log('1. Open WhatsApp on your phone');
           console.log('2. Tap Menu → Linked Devices → Link a Device');
@@ -304,7 +295,7 @@ class ConnectionManager {
             lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
           console.log('Connection closed, reconnecting:', shouldReconnect);
-          this.qrCodeGenerated = false; // Reset QR flag for reconnection
+          this.qrCodeGenerated = false;
 
           if (shouldReconnect) {
             this.reconnect();
@@ -314,16 +305,11 @@ class ConnectionManager {
           isConnected = true;
           reconnectAttempts = 0;
           this.isConnecting = false;
-
-          // Start group discovery after connection is established
           groupManager.startGroupDiscovery(sock);
-
-          // Notify admins
           this.notifyAdmins();
         }
       });
 
-      // Handle incoming messages
       sock.ev.on('messages.upsert', async (m) => {
         if (m.type === 'notify') {
           for (const message of m.messages) {
@@ -341,28 +327,20 @@ class ConnectionManager {
 
   async initializeFreshAuth() {
     try {
-      // Clear any existing auth data
       const authDir = path.join(__dirname, 'auth_info_baileys');
       if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true, force: true });
       }
       fs.mkdirSync(authDir, { recursive: true });
 
-      // Create a fresh auth state
-      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+      let { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-      // ✅ FIXED: Add null check to prevent the "Cannot read properties of undefined" error
-      if (!state || !state.auth || !state.auth.creds) {
-        console.error('❌ Auth state is not properly initialized after fresh creation');
-        console.log('State object:', state);
-        console.log('Auth object:', state ? state.auth : 'undefined');
-        throw new Error('Failed to initialize authentication state - auth credentials missing');
+      if (!state?.auth?.creds) {
+        console.error('❌ Auth state initialization failed');
+        throw new Error('Failed to initialize authentication state');
       }
 
-      console.log('✅ Fresh auth state initialized successfully:', {
-        hasCreds: !!state.auth.creds,
-        hasKeys: !!state.auth.keys
-      });
+      console.log('✅ Fresh auth state initialized successfully');
 
       const { version } = await fetchLatestBaileysVersion();
 
@@ -412,10 +390,9 @@ class ConnectionManager {
 
     } catch (error) {
       console.error('❌ Error initializing fresh auth:', error);
-      // Add delay before reconnection to prevent rapid retry loops
       setTimeout(() => {
         this.reconnect();
-      }, 5000);
+      }, 10000);
     }
   }
 
@@ -434,12 +411,12 @@ class ConnectionManager {
 
   reconnect() {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('❌ Max reconnection attempts reached. Please restart the application.');
+      console.log('❌ Max reconnection attempts reached');
       return;
     }
 
     reconnectAttempts++;
-    const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000); // Max 5 minutes
+    const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000);
     
     console.log(`🔄 Attempting to reconnect... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}) in ${delayTime/1000}s`);
 
@@ -496,8 +473,7 @@ app.get('/', (req, res) => {
     status: 'OK', 
     message: 'WhatsApp Bot is running', 
     ...status,
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -520,7 +496,6 @@ app.get('/status', (req, res) => {
   res.json({
     ...status,
     uptime: process.uptime(),
-    memory: process.memoryUsage(),
     timestamp: new Date().toISOString()
   });
 });
@@ -530,7 +505,6 @@ app.post('/restart', async (req, res) => {
     console.log('🔄 Manual restart requested via API');
     connectionManager.disconnect();
     
-    // Wait a bit before restarting
     await new Promise(resolve => setTimeout(resolve, 3000));
     
     connectionManager.connect();
@@ -585,7 +559,6 @@ async function startBot() {
 
   } catch (error) {
     console.error('❌ Error starting bot:', error);
-    // Wait before retrying to prevent rapid retry loops
     setTimeout(() => {
       startBot();
     }, 10000);
@@ -599,7 +572,6 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`📊 Status endpoint: http://0.0.0.0:${port}/status`);
   console.log(`🔄 Restart endpoint: http://0.0.0.0:${port}/restart (POST)`);
   console.log(`🛑 Disconnect endpoint: http://0.0.0.0:${port}/disconnect (POST)`);
-  console.log(`⏰ Starting bot in 3 seconds...`);
 
   setTimeout(() => {
     startBot();
@@ -625,13 +597,11 @@ process.on('SIGTERM', () => {
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
-  // Don't exit, try to reconnect instead
   connectionManager.reconnect();
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  // Log but don't crash
 });
 
 module.exports = { 
