@@ -245,11 +245,19 @@ class ConnectionManager {
     try {
       console.log('🔗 Initializing WhatsApp connection...');
 
-      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+      // Try to load existing auth state
+      let authState;
+      try {
+        authState = await useMultiFileAuthState('auth_info_baileys');
+        console.log('✅ Auth state loaded successfully');
+      } catch (error) {
+        console.log('❌ Error loading auth state:', error.message);
+        authState = null;
+      }
 
-      // Check if auth state is valid BEFORE using it
-      if (!state || !state.auth || !state.auth.creds) {
-        console.log('🔄 Auth state invalid, creating fresh authentication...');
+      // Check if auth state is valid
+      if (!authState || !authState.state) {
+        console.log('🔄 No valid auth state found, creating fresh authentication...');
         await this.initializeFreshAuth();
         return;
       }
@@ -257,20 +265,18 @@ class ConnectionManager {
       const { version, isLatest } = await fetchLatestBaileysVersion();
       console.log(`Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
+      // Use the state directly from the authState object
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
-        printQRInTerminal: false, // We'll handle QR display ourselves
-        auth: {
-          creds: state.auth.creds,
-          keys: state.auth.keys
-        },
+        printQRInTerminal: false,
+        auth: authState.state,
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
       });
 
-      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', authState.saveCreds);
 
       // Handle connection updates including QR code
       sock.ev.on('connection.update', (update) => {
@@ -278,7 +284,7 @@ class ConnectionManager {
 
         console.log('Connection status:', connection);
 
-        // Handle QR code generation - FIXED: Proper QR code display
+        // Handle QR code generation
         if (qr) {
           this.displayQRCode(qr);
         }
@@ -334,11 +340,6 @@ class ConnectionManager {
       // Generate QR code
       qrcode.generate(qr, { 
         small: false 
-      }, (qrcodeText) => {
-        const qrLines = qrcodeText.split('\n');
-        qrLines.forEach(line => {
-          console.log('║ ' + line.padEnd(70) + ' ║');
-        });
       });
       
       console.log('║                                                                ║');
@@ -359,42 +360,38 @@ class ConnectionManager {
       // Clear any existing auth data
       const authDir = path.join(__dirname, 'auth_info_baileys');
       if (fs.existsSync(authDir)) {
+        console.log('🧹 Cleaning up old auth data...');
         fs.rmSync(authDir, { recursive: true, force: true });
       }
       fs.mkdirSync(authDir, { recursive: true });
 
+      console.log('🔄 Creating fresh authentication state...');
+      
       // Create a fresh auth state
-      const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-
-      // CRITICAL FIX: Check IMMEDIATELY after getting the state
-      if (!state || !state.auth || !state.auth.creds) {
-        console.error('❌ Auth state initialization failed - state structure:', {
-          stateExists: !!state,
-          authExists: !!state?.auth,
-          credsExists: !!state?.auth?.creds
-        });
-        throw new Error('Failed to initialize authentication state - missing credentials');
-      }
-
-      console.log('✅ Fresh auth state initialized successfully');
+      const authState = await useMultiFileAuthState('auth_info_baileys');
+      
+      console.log('✅ Fresh auth state created:', {
+        stateExists: !!authState.state,
+        stateKeys: authState.state ? Object.keys(authState.state) : 'none',
+        hasCreds: !!authState.state?.creds,
+        hasKeys: !!authState.state?.keys
+      });
 
       const { version } = await fetchLatestBaileysVersion();
+      console.log('✅ Fetched WhatsApp version:', version.join('.'));
 
-      // NOW it's safe to use state.auth.creds
+      // Create socket with the fresh auth state
       sock = makeWASocket({
         version,
         logger: createSimpleLogger(),
-        printQRInTerminal: false, // We handle QR display
-        auth: {
-          creds: state.auth.creds,
-          keys: state.auth.keys
-        },
+        printQRInTerminal: false,
+        auth: authState.state,
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
       });
 
-      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', authState.saveCreds);
 
       sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
@@ -418,6 +415,10 @@ class ConnectionManager {
 
     } catch (error) {
       console.error('❌ Error initializing fresh auth:', error);
+      console.log('Error details:', {
+        message: error.message,
+        stack: error.stack
+      });
       setTimeout(() => {
         this.reconnect();
       }, 10000);
