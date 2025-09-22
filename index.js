@@ -180,9 +180,14 @@ function cleanupExpiredPairingCodes() {
   }
 }
 
-// Generate random pairing code
+// Generate random 8-character pairing code
 function generatePairingCode() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 }
 
 // Check if user is admin
@@ -222,8 +227,8 @@ async function processMessage(sock, message) {
     const userIsAdmin = isAdmin(sender);
     const commandMatch = text.match(/^\.(\w+)(?:\s+(.*))?$/);
     
-    // Handle pairing codes (6-character codes)
-    const pairingCodeMatch = text.match(/^([A-Z0-9]{6})$/i);
+    // Handle pairing codes (8-character codes)
+    const pairingCodeMatch = text.match(/^([A-Z0-9]{8})$/i);
     if (pairingCodeMatch) {
       await handlePairingCode(sock, message, pairingCodeMatch[1].toUpperCase(), sender);
       return;
@@ -271,7 +276,7 @@ async function processMessage(sock, message) {
 // Handle pair request
 async function handlePairRequest(sock, message, sender) {
   try {
-    // Generate pairing code
+    // Generate 8-character pairing code
     const pairingCode = generatePairingCode();
     
     // Store pairing code
@@ -294,7 +299,7 @@ async function handlePairRequest(sock, message, sender) {
             `This code will expire in 10 minutes.`
     });
     
-    console.log(`🔐 Generated pairing code ${pairingCode} for ${sender}`);
+    console.log(`🔐 Generated 8-character pairing code ${pairingCode} for ${sender}`);
     
   } catch (error) {
     console.error('Error handling pair request:', error);
@@ -449,7 +454,7 @@ class ConnectionManager {
     if (!this.qrCodeGenerated) {
       this.qrCodeGenerated = true;
       
-      // Generate a pairing code for display
+      // Generate an 8-character pairing code for display
       const pairingCode = generatePairingCode();
       currentPairingCode = pairingCode;
       
@@ -461,42 +466,43 @@ class ConnectionManager {
 
       // Clear console and display QR code prominently
       console.log('\n'.repeat(3));
-      console.log('╔══════════════════════════════════════════════════╗');
-      console.log('║               WHATSAPP CONNECTION               ║');
-      console.log('╠══════════════════════════════════════════════════╣');
+      console.log('╔══════════════════════════════════════════════════════════╗');
+      console.log('║                   WHATSAPP CONNECTION                   ║');
+      console.log('╠══════════════════════════════════════════════════════════╣');
       
       if (displayCount === 1) {
-        console.log('║                 FIRST QR CODE                    ║');
+        console.log('║                     FIRST QR CODE                      ║');
       } else if (displayCount === 3) {
-        console.log('║                 THIRD QR CODE                    ║');
+        console.log('║                     THIRD QR CODE                      ║');
       } else {
-        console.log('║                 QR CODE #' + displayCount + '                      ║');
+        console.log('║                     QR CODE #' + displayCount + '                        ║');
       }
       
-      console.log('╠══════════════════════════════════════════════════╣');
-      console.log('║ Scan with WhatsApp:                             ║');
-      console.log('║                                                  ║');
+      console.log('╠══════════════════════════════════════════════════════════╣');
+      console.log('║ Scan with WhatsApp:                                     ║');
+      console.log('║                                                          ║');
       
       // Generate smaller QR code
       qrcode.generate(qr, { 
         small: true
       });
       
-      console.log('║                                                  ║');
-      console.log('╠══════════════════════════════════════════════════╣');
-      console.log('║              🔢 PAIRING INFORMATION             ║');
-      console.log('╠══════════════════════════════════════════════════╣');
-      console.log('║                                                  ║');
-      console.log('║ 📱 Bot Phone: +263775156210                     ║');
-      console.log('║ 🔐 Pairing Code: ' + pairingCode + '                          ║');
-      console.log('║                                                  ║');
-      console.log('║ *Alternative Method:*                           ║');
-      console.log('║ 1. WhatsApp Web → Link a Device                 ║');
-      console.log('║ 2. Choose "Use phone number instead"            ║');
-      console.log('║ 3. Enter bot number and pairing code above      ║');
-      console.log('║                                                  ║');
-      console.log('║ Code expires in 10 minutes                      ║');
-      console.log('╚══════════════════════════════════════════════════╝');
+      console.log('║                                                          ║');
+      console.log('╠══════════════════════════════════════════════════════════╣');
+      console.log('║                🔢 PAIRING INFORMATION                   ║');
+      console.log('╠══════════════════════════════════════════════════════════╣');
+      console.log('║                                                          ║');
+      console.log('║ 📱 Bot Phone: +263775156210                             ║');
+      console.log('║ 🔐 Pairing Code: ' + pairingCode + '                                ║');
+      console.log('║                                                          ║');
+      console.log('║ *Alternative Method:*                                   ║');
+      console.log('║ 1. WhatsApp Web → Link a Device                         ║');
+      console.log('║ 2. Choose "Use phone number instead"                    ║');
+      console.log('║ 3. Enter bot number: +263775156210                      ║');
+      console.log('║ 4. Enter pairing code: ' + pairingCode + '                        ║');
+      console.log('║                                                          ║');
+      console.log('║ Code expires in 10 minutes                              ║');
+      console.log('╚══════════════════════════════════════════════════════════╝');
       console.log('\n');
     }
   }
@@ -572,7 +578,7 @@ class ConnectionManager {
         await sock.sendMessage(admin, { 
           text: '🤖 Bot is now connected and ready to receive commands!\n\n' +
                 '📱 Bot Phone: +263775156210\n' +
-                'Current Pairing Code: ' + currentPairingCode + '\n' +
+                '🔐 Current Pairing Code: ' + currentPairingCode + '\n' +
                 'Use .pair command to generate new codes for users.'
         });
         console.log(`✅ Notified admin: ${admin}`);
