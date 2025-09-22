@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Polyfill for ReadableStream (important for Node environments that lack native support)
-const { ReadableStream } = require('web-streams-polyfill/ponyfill');
+const { ReadableStream } = require('web-streams-polyfill');
 global.ReadableStream = ReadableStream;
 
 const { delay } = require('@whiskeysockets/baileys');
