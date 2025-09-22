@@ -61,6 +61,7 @@ async function initializeDatabase() {
     console.log('✅ Dating database tables initialized successfully');
   } catch (error) {
     console.error('❌ Error initializing dating database:', error);
+    throw error; // Re-throw to handle in calling function
   }
 }
 
@@ -116,12 +117,26 @@ const createSimpleLogger = () => {
 // Ensure data directories exist
 async function ensureDirectories() {
   try {
-    if (!fs.existsSync(path.join(__dirname, 'auth_info_baileys'))) {
-      fs.mkdirSync(path.join(__dirname, 'auth_info_baileys'), { recursive: true });
+    const directories = [
+      path.join(__dirname, 'auth_info_baileys'),
+      path.join(__dirname, 'data'),
+      path.join(__dirname, 'downloads'),
+      path.join(__dirname, 'downloads', 'music'),
+      path.join(__dirname, 'downloads', 'videos'),
+      path.join(__dirname, 'downloads', 'reels')
+    ];
+
+    for (const dir of directories) {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`✅ Created directory: ${dir}`);
+      }
     }
-    console.log('✅ Auth directory created successfully');
+
+    console.log('✅ All directories created successfully');
   } catch (error) {
     console.error('❌ Error creating directories:', error);
+    throw error;
   }
 }
 
@@ -136,7 +151,7 @@ async function clearAuthFiles() {
     fs.mkdirSync(authDir, { recursive: true });
     return true;
   } catch (error) {
-    console.log('No auth files to clear or error clearing:', error.message);
+    console.error('Error clearing auth files:', error.message);
     return false;
   }
 }
@@ -169,16 +184,16 @@ function displayPairingInfo(qr, pairingCode) {
   console.log('═'.repeat(60));
   console.log('🤖 WHATSAPP BOT PAIRING INFORMATION');
   console.log('═'.repeat(60));
-  
+
   if (qr) {
     console.log('📱 Scan the QR code below:');
     qrcode.generate(qr, { small: true });
   }
-  
+
   if (pairingCode) {
     console.log(`🔢 Pairing code: ${pairingCode}`);
   }
-  
+
   console.log('═'.repeat(60));
   console.log('💡 Tip: Use WhatsApp Linked Devices feature to pair');
   console.log('═'.repeat(60));
@@ -191,9 +206,12 @@ function isAdmin(phoneNumber) {
 
 // Check if user has active subscription
 async function hasActiveSubscription(phoneNumber) {
-  // For non-dating features, we'll use message-based tracking
-  // This is a simplified version - in real implementation, you'd check your message-based system
-  return true; // Placeholder - implement your subscription logic
+  try {
+    return await subscriptionManager.isUserSubscribed(phoneNumber);
+  } catch (error) {
+    console.error('Error checking subscription:', error);
+    return false;
+  }
 }
 
 // Function to process incoming messages
@@ -258,6 +276,11 @@ async function processMessage(sock, message) {
       case 'joingroup':
       case 'listgroups':
       case 'autojointoggle':
+      case 'advertisechannels':
+      case 'posttochannel':
+      case 'forcedownload':
+      case 'channelstats':
+      case 'cleanup':
         if (userIsAdmin) {
           await groupManager.handleGroupCommand(sock, message, command, args, sender);
         } else {
@@ -303,6 +326,13 @@ async function processMessage(sock, message) {
     }
   } catch (error) {
     console.error('Error processing message:', error);
+    try {
+      await sock.sendMessage(message.key.remoteJid, {
+        text: `❌ Error processing command: ${error.message}`
+      });
+    } catch (sendError) {
+      console.error('Failed to send error message:', sendError);
+    }
   }
 }
 
@@ -371,6 +401,9 @@ async function startBot() {
             console.error(`Failed to send message to admin ${admin}:`, error);
           }
         }
+
+        // Start group manager schedulers after connection is established
+        groupManager.startAllSchedulers();
       }
     });
 
