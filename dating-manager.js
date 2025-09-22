@@ -8,11 +8,15 @@ class DataMigrator {
         this.newDataPath = path.join(__dirname, 'data');
         this.batchSize = config.batchSize || 100;
         
+        // Database configuration with fallbacks
         this.pool = new Pool({
-            connectionString: process.env.DATABASE_URL || 'postgresql://username:password@localhost:5432/dating_bot',
-            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 5000
+            user: process.env.DB_USER || 'postgres',
+            host: process.env.DB_HOST || 'localhost',
+            database: process.env.DB_NAME || 'dating_bot',
+            password: process.env.DB_PASSWORD || 'password',
+            port: process.env.DB_PORT || 5432,
+            connectionTimeoutMillis: 10000,
+            idleTimeoutMillis: 30000
         });
         
         // Track migration statistics
@@ -29,10 +33,16 @@ class DataMigrator {
         try {
             console.log('🚀 Starting data migration...');
             
-            // Test database connection first
+            // Create necessary directories first
+            await this.ensureDirectories();
+            
+            // Test database connection
             await this.testConnection();
             
-            await this.ensureDirectories();
+            // Create tables if they don't exist
+            await this.createTables();
+            
+            // Execute migrations in sequence
             await this.migrateUsers();
             await this.migrateSubscriptions();
             await this.migratePayments();
@@ -55,12 +65,53 @@ class DataMigrator {
         }
     }
 
+    async createTables() {
+        try {
+            // Create dating_profiles table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS dating_profiles (
+                    phone_number VARCHAR(20) PRIMARY KEY,
+                    name VARCHAR(100),
+                    age INTEGER,
+                    gender VARCHAR(20),
+                    location VARCHAR(100),
+                    bio TEXT,
+                    interests JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            // Create dating_matches table
+            await this.pool.query(`
+                CREATE TABLE IF NOT EXISTS dating_matches (
+                    id SERIAL PRIMARY KEY,
+                    user1_phone VARCHAR(20) REFERENCES dating_profiles(phone_number),
+                    user2_phone VARCHAR(20) REFERENCES dating_profiles(phone_number),
+                    match_score INTEGER,
+                    status VARCHAR(20),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user1_phone, user2_phone)
+                )
+            `);
+
+            console.log('✅ Database tables ensured');
+        } catch (error) {
+            console.error('❌ Error creating tables:', error);
+            throw error;
+        }
+    }
+
     async testConnection() {
         try {
             await this.pool.query('SELECT NOW()');
             console.log('✅ Database connection established');
         } catch (error) {
             console.error('❌ Database connection failed');
+            console.error('Please check your database configuration:');
+            console.error('- Ensure PostgreSQL is running');
+            console.error('- Check DB connection settings');
+            console.error('- Verify database "dating_bot" exists');
             throw error;
         }
     }
@@ -87,15 +138,23 @@ class DataMigrator {
                 return;
             }
 
-            const oldUsers = JSON.parse(await fs.readFile(oldUsersPath, 'utf8'));
+            const fileContent = await fs.readFile(oldUsersPath, 'utf8');
+            if (!fileContent.trim()) {
+                console.log('ℹ️ users.json file is empty');
+                return;
+            }
+
+            const oldUsers = JSON.parse(fileContent);
             console.log(`📊 Found ${Object.keys(oldUsers).length} users to migrate`);
 
             let processed = 0;
+            const totalUsers = Object.keys(oldUsers).length;
+
             for (const [phone, userData] of Object.entries(oldUsers)) {
                 try {
                     // Validate required fields
-                    if (!userData.username) {
-                        console.warn(`⚠️ Skipping user ${phone}: missing username`);
+                    if (!userData || !userData.username) {
+                        console.warn(`⚠️ Skipping user ${phone}: invalid data structure`);
                         this.stats.users.skipped++;
                         continue;
                     }
@@ -111,26 +170,21 @@ class DataMigrator {
                             bio = EXCLUDED.bio,
                             interests = EXCLUDED.interests,
                             updated_at = CURRENT_TIMESTAMP
-                        RETURNING phone_number
                     `, [
                         phone,
-                        userData.username,
+                        userData.username || '',
                         userData.profile?.age || null,
                         userData.profile?.gender || null,
                         userData.profile?.location || null,
-                        userData.profile?.bio || null,
+                        userData.profile?.bio || '',
                         JSON.stringify(userData.profile?.interests || [])
                     ]);
                     
-                    if (result.rowCount > 0) {
-                        this.stats.users.migrated++;
-                    } else {
-                        this.stats.users.skipped++;
-                    }
+                    this.stats.users.migrated++;
                     
                     processed++;
-                    if (processed % 50 === 0) {
-                        console.log(`   Processed ${processed}/${Object.keys(oldUsers).length} users`);
+                    if (processed % 50 === 0 || processed === totalUsers) {
+                        console.log(`   Processed ${processed}/${totalUsers} users`);
                     }
                 } catch (error) {
                     console.error(`❌ Error migrating user ${phone}:`, error.message);
@@ -164,7 +218,6 @@ class DataMigrator {
         } catch (error) {
             console.error('❌ Error migrating subscriptions:', error);
             this.stats.subscriptions.errors++;
-            throw error;
         }
     }
 
@@ -187,7 +240,6 @@ class DataMigrator {
         } catch (error) {
             console.error('❌ Error migrating payments:', error);
             this.stats.payments.errors++;
-            throw error;
         }
     }
 
@@ -209,6 +261,11 @@ class DataMigrator {
                 }
             }
             
+            if (totalMatches === 0) {
+                console.log('ℹ️ No matches found to migrate');
+                return;
+            }
+            
             console.log(`📊 Found ${totalMatches} matches to migrate`);
             
             // Process matches in batches for better performance
@@ -218,13 +275,16 @@ class DataMigrator {
             for (const [phone, userData] of Object.entries(oldDating)) {
                 if (userData.matches && Array.isArray(userData.matches)) {
                     for (const match of userData.matches) {
-                        matchesBatch.push([phone, match, 80, 'matched']);
-                        
-                        if (matchesBatch.length >= this.batchSize) {
-                            await this.processMatchesBatch(matchesBatch);
-                            processed += matchesBatch.length;
-                            console.log(`   Processed ${processed}/${totalMatches} matches`);
-                            matchesBatch = [];
+                        // Ensure we don't create duplicate or self-matches
+                        if (phone !== match) {
+                            matchesBatch.push([phone, match, 80, 'matched']);
+                            
+                            if (matchesBatch.length >= this.batchSize) {
+                                await this.processMatchesBatch(matchesBatch);
+                                processed += matchesBatch.length;
+                                console.log(`   Processed ${processed}/${totalMatches} matches`);
+                                matchesBatch = [];
+                            }
                         }
                     }
                 }
@@ -240,51 +300,45 @@ class DataMigrator {
             console.log('✅ Dating data migrated to database');
         } catch (error) {
             console.error('❌ Error migrating dating data:', error);
-            throw error;
         }
     }
 
     async processMatchesBatch(matchesBatch) {
         if (matchesBatch.length === 0) return;
         
+        const client = await this.pool.connect();
+        
         try {
-            // Use a transaction for batch insert
-            const client = await this.pool.connect();
+            await client.query('BEGIN');
             
-            try {
-                await client.query('BEGIN');
-                
-                for (const match of matchesBatch) {
-                    try {
-                        const result = await client.query(`
-                            INSERT INTO dating_matches (user1_phone, user2_phone, match_score, status)
-                            VALUES ($1, $2, $3, $4)
-                            ON CONFLICT (user1_phone, user2_phone) DO NOTHING
-                            RETURNING user1_phone
-                        `, match);
-                        
-                        if (result.rowCount > 0) {
-                            this.stats.matches.migrated++;
-                        } else {
-                            this.stats.matches.skipped++;
-                        }
-                    } catch (error) {
-                        console.error('❌ Error inserting match:', error.message);
-                        this.stats.matches.errors++;
+            for (const match of matchesBatch) {
+                try {
+                    const [user1_phone, user2_phone, match_score, status] = match;
+                    
+                    const result = await client.query(`
+                        INSERT INTO dating_matches (user1_phone, user2_phone, match_score, status)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (user1_phone, user2_phone) DO NOTHING
+                    `, [user1_phone, user2_phone, match_score, status]);
+                    
+                    if (result.rowCount > 0) {
+                        this.stats.matches.migrated++;
+                    } else {
+                        this.stats.matches.skipped++;
                     }
+                } catch (error) {
+                    console.error('❌ Error inserting match:', error.message);
+                    this.stats.matches.errors++;
                 }
-                
-                await client.query('COMMIT');
-            } catch (error) {
-                await client.query('ROLLBACK');
-                throw error;
-            } finally {
-                client.release();
             }
+            
+            await client.query('COMMIT');
         } catch (error) {
+            await client.query('ROLLBACK');
             console.error('❌ Error processing matches batch:', error.message);
-            // Mark all matches in this batch as errors
             this.stats.matches.errors += matchesBatch.length;
+        } finally {
+            client.release();
         }
     }
 
@@ -296,36 +350,28 @@ class DataMigrator {
             return false;
         }
     }
-
-    // Optional: Backup method
-    async backupOldData() {
-        try {
-            const backupPath = path.join(__dirname, 'backup', `migration_backup_${Date.now()}`);
-            await fs.mkdir(backupPath, { recursive: true });
-            
-            const files = await fs.readdir(this.oldDataPath);
-            for (const file of files) {
-                if (file.endsWith('.json')) {
-                    const source = path.join(this.oldDataPath, file);
-                    const target = path.join(backupPath, file);
-                    await fs.copyFile(source, target);
-                }
-            }
-            
-            console.log(`✅ Backup created at: ${backupPath}`);
-        } catch (error) {
-            console.warn('⚠️ Could not create backup:', error.message);
-        }
-    }
 }
 
 // Run if called directly
 if (require.main === module) {
-    const migrator = new DataMigrator();
+    // Simple command line interface
+    const args = process.argv.slice(2);
+    const config = {};
+    
+    // Parse batch size from command line if provided
+    const batchSizeIndex = args.indexOf('--batch-size');
+    if (batchSizeIndex !== -1 && args[batchSizeIndex + 1]) {
+        config.batchSize = parseInt(args[batchSizeIndex + 1]);
+    }
+    
+    const migrator = new DataMigrator(config);
     migrator.migrateAll()
-        .then(() => process.exit(0))
+        .then(() => {
+            console.log('🎉 Migration completed!');
+            process.exit(0);
+        })
         .catch(error => {
-            console.error('Migration failed:', error);
+            console.error('💥 Migration failed:', error.message);
             process.exit(1);
         });
 }
