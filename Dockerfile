@@ -1,29 +1,27 @@
-FROM node:16-bullseye-slim
+FROM node:18-alpine
 
 WORKDIR /app
 
-# Install system dependencies including Python and build tools
-RUN apt-get update && \
-    apt-get install -y \
-    build-essential \
+# Install system dependencies
+RUN apk add --no-cache \
+    build-base \
     python3 \
     make \
     g++ \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev \
+    cairo-dev \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev \
+    librsvg-dev \
     git \
-    curl && \
-    rm -rf /var/lib/apt/lists/*
+    curl \
+    ffmpeg
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --only=production
-RUN npm install web-streams-polyfill 
+# Install Node.js dependencies
+RUN npm ci --only=production && npm cache clean --force
 
 # Copy application code
 COPY . .
@@ -32,7 +30,7 @@ COPY . .
 RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions
 
 # Create a non-root user
-RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot
+RUN addgroup -S nodejs && adduser -S whatsappbot -G nodejs
 
 # Change ownership
 RUN chown -R whatsappbot:nodejs /app
@@ -45,4 +43,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
-CMD ["node", "polyfill.js"]
+CMD ["node", "index.js"]
