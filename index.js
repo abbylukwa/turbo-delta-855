@@ -186,29 +186,6 @@ class ConnectionManager {
 
 const connectionManager = new ConnectionManager();
 
-// Function to generate QR code using console characters
-function generateConsoleQR(qrData) {
-  if (!qrData) return '';
-  
-  // Simple text-based QR representation using blocks
-  const qrLength = Math.min(qrData.length, 100); // Limit size for console
-  let qrDisplay = '';
-  
-  // Create a simple pattern based on the QR data
-  for (let i = 0; i < 10; i++) {
-    let line = '';
-    for (let j = 0; j < 20; j++) {
-      // Use character position and QR data to create a pattern
-      const charIndex = (i * 20 + j) % qrLength;
-      const charCode = qrData.charCodeAt(charIndex) || 0;
-      line += charCode % 2 === 0 ? '██' : '  ';
-    }
-    qrDisplay += line + '\n';
-  }
-  
-  return qrDisplay;
-}
-
 // Function to display pairing information
 function displayPairingInfo(qr, pairingCode) {
   // Store QR code data for API access
@@ -221,20 +198,15 @@ function displayPairingInfo(qr, pairingCode) {
   console.log('═'.repeat(60));
 
   if (qr) {
-    console.log('📱 QR Code Data (Use this for pairing):');
-    console.log('┌' + '─'.repeat(58) + '┐');
-    console.log('│ ' + qr.substring(0, 56) + ' │');
-    if (qr.length > 56) {
-      console.log('│ ' + qr.substring(56, 112) + ' │');
-    }
-    if (qr.length > 112) {
-      console.log('│ ' + qr.substring(112, 168) + ' │');
-    }
-    console.log('└' + '─'.repeat(58) + '┘');
-    
-    // Generate and display console QR
-    console.log('\n📊 Console QR Representation:');
-    console.log(generateConsoleQR(qr));
+    console.log('📱 QR Code Data (Copy this for pairing):');
+    console.log('═'.repeat(60));
+    console.log(qr);
+    console.log('═'.repeat(60));
+    console.log('📋 Instructions:');
+    console.log('1. Copy the QR code data above');
+    console.log('2. Visit: https://wa-dev.qr-code-generator.com/');
+    console.log('3. Paste the data to generate a scannable QR code');
+    console.log('4. Scan with WhatsApp → Linked Devices → Link a Device');
   }
 
   if (pairingCode) {
@@ -242,10 +214,8 @@ function displayPairingInfo(qr, pairingCode) {
   }
 
   console.log('═'.repeat(60));
-  console.log('💡 Instructions for pairing:');
-  console.log('1. Open WhatsApp on your phone');
-  console.log('2. Go to Settings → Linked Devices → Link a Device');
-  console.log('3. Use the QR code data above for pairing');
+  console.log('💡 Alternative: Use the web endpoint for easier pairing');
+  console.log(`   http://0.0.0.0:${process.env.PORT || 3000}/qr`);
   console.log('═'.repeat(60));
   console.log('⏰ QR code expires in 2 minutes');
   console.log('═'.repeat(60));
@@ -531,9 +501,10 @@ app.get('/qr', (req, res) => {
     expiresAt: qrCodeGeneratedAt + QR_CODE_EXPIRY,
     timeRemaining: Math.max(0, QR_CODE_EXPIRY - (Date.now() - qrCodeGeneratedAt)),
     instructions: [
-      'Open WhatsApp on your phone',
-      'Go to Settings → Linked Devices → Link a Device',
-      'Use the QR code data for pairing'
+      'Copy the QR code data above',
+      'Visit: https://wa-dev.qr-code-generator.com/',
+      'Paste the data to generate a scannable QR code',
+      'Scan with WhatsApp → Linked Devices → Link a Device'
     ]
   });
 });
