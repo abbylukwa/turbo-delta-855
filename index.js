@@ -874,12 +874,12 @@ class ConnectionManager {
           }
         });
    try {
-  // Handle message receipts
-  sock.ev.on('message-receipt.update', (receipts) => {
-    for (const { key, receipt } of receipts) {
-      console.log(`📨 Message receipt: ${key.id} -> ${receipt.type}`);
-    }
-  });
+// Handle message receipts
+sock.ev.on('message-receipt.update', (receipts) => {
+  for (const { key, receipt } of receipts) {
+    console.log(`📨 Message receipt: ${key.id} -> ${receipt.type}`);
+  }
+});
 
 } catch (error) {
   console.error('❌ Connection error:', error);
@@ -887,361 +887,263 @@ class ConnectionManager {
 } finally {
   this.isConnecting = false;
 }
-  scheduleNextAuthMethod() {
-    // Clear any existing timer
-    if (this.pairingCodeTimer) {
-      clearTimeout(this.pairingCodeTimer);
-    }
 
-    // Schedule next authentication method
-    this.pairingCodeTimer = setTimeout(() => {
-      if (pairingAttemptCount < MAX_PAIRING_ATTEMPTS) {
-        console.log(`🔄 Generating new pairing code (attempt ${pairingAttemptCount + 1}/${MAX_PAIRING_ATTEMPTS})`);
-        this.pairingCodeDisplayed = false;
-        
-        // Force new connection to get fresh pairing code
-        this.handleReconnection();
-      } else {
-        console.log('🔄 Maximum pairing attempts reached, switching to QR code mode');
-        pairingMode = false;
-        this.handleReconnection();
-      }
-    }, 45000); // 45 seconds between pairing codes
+scheduleNextAuthMethod() {
+  // Clear any existing timer
+  if (this.pairingCodeTimer) {
+    clearTimeout(this.pairingCodeTimer);
   }
 
-  async initializeFreshAuth() {
-    try {
-      console.log('🔄 Starting fresh authentication process...');
-      
-      // Clear any existing auth data
-      if (fs.existsSync('auth_info_baileys')) {
-        fs.rmSync('auth_info_baileys', { recursive: true, force: true });
-      }
+  // Schedule next authentication method
+  this.pairingCodeTimer = setTimeout(() => {
+    if (pairingAttemptCount < MAX_PAIRING_ATTEMPTS) {
+      console.log(`🔄 Generating new pairing code (attempt ${pairingAttemptCount + 1}/${MAX_PAIRING_ATTEMPTS})`);
+      this.pairingCodeDisplayed = false;
 
-      // Create new auth state
-      const authState = await useMultiFileAuthState('auth_info_baileys');
-      
-      const { version } = await fetchLatestBaileysVersion();
-
-      sock = makeWASocket({
-        version,
-        logger: createSimpleLogger(),
-        printQRInTerminal: false,
-        auth: authState.state,
-        browser: Browsers.ubuntu('Chrome'),
-        generateHighQualityLinkPreview: true,
-        markOnlineOnConnect: false,
-        // Enhanced options for linked device
-        shouldSyncHistoryMessage: () => true,
-        syncFullHistory: false, // Don't sync full history initially
-        linkPreviewImageThumbnailWidth: 192,
-        // Critical: Set up as linked device properly
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 10000,
-        maxIdleTimeMs: 60000,
-        emitOwnEvents: true,
-        defaultQueryTimeoutMs: 60000,
-        // Mobile device characteristics for better linking
-        mobile: false, // This is a companion device
-        getMessage: async (key) => {
-          return {
-            conversation: "message sync"
-          }
-        }
-      });
-
-      sock.ev.on('creds.update', authState.saveCreds);
-
-      // Enhanced connection handling for fresh auth
-      sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr, pairingCode } = update;
-
-        console.log('Fresh auth connection status:', connection);
-
-        // Handle pairing code (primary method for fresh auth)
-        if (pairingCode && pairingMode && !this.pairingCodeDisplayed) {
-          pairingAttemptCount++;
-          console.log(`🔐 Fresh Auth - Pairing Code (Attempt ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}):`, pairingCode);
-          this.pairingCodeDisplayed = true;
-          displayWhatsAppPairingCode(pairingCode, pairingAttemptCount);
-          this.scheduleNextAuthMethod();
-          return;
-        }
-
-        // Handle QR code as fallback
-        if (qr && (!pairingMode || pairingAttemptCount >= MAX_PAIRING_ATTEMPTS)) {
-          if (pairingMode && pairingAttemptCount >= MAX_PAIRING_ATTEMPTS) {
-            pairingMode = false;
-            console.log('🔄 Fresh Auth - Switching to QR code after max attempts');
-          }
-          
-          this.qrDisplayCount++;
-          displayQRCode(qr, this.qrDisplayCount);
-          this.qrCodeGenerated = true;
-        }
-
-        if (connection === 'open') {
-          console.log('✅ Fresh authentication successful!');
-          this.handleSuccessfulConnection();
-        }
-
-        if (connection === 'close') {
-          const shouldReconnect = 
-            lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-          
-          if (shouldReconnect) {
-            this.handleReconnection();
-          }
-        }
-      });
-
-      // Handle messages for fresh connection
-      sock.ev.on('messages.upsert', async (messageData) => {
-        const { messages, type } = messageData;
-        
-        if (type === 'notify') {
-          for (const message of messages) {
-            await processMessage(sock, message);
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Fresh auth initialization error:', error);
-      this.handleConnectionError(error);
+      // Force new connection to get fresh pairing code
+      this.handleReconnection();
+    } else {
+      console.log('🔄 Maximum pairing attempts reached, switching to QR code mode');
+      pairingMode = false;
+      this.handleReconnection();
     }
-  }
-
-  handleSuccessfulConnection() {
-    isConnected = true;
-    reconnectAttempts = 0;
-    pairingAttemptCount = 0;
-    this.pairingCodeDisplayed = false;
-    this.qrCodeGenerated = false;
-
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║              WHATSAPP LINKED DEVICE ACTIVE               ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log('║                                                          ║');
-    console.log(`║ ✅ Successfully linked to: ${YOUR_PERSONAL_NUMBER}                   ║`);
-    console.log('║ 📱 Device status: Active and receiving messages         ║');
-    console.log('║ 💬 Message tracking: Enabled                            ║');
-    console.log('║ 👥 Contact sync: Active                                 ║');
-    console.log('║                                                          ║');
-    console.log('║ 🔔 You will now receive all personal WhatsApp messages  ║');
-    console.log('║ 📊 Use .mystats to see your message statistics          ║');
-    console.log('║ 📨 Use .recent to see recent messages                   ║');
-    console.log('║ 👥 Use .contacts to see message counts                  ║');
-    console.log('║ 🔍 Use .search to find specific messages                ║');
-    console.log('║                                                          ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-
-    // Send welcome message to your personal number
-    if (sock) {
-      setTimeout(async () => {
-        try {
-          await sock.sendMessage(YOUR_PERSONAL_JID, {
-            text: `✅ WHATSAPP LINKED DEVICE ACTIVE\n\n` +
-                  `Your personal WhatsApp is now connected to this bot!\n\n` +
-                  `📱 Linked number: ${YOUR_PERSONAL_NUMBER}\n` +
-                  `🔔 You will receive all messages here\n` +
-                  `💬 Group and individual chats will appear\n\n` +
-                  `Available commands:\n` +
-                  `.mystats - Show message statistics\n` +
-                  `.recent [number] - Show recent messages\n` +
-                  `.contacts - Show contact list\n` +
-                  `.search [keyword] - Search messages\n` +
-                  `.status - Check bot status\n\n` +
-                  `🔒 Your messages are stored locally and securely.`
-          });
-        } catch (error) {
-          console.log('Note: Could not send welcome message (may not be fully synced yet)');
-        }
-      }, 3000);
-    }
-  }
-
-  handleReconnection() {
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('❌ Maximum reconnection attempts reached. Restarting...');
-      this.clearAuthAndRestart();
-      return;
-    }
-
-    reconnectAttempts++;
-    const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000); // Max 5 minutes
-
-    console.log(`🔄 Attempting reconnect ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delayTime/1000}s`);
-
-    this.reconnectTimeout = setTimeout(() => {
-      this.connect();
-    }, delayTime);
-  }
-
-  handleConnectionError(error) {
-    console.error('❌ Connection error:', error);
-    isConnected = false;
-    this.handleReconnection();
-  }
-
-  clearAuthAndRestart() {
-    console.log('🧹 Clearing authentication data and restarting...');
-    
-    try {
-      if (fs.existsSync('auth_info_baileys')) {
-        fs.rmSync('auth_info_baileys', { recursive: true, force: true });
-      }
-    } catch (error) {
-      console.error('Error clearing auth data:', error);
-    }
-
-    // Reset all state
-    isConnected = false;
-    reconnectAttempts = 0;
-    pairingAttemptCount = 0;
-    pairingMode = true;
-    this.pairingCodeDisplayed = false;
-    this.qrCodeGenerated = false;
-    this.qrDisplayCount = 0;
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
-    if (this.pairingCodeTimer) {
-      clearTimeout(this.pairingCodeTimer);
-    }
-
-    // Restart connection after cleanup
-    setTimeout(() => {
-      this.connect();
-    }, 5000);
-  }
-
-  getStatus() {
-    return {
-      isConnected,
-      reconnectAttempts,
-      pairingAttemptCount,
-      pairingMode,
-      yourPersonalNumber: YOUR_PERSONAL_NUMBER,
-      messageStats: {
-        received: yourMessages.received.length,
-        sent: yourMessages.sent.length,
-        groups: yourMessages.groups.size,
-        contacts: yourMessages.contacts.size
-      }
-    };
-  }
-
-  async disconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-    if (this.pairingCodeTimer) {
-      clearTimeout(this.pairingCodeTimer);
-    }
-    if (sock) {
-      await sock.end();
-    }
-    isConnected = false;
-  }
+  }, 45000); // 45 seconds between pairing codes
 }
 
-// Initialize connection manager
-const connectionManager = new ConnectionManager();
-
-// Express server for health checks
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(express.json());
-
-app.get('/', (req, res) => {
-  const status = connectionManager.getStatus();
-  res.json({
-    status: 'WhatsApp Linked Device Bot',
-    connected: status.isConnected,
-    personalNumber: status.yourPersonalNumber,
-    pairingMode: status.pairingMode,
-    attempts: status.pairingAttemptCount,
-    messageStats: status.messageStats,
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    connected: isConnected,
-    uptime: process.uptime() 
-  });
-});
-
-app.get('/messages/stats', (req, res) => {
-  res.json({
-    received: yourMessages.received.length,
-    sent: yourMessages.sent.length,
-    groups: yourMessages.groups.size,
-    contacts: yourMessages.contacts.size,
-    recentReceived: yourMessages.received.slice(-5).map(msg => ({
-      timestamp: msg.timestamp,
-      from: msg.from,
-      preview: msg.text?.substring(0, 50) || '[Media]'
-    }))
-  });
-});
-
-// Start function
-async function start() {
+async initializeFreshAuth() {
   try {
-    console.log('🚀 Starting WhatsApp Linked Device Bot...');
-    console.log(`📱 Personal Number: ${YOUR_PERSONAL_NUMBER}`);
-    console.log(`👑 Admins: ${CONSTANT_ADMINS.length} configured`);
-    
-    await ensureDirectories();
-    await initializeDatabase();
-    cleanupTempFiles();
+    console.log('🔄 Starting fresh authentication process...');
 
-    // Start connection
-    await connectionManager.connect();
+    // Clear any existing auth data
+    if (fs.existsSync('auth_info_baileys')) {
+      fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+    }
 
-    // Start web server
-    app.listen(PORT, () => {
-      console.log(`🌐 Web server running on port ${PORT}`);
-      console.log(`📊 Health check: http://localhost:${PORT}/health`);
-      console.log(`📨 Message stats: http://localhost:${PORT}/messages/stats`);
+    // Create new auth state
+    const authState = await useMultiFileAuthState('auth_info_baileys');
+
+    const { version } = await fetchLatestBaileysVersion();
+
+    sock = makeWASocket({
+      version,
+      logger: createSimpleLogger(),
+      printQRInTerminal: false,
+      auth: authState.state,
+      browser: Browsers.ubuntu('Chrome'),
+      generateHighQualityLinkPreview: true,
+      markOnlineOnConnect: false,
+      // Enhanced options for linked device
+      shouldSyncHistoryMessage: () => true,
+      syncFullHistory: false, // Don't sync full history initially
+      linkPreviewImageThumbnailWidth: 192,
+      // Critical: Set up as linked device properly
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 10000,
+      maxIdleTimeMs: 60000,
+      emitOwnEvents: true,
+      defaultQueryTimeoutMs: 60000,
+      // Mobile device characteristics for better linking
+      mobile: false, // This is a companion device
+      getMessage: async (key) => {
+        return {
+          conversation: "message sync"
+        };
+      }
     });
 
-    // Regular cleanup
-    setInterval(cleanupExpiredPairingCodes, 60000); // Every minute
-    setInterval(cleanupTempFiles, 3600000); // Every hour
+    sock.ev.on('creds.update', authState.saveCreds);
+
+    // Enhanced connection handling for fresh auth
+    sock.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect, qr, pairingCode } = update;
+
+      console.log('Fresh auth connection status:', connection);
+
+      // Handle pairing code (primary method for fresh auth)
+      if (pairingCode && pairingMode && !this.pairingCodeDisplayed) {
+        pairingAttemptCount++;
+        console.log(`🔐 Fresh Auth - Pairing Code (Attempt ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}):`, pairingCode);
+        this.pairingCodeDisplayed = true;
+        displayWhatsAppPairingCode(pairingCode, pairingAttemptCount);
+        this.scheduleNextAuthMethod();
+        return;
+      }
+
+      // Handle QR code as fallback
+      if (qr && (!pairingMode || pairingAttemptCount >= MAX_PAIRING_ATTEMPTS)) {
+        if (pairingMode && pairingAttemptCount >= MAX_PAIRING_ATTEMPTS) {
+          pairingMode = false;
+          console.log('🔄 Fresh Auth - Switching to QR code after max attempts');
+        }
+
+        this.qrDisplayCount++;
+        displayQRCode(qr, this.qrDisplayCount);
+        this.qrCodeGenerated = true;
+      }
+
+      if (connection === 'open') {
+        console.log('✅ Fresh authentication successful!');
+        this.handleSuccessfulConnection();
+      }
+
+      if (connection === 'close') {
+        const shouldReconnect = 
+          lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+
+        if (shouldReconnect) {
+          this.handleReconnection();
+        }
+      }
+    });
+
+    // Handle messages for fresh connection
+    sock.ev.on('messages.upsert', async (messageData) => {
+      const { messages, type } = messageData;
+
+      if (type === 'notify') {
+        for (const message of messages) {
+          await processMessage(sock, message);
+        }
+      }
+    });
 
   } catch (error) {
-    console.error('❌ Failed to start bot:', error);
-    process.exit(1);
+    console.error('❌ Fresh auth initialization error:', error);
+    this.handleConnectionError(error);
   }
 }
 
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\n🛑 Shutting down gracefully...');
-  await connectionManager.disconnect();
-  process.exit(0);
-});
+handleSuccessfulConnection() {
+  isConnected = true;
+  reconnectAttempts = 0;
+  pairingAttemptCount = 0;
+  this.pairingCodeDisplayed = false;
+  this.qrCodeGenerated = false;
 
-process.on('SIGTERM', async () => {
-  console.log('\n🛑 Received SIGTERM, shutting down...');
-  await connectionManager.disconnect();
-  process.exit(0);
-});
+  console.log('\n╔══════════════════════════════════════════════════════════╗');
+  console.log('║              WHATSAPP LINKED DEVICE ACTIVE               ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log('║                                                          ║');
+  console.log(`║ ✅ Successfully linked to: ${YOUR_PERSONAL_NUMBER}                   ║`);
+  console.log('║ 📱 Device status: Active and receiving messages         ║');
+  console.log('║ 💬 Message tracking: Enabled                            ║');
+  console.log('║ 👥 Contact sync: Active                                 ║');
+  console.log('║                                                          ║');
+  console.log('║ 🔔 You will now receive all personal WhatsApp messages  ║');
+  console.log('║ 📊 Use .mystats to see your message statistics          ║');
+  console.log('║ 📨 Use .recent to see recent messages                   ║');
+  console.log('║ 👥 Use .contacts to see message counts                  ║');
+  console.log('║ 🔍 Use .search to find specific messages                ║');
+  console.log('║                                                          ║');
+  console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-// Start the bot
-start();
+  // Send welcome message to your personal number
+  if (sock) {
+    setTimeout(async () => {
+      try {
+        await sock.sendMessage(YOUR_PERSONAL_JID, {
+          text: `✅ WHATSAPP LINKED DEVICE ACTIVE\n\n` +
+                `Your personal WhatsApp is now connected to this bot!\n\n` +
+                `📱 Linked number: ${YOUR_PERSONAL_NUMBER}\n` +
+                `🔔 You will receive all messages here\n` +
+                `💬 Group and individual chats will appear\n\n` +
+                `Available commands:\n` +
+                `.mystats - Show message statistics\n` +
+                `.recent [number] - Show recent messages\n` +
+                `.contacts - Show contact list\n` +
+                `.search [keyword] - Search messages\n` +
+                `.status - Check bot status\n\n` +
+                `🔒 Your messages are stored locally and securely.`
+        });
+      } catch (error) {
+        console.log('Note: Could not send welcome message (may not be fully synced yet)');
+      }
+    }, 3000);
+  }
+}
 
-module.exports = {
-  connectionManager,
-  yourMessages,
-  isAdmin,
-  hasActiveSubscription
-};
+handleReconnection() {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.log('❌ Maximum reconnection attempts reached. Restarting...');
+    this.clearAuthAndRestart();
+    return;
+  }
+
+  reconnectAttempts++;
+  const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000); // Max 5 minutes
+
+  console.log(`🔄 Attempting reconnect ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delayTime/1000}s`);
+
+  this.reconnectTimeout = setTimeout(() => {
+    this.connect();
+  }, delayTime);
+}
+
+handleConnectionError(error) {
+  console.error('❌ Connection error:', error);
+  isConnected = false;
+  this.handleReconnection();
+}
+
+clearAuthAndRestart() {
+  console.log('🧹 Clearing authentication data and restarting...');
+
+  try {
+    if (fs.existsSync('auth_info_baileys')) {
+      fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+    }
+  } catch (error) {
+    console.error('Error clearing auth data:', error);
+  }
+
+  // Reset all state
+  isConnected = false;
+  reconnectAttempts = 0;
+  pairingAttemptCount = 0;
+  pairingMode = true;
+  this.pairingCodeDisplayed = false;
+  this.qrCodeGenerated = false;
+  this.qrDisplayCount = 0;
+
+  if (this.reconnectTimeout) {
+    clearTimeout(this.reconnectTimeout);
+  }
+
+  if (this.pairingCodeTimer) {
+    clearTimeout(this.pairingCodeTimer);
+  }
+
+  // Restart connection after cleanup
+  setTimeout(() => {
+    this.connect();
+  }, 5000);
+}
+
+getStatus() {
+  return {
+    isConnected,
+    reconnectAttempts,
+    pairingAttemptCount,
+    pairingMode,
+    yourPersonalNumber: YOUR_PERSONAL_NUMBER,
+    messageStats: {
+      received: yourMessages.received.length,
+      sent: yourMessages.sent.length,
+      groups: yourMessages.groups.size,
+      contacts: yourMessages.contacts.size
+    }
+  };
+}
+
+async disconnect() {
+  if (this.reconnectTimeout) {
+    clearTimeout(this.reconnectTimeout);
+  }
+  if (this.pairingCodeTimer) {
+    clearTimeout(this.pairingCodeTimer);
+  }
+  if (sock) {
+    await sock.end();
+  }
+  isConnected = false;
+}
