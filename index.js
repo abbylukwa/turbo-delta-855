@@ -179,13 +179,13 @@ function displayQRCode(qr, count) {
     console.log(`║ 📱 Scan this QR code with WhatsApp -> Linked Devices     ║`);
     console.log(`║ 🔄 Scan Count: ${count}                                    ║`);
     console.log('╠══════════════════════════════════════════════════════════╣');
-    
+
     // Generate proper WhatsApp-compatible QR code
     qrcode.generate(qr, { 
         small: true,
         scale: 2
     });
-    
+
     console.log('║                                                          ║');
     console.log('║ 💡 Tip: Open WhatsApp > Settings > Linked Devices > Link ║');
     console.log('║      a Device > Scan QR Code                            ║');
@@ -239,7 +239,7 @@ async function processMessage(sock, message) {
                 text: `🤖 Bot Status:\n• Connected: ${isConnected ? '✅' : '❌'}\n• Mode: ${pairingMode ? 'Pairing' : 'QR'}\n• Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n• Group Manager: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
             });
             break;
-            
+
         case 'mystats':
             if (sender === YOUR_PERSONAL_JID) {
                 await sock.sendMessage(sender, {
@@ -247,14 +247,14 @@ async function processMessage(sock, message) {
                 });
             }
             break;
-            
+
         case 'gmrestart':
             if (CONSTANT_ADMINS.includes(sender)) {
                 await sock.sendMessage(sender, { text: '🔄 Restarting Group Manager...' });
                 groupManager.restart();
             }
             break;
-            
+
         case 'gmstatus':
             if (CONSTANT_ADMINS.includes(sender)) {
                 await sock.sendMessage(sender, {
@@ -262,7 +262,7 @@ async function processMessage(sock, message) {
                 });
             }
             break;
-            
+
         case 'startgm':
             if (CONSTANT_ADMINS.includes(sender)) {
                 if (!groupManager.isRunning) {
@@ -273,7 +273,7 @@ async function processMessage(sock, message) {
                 }
             }
             break;
-            
+
         case 'stopgm':
             if (CONSTANT_ADMINS.includes(sender)) {
                 if (groupManager.isRunning) {
@@ -284,7 +284,7 @@ async function processMessage(sock, message) {
                 }
             }
             break;
-            
+
         default:
             await sock.sendMessage(sender, { text: "❌ Unknown command" });
     }
@@ -305,7 +305,7 @@ class ConnectionManager {
         try {
             await ensureDirectories();
             const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-            
+
             const { version, isLatest } = await fetchLatestBaileysVersion();
             console.log(`✅ Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
@@ -360,7 +360,7 @@ class ConnectionManager {
         isConnected = true;
         reconnectAttempts = 0;
         console.log('✅ WhatsApp connected successfully!');
-        
+
         // Start Group Manager after successful connection
         console.log('🚀 Starting Group Manager after successful WhatsApp connection...');
         setTimeout(() => {
@@ -449,12 +449,12 @@ async function start() {
     try {
         await ensureDirectories();
         cleanupTempFiles();
-        
+
         console.log('🤖 Starting WhatsApp Bot and Group Manager...');
-        
+
         // Start the connection manager
         await connectionManager.connect();
-        
+
         // Start Express server
         app.listen(PORT, () => {
             console.log(`🌐 Server running on port ${PORT}`);
@@ -465,9 +465,9 @@ async function start() {
         // Setup cleanup intervals
         setInterval(cleanupExpiredPairingCodes, 60000);
         setInterval(cleanupTempFiles, 3600000);
-        
+
         console.log('✅ Bot initialization complete. Waiting for WhatsApp connection...');
-        
+
     } catch (error) {
         console.error('❌ Failed to start bot:', error);
         process.exit(1);
@@ -481,11 +481,11 @@ start();
 process.on('SIGINT', async () => {
     console.log('🛑 Shutting down...');
     groupManager.stop();
-    
+
     if (sock) {
         await sock.end();
     }
-    
+
     setTimeout(() => {
         console.log('✅ Shutdown complete');
         process.exit(0);
@@ -495,11 +495,11 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
     console.log('🛑 Received SIGTERM, shutting down...');
     groupManager.stop();
-    
+
     if (sock) {
         await sock.end();
     }
-    
+
     process.exit(0);
 });
 
