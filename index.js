@@ -230,10 +230,10 @@ function displayQRCode(qr, count) {
     console.log(`Scan Count: ${count}`);
     console.log('='.repeat(60));
     console.log('');
-    
+
     // Generate QR code directly to terminal
     qrcode.generate(qr, { small: true });
-    
+
     console.log('');
     console.log('💡 Instructions:');
     console.log('1. Open WhatsApp on your phone');
@@ -267,7 +267,7 @@ class SimpleDownloadManager {
     getStorageUsage(phoneNumber) {
         const userDir = path.join(this.downloadsDir, phoneNumber);
         if (!fs.existsSync(userDir)) return 0;
-        
+
         let totalSize = 0;
         try {
             const files = fs.readdirSync(userDir);
@@ -288,7 +288,7 @@ class SimpleDownloadManager {
     getUserDownloads(phoneNumber) {
         const userDir = path.join(this.downloadsDir, phoneNumber);
         if (!fs.existsSync(userDir)) return [];
-        
+
         return fs.readdirSync(userDir).map(file => {
             const filePath = path.join(userDir, file);
             try {
@@ -314,19 +314,19 @@ class SimpleDownloadManager {
     async downloadContent(url, phoneNumber) {
         // Simulate download process
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
+
         const userDir = path.join(this.downloadsDir, phoneNumber);
         if (!fs.existsSync(userDir)) {
             fs.mkdirSync(userDir, { recursive: true });
         }
-        
+
         const filename = `download_${Date.now()}.mp4`;
         const filePath = path.join(userDir, filename);
-        
+
         // Create a dummy file for simulation
         fs.writeFileSync(filePath, 'Simulated download content');
         const stats = fs.statSync(filePath);
-        
+
         return {
             path: filePath,
             name: filename,
@@ -338,18 +338,18 @@ class SimpleDownloadManager {
     async downloadFromSearch(query, phoneNumber) {
         // Simulate search and download
         await new Promise(resolve => setTimeout(resolve, 3000));
-        
+
         const userDir = path.join(this.downloadsDir, phoneNumber);
         if (!fs.existsSync(userDir)) {
             fs.mkdirSync(userDir, { recursive: true });
         }
-        
+
         const filename = `search_${query.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.mp4`;
         const filePath = path.join(userDir, filename);
-        
+
         fs.writeFileSync(filePath, `Search result for: ${query}`);
         const stats = fs.statSync(filePath);
-        
+
         return {
             path: filePath,
             name: filename,
@@ -527,7 +527,7 @@ async function handleDownload(sock, sender, phoneNumber, url) {
 
         await sock.sendMessage(sender, { text: '⏬ Downloading...' });
         const result = await downloadManager.downloadContent(url, phoneNumber);
-        
+
         await sock.sendMessage(sender, {
             text: `✅ Done! ${result.name} (${downloadManager.formatFileSize(result.size)})`
         });
@@ -553,7 +553,7 @@ async function handleSearchDownload(sock, sender, phoneNumber, query) {
 
         await sock.sendMessage(sender, { text: `🔍 Searching: ${query}...` });
         const result = await downloadManager.downloadFromSearch(query, phoneNumber);
-        
+
         await sock.sendMessage(sender, {
             text: `✅ Done! ${result.name} (${downloadManager.formatFileSize(result.size)})`
         });
@@ -591,7 +591,7 @@ async function showUserDownloads(sock, sender, phoneNumber) {
 async function handleDownloadRequest(sock, message, text, phoneNumber) {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = text.match(urlRegex);
-    
+
     if (urls && urls.length > 0) {
         const url = urls[0];
         if (downloadManager.isUrlSupported(url)) {
@@ -684,7 +684,7 @@ class ConnectionManager {
         isConnected = true;
         reconnectAttempts = 0;
         console.log('✅ WhatsApp connected successfully!');
-        
+
         setTimeout(() => {
             if (!groupManager.isRunning) {
                 groupManager.start();
