@@ -10,7 +10,8 @@
     "migrate": "node migrate.js",
     "docker:build": "docker build -t whatsapp-bot .",
     "docker:run": "docker run -p 3000:3000 whatsapp-bot",
-    "cleanup": "node cleanup.js"
+    "cleanup": "node cleanup.js",
+    "install-python-deps": "pip3 install yt-dlp schedule requests aiohttp"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.4.0",
