@@ -12,7 +12,7 @@ class GeneralCommands {
         this.userManager = userManager;
         this.downloadManager = downloadManager;
         this.subscriptionManager = subscriptionManager;
-        this.activationCode = "Abbie0121";
+        this.activationCode = "Abbie911";
         this.downloadsDir = path.join(__dirname, 'downloads');
         this.userSearches = new Map();
         this.userDownloadLimits = new Map();
