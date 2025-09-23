@@ -749,20 +749,7 @@ async function handlePairingCode(sock, message, code, sender) {
     await sock.sendMessage(sender, { text: "❌ Error processing pairing code. Please try again." });
   }
 }
-
-// Connection manager class
-class ConnectionManager {
-  constructor() {
-    this.isConnecting = false;
-    this.reconnectTimeout = null;
-    this.qrCodeGenerated = false;
-    this.qrDisplayCount = 0;
-    this.pairingCodeDisplayed = false;
-    this.pairingCodeTimer = null;
-  }
-
-  async connect() {
-    if (this.isConnecting) return;
+if (this.isConnecting) return;
     this.isConnecting = true;
 
     try {
