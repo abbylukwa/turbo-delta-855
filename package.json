@@ -1,52 +1,33 @@
 {
   "name": "whatsapp-bot",
-  "version": "2.0.0",
-  "description": "Advanced WhatsApp Bot with downloads, subscriptions, dating features, and group management",
-  "main": "index.js",
+  "version": "1.0.0",
+  "description": "Advanced WhatsApp Bot with download manager and group management",
+  "main": "polyfill.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "keep-alive": "node keep-alive.js",
-    "migrate": "node migrate.js",
-    "docker:build": "docker build -t whatsapp-bot .",
-    "docker:run": "docker run -p 3000:3000 whatsapp-bot",
-    "cleanup": "node cleanup.js"
+    "start": "node polyfill.js",
+    "dev": "nodemon polyfill.js",
+    "test": "echo \"Error: no tests specified\" && exit 1"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.4.0",
-    "qrcode-terminal": "^0.12.0",
     "express": "^4.18.2",
-    "axios": "^1.6.0",
-    "ytdl-core": "^4.11.5",
-    "fluent-ffmpeg": "^2.1.2",
-    "ffmpeg-static": "^5.2.0",
-    "cheerio": "^1.0.0-rc.12",
     "pg": "^8.11.3",
-    "crypto": "^1.0.1",
-    "stream": "0.0.2",
-    "buffer": "^6.0.3",
-    "node-fetch": "^3.3.2",
-    "util": "^0.12.5",
-    "node-cron": "^3.0.3",
-    "ws": "^8.14.2",
-    "nodemailer": "^6.9.8",
-    "web-streams-polyfill": "^3.2.1"
+    "qrcode-terminal": "^0.12.0",
+    "web-streams-polyfill": "^3.2.1",
+    "node-fetch": "^2.7.0",
+    "crypto-browserify": "^3.12.0",
+    "buffer": "^6.0.3"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+  "engines": {
+    "node": ">=16.0.0"
   },
   "keywords": [
     "whatsapp",
     "bot",
-    "automation",
-    "downloads",
-    "subscription",
-    "dating",
-    "group-management"
+    "download",
+    "manager",
+    "group"
   ],
-  "author": "Abn3re",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "author": "Abner",
+  "license": "MIT"
 }
