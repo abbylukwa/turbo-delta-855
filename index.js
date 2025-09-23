@@ -111,6 +111,46 @@ const RECONNECT_INTERVAL = 50000;
 // Initialize Group Manager
 const groupManager = new GroupManager();
 
+// FIXED: Proper logger with child method
+const createLogger = (level = 'error') => {
+    const logger = (level, message, ...args) => {
+        const timestamp = new Date().toISOString();
+        const logMessage = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
+        
+        switch (level) {
+            case 'trace':
+                console.log(`[${timestamp}] TRACE:`, logMessage, ...args);
+                break;
+            case 'debug':
+                console.log(`[${timestamp}] DEBUG:`, logMessage, ...args);
+                break;
+            case 'info':
+                console.log(`[${timestamp}] INFO:`, logMessage, ...args);
+                break;
+            case 'warn':
+                console.warn(`[${timestamp}] WARN:`, logMessage, ...args);
+                break;
+            case 'error':
+                console.error(`[${timestamp}] ERROR:`, logMessage, ...args);
+                break;
+            case 'fatal':
+                console.error(`[${timestamp}] FATAL:`, logMessage, ...args);
+                break;
+        }
+    };
+
+    return {
+        level,
+        trace: (msg, ...args) => level === 'trace' && logger('trace', msg, ...args),
+        debug: (msg, ...args) => (level === 'trace' || level === 'debug') && logger('debug', msg, ...args),
+        info: (msg, ...args) => (level === 'trace' || level === 'debug' || level === 'info') && logger('info', msg, ...args),
+        warn: (msg, ...args) => logger('warn', msg, ...args),
+        error: (msg, ...args) => logger('error', msg, ...args),
+        fatal: (msg, ...args) => logger('fatal', msg, ...args),
+        child: () => createLogger(level) // FIXED: Added child method
+    };
+};
+
 // Core functions
 async function ensureDirectories() {
     const dirs = ['auth_info_baileys', 'data', 'downloads', 'downloads/music', 'downloads/videos', 'downloads/reels'];
@@ -561,7 +601,7 @@ async function handleDownloadRequest(sock, message, text, phoneNumber) {
     }
 }
 
-// FIXED: Improved Connection Manager
+// FIXED: Connection Manager with proper logger
 class ConnectionManager {
     constructor() {
         this.isConnecting = false;
@@ -581,13 +621,12 @@ class ConnectionManager {
             const { version } = await fetchLatestBaileysVersion();
             console.log(`✅ Using WA v${version.join('.')}`);
 
+            // FIXED: Use the proper logger with child method
+            const logger = createLogger('warn'); // Only show warnings and errors
+
             sock = makeWASocket({
                 version,
-                logger: {
-                    level: 'warn', // Only show warnings and errors
-                    warn: (msg) => console.warn('⚠️', msg),
-                    error: (msg) => console.error('❌', msg)
-                },
+                logger: logger, // FIXED: Now has proper child method
                 printQRInTerminal: false, // We handle QR display ourselves
                 auth: state,
                 browser: Browsers.ubuntu('Chrome'),
