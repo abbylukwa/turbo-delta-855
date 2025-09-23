@@ -1,231 +1,512 @@
 const fs = require('fs');
-const { spawn } = require('child_process');
-const http = require('http');
+const path = require('path');
+const qrcode = require('qrcode-terminal');
 
 // Crypto polyfill for Render
 if (typeof crypto === 'undefined') {
     global.crypto = require('crypto');
 }
 
-// Simple QR code generator (basic implementation)
-function generateQR(text) {
+const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const express = require('express');
+
+// Import our modules
+const GeneralCommands = require('./generalCommands');
+const DownloadManager = require('./downloadManager');
+
+// Config
+const ACTIVATION_KEY = 'Abbie911';
+const CONSTANT_ADMINS = [
+    '0775156210@s.whatsapp.net', 
+    '27614159817@s.whatsapp.net', 
+    '263717457592@s.whatsapp.net', 
+    '263777627210@s.whatsapp.net'
+];
+
+// State
+let sock = null;
+let isConnected = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const userActivations = new Map();
+
+// Initialize managers
+const downloadManager = new DownloadManager();
+const generalCommands = new GeneralCommands(downloadManager);
+
+// Simple logger
+const simpleLogger = {
+    level: 'silent',
+    trace: () => {},
+    debug: () => {},
+    info: () => {},
+    warn: (msg) => console.log('⚠️', msg),
+    error: (msg) => console.log('❌', msg),
+    fatal: (msg) => console.log('💀', msg),
+    child: () => simpleLogger
+};
+
+// QR Code Display - KEPT CLEAN AS REQUESTED
+function showQR(qr) {
     console.log('\n'.repeat(3));
     console.log('═'.repeat(50));
-    console.log('📱 SCAN QR CODE WITH WHATSAPP');
+    console.log('📱 WHATSAPP QR CODE - SCAN WITH YOUR PHONE');
     console.log('═'.repeat(50));
-    
-    // Simple text-based QR representation
-    const qrText = `QR: ${text.substring(0, 30)}...`;
-    console.log(qrText);
-    
+    qrcode.generate(qr, { small: true });
     console.log('═'.repeat(50));
     console.log('1. WhatsApp → Settings → Linked Devices');
     console.log('2. Tap "Link a Device"');
-    console.log('3. Scan the QR code');
+    console.log('3. Scan the QR code above');
     console.log('═'.repeat(50));
     console.log('\n');
 }
 
-// Simple WhatsApp connection
-async function connectWhatsApp() {
-    try {
-        // Dynamically import baileys to avoid loading issues
-        const baileys = await import('@whiskeysockets/baileys');
-        const { useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } = baileys;
+// User Management
+function activateUser(phoneNumber) {
+    userActivations.set(phoneNumber, {
+        activated: true,
+        freeDownloads: 10,
+        activationTime: new Date()
+    });
+    console.log(`✅ User activated: ${phoneNumber}`);
+}
+
+function isUserActivated(phoneNumber) {
+    const user = userActivations.get(phoneNumber);
+    return user && user.activated;
+}
+
+function isAdmin(sender) {
+    return CONSTANT_ADMINS.includes(sender);
+}
+
+// Message Handler - UPDATED WITH ACTIVATION CHECKS
+async function handleMessage(message) {
+    if (!message.message) return;
+
+    const sender = message.key.remoteJid;
+    const phoneNumber = sender.split('@')[0];
+    let text = '';
+
+    if (message.message.conversation) {
+        text = message.message.conversation;
+    } else if (message.message.extendedTextMessage) {
+        text = message.message.extendedTextMessage.text;
+    }
+
+    // Ignore messages without text or not starting with command prefix
+    if (!text || !text.startsWith('.')) return;
+
+    console.log(`📨 Message from ${phoneNumber} (Admin: ${isAdmin(sender)}): ${text}`);
+
+    // Check if user is admin or activated
+    const admin = isAdmin(sender);
+    const activated = isUserActivated(phoneNumber);
+
+    // Always process admin messages, ignore non-activated non-admin messages
+    if (!admin && !activated) {
+        console.log(`🚫 Ignoring non-activated user: ${phoneNumber}`);
         
-        console.log('🔄 Loading WhatsApp connection...');
+        // Only respond if it's an activation attempt or help request
+        const command = text.slice(1).split(' ')[0].toLowerCase();
+        const allowedCommands = ['activate', 'help', 'status'];
         
-        // Ensure auth directory exists
-        if (!fs.existsSync('auth_info')) {
-            fs.mkdirSync('auth_info', { recursive: true });
+        if (allowedCommands.includes(command)) {
+            await handleBasicCommand(sock, sender, phoneNumber, text);
+        } else {
+            await sock.sendMessage(sender, {
+                text: '❌ Please activate your account first!\n\n' +
+                      'Use: .activate [key]\n' +
+                      'Activation key: ' + ACTIVATION_KEY + '\n\n' +
+                      'Or contact admin for assistance.'
+            });
         }
-        
-        const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-        const { version } = await fetchLatestBaileysVersion();
-        
-        console.log('✅ WhatsApp version:', version.join('.'));
-        
-        // Simple logger that won't cause issues
-        const logger = {
-            level: 'silent',
-            trace: () => {},
-            debug: () => {},
-            info: () => {},
-            warn: (msg) => console.log('⚠️', msg),
-            error: (msg) => console.log('❌', msg),
-            child: () => logger
-        };
-        
-        const sock = baileys.default({
-            version,
-            logger,
-            printQRInTerminal: false,
-            auth: state,
-            browser: Browsers.ubuntu('Chrome')
-        });
-        
-        // Handle connection events
-        sock.ev.on('connection.update', (update) => {
-            const { connection, qr } = update;
-            
-            if (qr) {
-                generateQR(qr);
-            }
-            
-            if (connection === 'open') {
-                console.log('✅ WhatsApp connected successfully!');
-                console.log('🤖 Bot is ready for messages');
-            }
-            
-            if (connection === 'close') {
-                console.log('❌ Connection closed, reconnecting...');
-                setTimeout(connectWhatsApp, 5000);
-            }
-        });
-        
-        // Save credentials
-        sock.ev.on('creds.update', saveCreds);
-        
-        // Handle messages
-        sock.ev.on('messages.upsert', async ({ messages }) => {
-            const msg = messages[0];
-            if (!msg.message || msg.key.remoteJid === 'status@broadcast') return;
-            
-            const sender = msg.key.remoteJid;
-            let text = '';
-            
-            if (msg.message.conversation) {
-                text = msg.message.conversation;
-            } else if (msg.message.extendedTextMessage) {
-                text = msg.message.extendedTextMessage.text;
-            }
-            
-            if (text.startsWith('.')) {
-                await handleCommand(sock, sender, text);
-            }
-        });
-        
-        return sock;
-        
+        return;
+    }
+
+    // Process the message for admins or activated users
+    try {
+        // Handle commands via GeneralCommands
+        const handled = await generalCommands.handleCommand(sock, sender, phoneNumber, text);
+
+        if (!handled) {
+            // Fallback to basic commands
+            await handleBasicCommand(sock, sender, phoneNumber, text);
+        }
     } catch (error) {
-        console.log('❌ Connection error:', error.message);
-        console.log('🔄 Retrying in 10 seconds...');
-        setTimeout(connectWhatsApp, 10000);
+        console.log('Error handling message:', error);
+        await sock.sendMessage(sender, {
+            text: '❌ Error processing your command. Please try again.'
+        });
     }
 }
 
-// Simple command handler
-async function handleCommand(sock, sender, text) {
+// Basic command handler (fallback) - UPDATED
+async function handleBasicCommand(sock, sender, phoneNumber, text) {
     const args = text.slice(1).split(' ');
     const command = args[0].toLowerCase();
-    
-    const responses = {
-        ping: '🏓 Pong!',
-        help: `📋 Available commands:
-.ping - Test connection
-.help - Show this help
-.status - Bot status
-.time - Current time`,
-        status: '✅ Bot is running and connected',
-        time: `🕒 Server time: ${new Date().toLocaleString()}`
-    };
-    
-    const response = responses[command] || '❌ Unknown command. Use .help';
-    
-    try {
-        await sock.sendMessage(sender, { text: response });
-        console.log(`📤 Sent response to ${sender}: ${command}`);
-    } catch (error) {
-        console.log('❌ Error sending message:', error.message);
-    }
-}
+    const admin = isAdmin(sender);
+    const activated = isUserActivated(phoneNumber);
 
-// Simple health check server
-function startHealthServer() {
-    const server = http.createServer((req, res) => {
-        if (req.url === '/health' && req.method === 'GET') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                status: 'ok',
-                service: 'whatsapp-bot',
-                timestamp: new Date().toISOString(),
-                memory: process.memoryUsage(),
-                uptime: process.uptime()
-            }));
+    console.log(`🔧 Processing command: ${command} from ${phoneNumber} (Admin: ${admin}, Activated: ${activated})`);
+
+    // Activation command - available to everyone
+    if (command === 'activate') {
+        if (args[1] === ACTIVATION_KEY) {
+            activateUser(phoneNumber);
+            await sock.sendMessage(sender, {
+                text: '✅ Account activated successfully! You now have 10 free downloads.\n\n' +
+                      'Available commands:\n' +
+                      '.download [url] - Download from any website\n' +
+                      '.yt [url] - YouTube download\n' +
+                      '.ig [url] - Instagram download\n' +
+                      '.tt [url] - TikTok download\n' +
+                      '.help - Show all commands'
+            });
         } else {
-            res.writeHead(200, { 'Content-Type': 'text/plain' });
-            res.end('WhatsApp Bot Server - Use /health for status');
+            await sock.sendMessage(sender, { 
+                text: '❌ Invalid activation key!\n\n' +
+                      'Please use: .activate ' + ACTIVATION_KEY + '\n' +
+                      'Or contact admin for assistance.'
+            });
         }
-    });
-    
-    const PORT = process.env.PORT || 3000;
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`🌐 Health server running on port ${PORT}`);
-        console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
-    });
-    
-    return server;
-}
-
-// Simple group manager
-class BasicGroupManager {
-    constructor() {
-        this.isRunning = false;
+        return;
     }
-    
-    start() {
-        if (this.isRunning) return;
+
+    // Help command - available to everyone
+    if (command === 'help') {
+        let helpText = `📋 *DOWNLOAD BOT COMMANDS* 📋\n\n`;
         
-        console.log('🚀 Starting basic group manager...');
-        this.isRunning = true;
+        helpText += `*FOR EVERYONE:*\n`;
+        helpText += `.activate [key] - Activate your account\n`;
+        helpText += `.help - Show this help message\n`;
+        helpText += `.status - Check bot status\n\n`;
         
-        // Simulate group management
-        setInterval(() => {
-            if (this.isRunning) {
-                console.log('📱 Group manager heartbeat');
+        helpText += `*AFTER ACTIVATION:*\n`;
+        helpText += `.download [url] - Download from any website\n`;
+        helpText += `.yt [url/query] - YouTube download\n`;
+        helpText += `.ig [url] - Instagram download\n`;
+        helpText += `.tt [url] - TikTok download\n`;
+        helpText += `.fb [url] - Facebook download\n\n`;
+        
+        helpText += `*ADMIN COMMANDS:*\n`;
+        helpText += `.users - Show active users\n`;
+        helpText += `.stats - Show bot statistics\n`;
+        
+        await sock.sendMessage(sender, { text: helpText });
+        return;
+    }
+
+    // Status command - available to everyone
+    if (command === 'status') {
+        const statusText = `🤖 *BOT STATUS*\n\n` +
+                         `• Connection: ${isConnected ? '✅ Connected' : '❌ Disconnected'}\n` +
+                         `• Active Users: ${userActivations.size}\n` +
+                         `• Your Status: ${admin ? '👑 Admin' : activated ? '✅ Activated' : '❌ Not activated'}\n` +
+                         `• Downloads Left: ${activated ? '10' : '0'}\n\n` +
+                         `Server: ${isConnected ? '🟢 Online' : '🔴 Offline'}`;
+        
+        await sock.sendMessage(sender, { text: statusText });
+        return;
+    }
+
+    // Admin-only commands
+    if (command === 'users' || command === 'stats') {
+        if (!admin) {
+            await sock.sendMessage(sender, { 
+                text: '❌ Admin only command. Contact admin for assistance.'
+            });
+            return;
+        }
+
+        if (command === 'users') {
+            const usersList = Array.from(userActivations.entries())
+                .map(([phone, data]) => `• ${phone} - Activated: ${new Date(data.activationTime).toLocaleDateString()}`)
+                .join('\n');
+            
+            await sock.sendMessage(sender, {
+                text: `👥 *ACTIVE USERS* (${userActivations.size})\n\n${usersList || 'No active users yet.'}`
+            });
+            return;
+        }
+
+        if (command === 'stats') {
+            await sock.sendMessage(sender, {
+                text: `📊 *BOT STATISTICS*\n\n` +
+                      `• Total Active Users: ${userActivations.size}\n` +
+                      `• Connection Status: ${isConnected ? '✅' : '❌'}\n` +
+                      `• Uptime: ${process.uptime().toFixed(0)}s\n` +
+                      `• Memory Usage: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)}MB`
+            });
+            return;
+        }
+    }
+
+    // Check if user is activated for premium commands
+    if (!admin && !activated) {
+        await sock.sendMessage(sender, {
+            text: '❌ Please activate your account to use this command!\n\n' +
+                  'Use: .activate ' + ACTIVATION_KEY + '\n' +
+                  'Or contact admin for assistance.'
+        });
+        return;
+    }
+
+    // Premium commands for activated users and admins
+    switch (command) {
+        case 'download':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .download [url]\nExample: .download https://example.com/video.mp4'
+                });
+                return;
             }
-        }, 60000);
-    }
-    
-    stop() {
-        this.isRunning = false;
-        console.log('🛑 Group manager stopped');
+            await sock.sendMessage(sender, {
+                text: `⏳ Starting download from: ${args[1]}\nThis may take a few moments...`
+            });
+            // Actual download logic would go here
+            break;
+
+        case 'yt':
+        case 'youtube':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .yt [url or search query]\nExample: .yt https://youtube.com/watch?v=abc123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `🎥 Processing YouTube request: ${args.slice(1).join(' ')}...`
+            });
+            break;
+
+        case 'ig':
+        case 'instagram':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .ig [url]\nExample: .ig https://instagram.com/p/abc123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `📸 Processing Instagram request: ${args[1]}...`
+            });
+            break;
+
+        case 'tt':
+        case 'tiktok':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .tt [url]\nExample: .tt https://tiktok.com/@user/video/123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `🎵 Processing TikTok request: ${args[1]}...`
+            });
+            break;
+
+        case 'fb':
+        case 'facebook':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .fb [url]\nExample: .fb https://facebook.com/video/abc123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `👥 Processing Facebook request: ${args[1]}...`
+            });
+            break;
+
+        default:
+            await sock.sendMessage(sender, { 
+                text: '❌ Unknown command. Use .help to see available commands.'
+            });
     }
 }
 
-// Main function
-async function main() {
-    console.log('🚀 Starting WhatsApp Bot...');
-    console.log('📅 Started at:', new Date().toLocaleString());
-    
-    // Start health server
-    startHealthServer();
-    
-    // Start group manager
-    const groupManager = new BasicGroupManager();
-    groupManager.start();
-    
-    // Connect to WhatsApp
-    let whatsappSock = await connectWhatsApp();
-    
-    // Handle process events
-    process.on('SIGINT', () => {
-        console.log('\n🛑 Shutting down gracefully...');
-        groupManager.stop();
-        process.exit(0);
-    });
-    
-    process.on('SIGTERM', () => {
-        console.log('\n🛑 Received SIGTERM...');
-        groupManager.stop();
-        process.exit(0);
-    });
-    
-    // Keep alive
-    setInterval(() => {
-        console.log('💓 Bot heartbeat -', new Date().toLocaleTimeString());
-    }, 300000); // 5 minutes
+// Connection Manager
+class ConnectionManager {
+    constructor() {
+        this.isConnecting = false;
+        this.qrDisplayCount = 0;
+    }
+
+    async connect() {
+        if (this.isConnecting) return;
+        this.isConnecting = true;
+
+        try {
+            // Ensure auth directory exists
+            if (!fs.existsSync('auth_info_baileys')) {
+                fs.mkdirSync('auth_info_baileys', { recursive: true });
+            }
+
+            const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+            const { version } = await fetchLatestBaileysVersion();
+
+            console.log('🔗 Connecting to WhatsApp...');
+
+            const { default: makeWASocket } = await import('@whiskeysockets/baileys');
+
+            sock = makeWASocket({
+                version,
+                logger: simpleLogger,
+                printQRInTerminal: false,
+                auth: state,
+                browser: Browsers.ubuntu('Chrome'),
+                markOnlineOnConnect: true
+            });
+
+            // Handle connection events
+            sock.ev.on('connection.update', (update) => {
+                const { connection, qr } = update;
+
+                if (qr) {
+                    this.qrDisplayCount++;
+                    showQR(qr);
+                }
+
+                if (connection === 'open') {
+                    this.handleSuccessfulConnection();
+                }
+
+                if (connection === 'close') {
+                    this.handleDisconnection(update);
+                }
+            });
+
+            // Handle credentials
+            sock.ev.on('creds.update', saveCreds);
+
+            // Handle messages
+            sock.ev.on('messages.upsert', async ({ messages }) => {
+                const msg = messages[0];
+                if (msg.key.remoteJid === 'status@broadcast') return;
+
+                try {
+                    await handleMessage(msg);
+                } catch (error) {
+                    console.log('Error handling message:', error);
+                }
+            });
+
+        } catch (error) {
+            console.log('❌ Connection error:', error.message);
+            this.handleConnectionError(error);
+        }
+    }
+
+    handleSuccessfulConnection() {
+        isConnected = true;
+        reconnectAttempts = 0;
+        this.isConnecting = false;
+        console.log('✅ WhatsApp connected successfully!');
+        console.log('🤖 Bot is ready to receive messages');
+        console.log(`🔑 Admin users: ${CONSTANT_ADMINS.length}`);
+        console.log(`👥 Active users: ${userActivations.size}`);
+    }
+
+    handleDisconnection(update) {
+        isConnected = false;
+        this.isConnecting = false;
+
+        const { lastDisconnect } = update;
+        if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                const delay = Math.min(10000 * reconnectAttempts, 60000);
+                console.log(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+                setTimeout(() => this.connect(), delay);
+            } else {
+                console.log('❌ Max reconnection attempts reached');
+            }
+        } else {
+            console.log('❌ Device logged out, please scan QR code again');
+            // Clear auth info to force new QR scan
+            if (fs.existsSync('auth_info_baileys')) {
+                fs.rmSync('auth_info_baileys', { recursive: true });
+            }
+        }
+    }
+
+    handleConnectionError(error) {
+        console.log('❌ Connection setup error:', error.message);
+        this.isConnecting = false;
+        // Don't attempt reconnection for setup errors
+        console.log('💤 Connection setup failed, waiting for manual restart');
+    }
 }
+
+// Web Server
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        connected: isConnected,
+        activeUsers: userActivations.size,
+        admins: CONSTANT_ADMINS.length,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/', (req, res) => {
+    res.json({
+        service: 'WhatsApp Download Bot',
+        version: '2.0.0',
+        status: 'running',
+        activationRequired: true,
+        adminCount: CONSTANT_ADMINS.length
+    });
+});
+
+// Start function
+async function start() {
+    try {
+        console.log('🚀 Starting Enhanced WhatsApp Download Bot...');
+        console.log('🔑 Activation Key:', ACTIVATION_KEY);
+        console.log('👑 Admin Users:', CONSTANT_ADMINS.length);
+        console.log('🌐 Environment:', process.env.NODE_ENV || 'development');
+        console.log('💡 Bot will ignore messages from non-activated users except admins');
+
+        // Start web server
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`🌐 Server running on port ${PORT}`);
+            console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
+        });
+
+        // Start WhatsApp connection
+        const connectionManager = new ConnectionManager();
+        await connectionManager.connect();
+
+    } catch (error) {
+        console.log('❌ Failed to start:', error);
+        process.exit(1);
+    }
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down gracefully...');
+    if (sock) {
+        sock.end();
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Received SIGTERM...');
+    if (sock) {
+        sock.end();
+    }
+    process.exit(0);
+});
 
 // Error handling
 process.on('uncaughtException', (error) => {
@@ -236,5 +517,5 @@ process.on('unhandledRejection', (reason, promise) => {
     console.log('💥 Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Start the bot
-main().catch(console.error);
+// Start the application
+start();
