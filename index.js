@@ -16,7 +16,7 @@ const pool = new Pool({
 });
 
 // Config
-const YOUR_PERSONAL_NUMBER = '1234567890';
+const YOUR_PERSONAL_NUMBER = '0775156210';
 const YOUR_PERSONAL_JID = `${YOUR_PERSONAL_NUMBER}@s.whatsapp.net`;
 const CONSTANT_ADMINS = [YOUR_PERSONAL_JID, '27614159817@s.whatsapp.net', '263717457592@s.whatsapp.net', '263777627210@s.whatsapp.net'];
 
