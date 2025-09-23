@@ -106,11 +106,8 @@ const RECONNECT_INTERVAL = 50000;
 // Enhanced Pairing System
 const activePairingCodes = new Map();
 const PAIRING_CODE_EXPIRY = 10 * 60 * 1000; // 10 minutes
-let pairingCodeSequence = [];
-let pairingCodeAttempts = 0;
-const MAX_PAIRING_ATTEMPTS = 3;
-const PAIRING_INTERVAL = 45000; // 45 seconds
-let pairingTimer = null;
+let currentWhatsAppPairingCode = null;
+let pairingCodeTimestamp = null;
 
 // Simple logger
 const createSimpleLogger = () => {
@@ -179,74 +176,46 @@ function cleanupExpiredPairingCodes() {
     }
   }
   
+  // Clear current WhatsApp pairing code if expired
+  if (currentWhatsAppPairingCode && now - pairingCodeTimestamp > PAIRING_CODE_EXPIRY) {
+    currentWhatsAppPairingCode = null;
+    pairingCodeTimestamp = null;
+    cleaned++;
+  }
+  
   if (cleaned > 0) {
     console.log(`🧹 Cleaned up ${cleaned} expired pairing codes`);
   }
 }
 
-// Generate 8-character alphanumeric pairing code (WhatsApp style)
-function generatePairingCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-// Start pairing code sequence
-function startPairingCodeSequence() {
-  pairingCodeAttempts = 0;
-  pairingCodeSequence = [];
+// Display real WhatsApp pairing code
+function displayWhatsAppPairingCode(pairingCode) {
+  currentWhatsAppPairingCode = pairingCode;
+  pairingCodeTimestamp = Date.now();
   
-  console.log('🔐 Starting pairing code sequence...');
-  generateNextPairingCode();
-}
-
-// Generate next pairing code in sequence
-function generateNextPairingCode() {
-  if (pairingCodeAttempts >= MAX_PAIRING_ATTEMPTS) {
-    console.log('✅ Pairing code sequence completed, switching to QR code mode');
-    return;
-  }
-  
-  pairingCodeAttempts++;
-  const pairingCode = generatePairingCode();
-  pairingCodeSequence.push(pairingCode);
-  
-  // Store pairing code
+  // Store in active codes
   activePairingCodes.set(pairingCode, {
-    phone: 'sequence',
-    timestamp: Date.now(),
-    attempt: pairingCodeAttempts
+    phone: 'whatsapp_generated',
+    timestamp: pairingCodeTimestamp,
+    isRealWhatsAppCode: true
   });
-  
-  console.log(`\n╔══════════════════════════════════════════════════════════╗`);
-  console.log(`║                   PAIRING CODE ${pairingCodeAttempts}/${MAX_PAIRING_ATTEMPTS}                    ║`);
-  console.log(`╠══════════════════════════════════════════════════════════╣`);
-  console.log(`║                                                          ║`);
-  console.log(`║ 🔐 Pairing Code: ${pairingCode}                               ║`);
-  console.log(`║                                                          ║`);
-  console.log(`║ 📱 Bot Phone: +263775156210                             ║`);
-  console.log(`║ ⏰ Expires in: 10 minutes                                ║`);
-  console.log(`║                                                          ║`);
-  console.log(`║ Instructions:                                            ║`);
-  console.log(`║ 1. WhatsApp Web → Link a Device                         ║`);
-  console.log(`║ 2. Choose "Use phone number instead"                    ║`);
-  console.log(`║ 3. Enter: +263775156210                                 ║`);
-  console.log(`║ 4. Enter code: ${pairingCode}                               ║`);
-  console.log(`║                                                          ║`);
-  console.log(`║ Next code in 45 seconds...                              ║`);
-  console.log(`╚══════════════════════════════════════════════════════════╝\n`);
-  
-  // Schedule next pairing code or QR code
-  if (pairingCodeAttempts < MAX_PAIRING_ATTEMPTS) {
-    pairingTimer = setTimeout(generateNextPairingCode, PAIRING_INTERVAL);
-  } else {
-    pairingTimer = setTimeout(() => {
-      console.log('🔄 Switching to QR code authentication...');
-    }, PAIRING_INTERVAL);
-  }
+
+  console.log('\n╔══════════════════════════════════════════════════════════╗');
+  console.log('║               WHATSAPP PAIRING CODE                      ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log('║                                                          ║');
+  console.log('║ 🔐 Real Pairing Code: ' + pairingCode + '                 ║');
+  console.log('║                                                          ║');
+  console.log('║ 📱 Bot Phone: +263775156210                             ║');
+  console.log('║ ⏰ Expires in: 10 minutes                                ║');
+  console.log('║                                                          ║');
+  console.log('║ Instructions:                                            ║');
+  console.log('║ 1. WhatsApp Web → Link a Device                         ║');
+  console.log('║ 2. Choose "Use phone number instead"                    ║');
+  console.log('║ 3. Enter: +263775156210                                 ║');
+  console.log('║ 4. Enter code: ' + pairingCode + '                         ║');
+  console.log('║                                                          ║');
+  console.log('╚══════════════════════════════════════════════════════════╝\n');
 }
 
 // Check if user is admin
@@ -286,10 +255,10 @@ async function processMessage(sock, message) {
     const userIsAdmin = isAdmin(sender);
     const commandMatch = text.match(/^\.(\w+)(?:\s+(.*))?$/);
     
-    // Handle pairing codes (8-character alphanumeric codes)
-    const pairingCodeMatch = text.match(/^([A-Z0-9]{8})$/i);
+    // Handle pairing codes (WhatsApp style codes - typically 6-8 digits)
+    const pairingCodeMatch = text.match(/^(\d{6,8})$/);
     if (pairingCodeMatch) {
-      await handlePairingCode(sock, message, pairingCodeMatch[1].toUpperCase(), sender);
+      await handlePairingCode(sock, message, pairingCodeMatch[1], sender);
       return;
     }
 
@@ -338,29 +307,32 @@ async function processMessage(sock, message) {
 // Send current pairing code information
 async function sendCurrentPairingCode(sock, message, sender) {
   try {
-    const currentCodes = Array.from(activePairingCodes.entries())
-      .filter(([code, data]) => Date.now() - data.timestamp < PAIRING_CODE_EXPIRY)
-      .map(([code, data]) => code);
+    cleanupExpiredPairingCodes();
     
-    if (currentCodes.length > 0) {
-      await sock.sendMessage(sender, {
-        text: `🔐 *CURRENT PAIRING CODES*\n\n` +
-              `*Bot Phone:* +263775156210\n\n` +
-              `*Active Codes:*\n` +
-              currentCodes.map(code => `• ${code}`).join('\n') + `\n\n` +
-              `*How to use:*\n` +
-              `1. WhatsApp Web → Link a Device\n` +
-              `2. Choose "Use phone number instead"\n` +
-              `3. Enter: +263775156210\n` +
-              `4. Enter any active code above\n\n` +
-              `📍 Codes expire in 10 minutes`
-      });
+    let responseText = `🔐 *WHATSAPP PAIRING INFORMATION*\n\n`;
+    responseText += `*Bot Phone:* +263775156210\n\n`;
+    
+    if (currentWhatsAppPairingCode) {
+      responseText += `*Current WhatsApp Pairing Code:*\n`;
+      responseText += `• ${currentWhatsAppPairingCode}\n\n`;
+      responseText += `*How to use:*\n`;
+      responseText += `1. WhatsApp Web → Link a Device\n`;
+      responseText += `2. Choose "Use phone number instead"\n`;
+      responseText += `3. Enter: +263775156210\n`;
+      responseText += `4. Enter code: ${currentWhatsAppPairingCode}\n\n`;
+      responseText += `📍 Code expires in 10 minutes\n\n`;
     } else {
-      await sock.sendMessage(sender, {
-        text: `❌ No active pairing codes available.\n\n` +
-              `The bot is currently in QR code mode. Wait for the next pairing code sequence.`
-      });
+      responseText += `❌ *No active pairing code available*\n\n`;
+      responseText += `The bot is currently generating a new authentication code.\n`;
+      responseText += `Please wait a moment and try again, or scan the QR code.\n\n`;
     }
+    
+    responseText += `*Alternative Methods:*\n`;
+    responseText += `• Use .pair to request a personal pairing session\n`;
+    responseText += `• Scan the QR code when it appears\n`;
+    
+    await sock.sendMessage(sender, { text: responseText });
+    
   } catch (error) {
     console.error('Error sending pairing code info:', error);
     await sock.sendMessage(sender, { text: "❌ Error retrieving pairing code information." });
@@ -370,35 +342,40 @@ async function sendCurrentPairingCode(sock, message, sender) {
 // Handle pair request
 async function handlePairRequest(sock, message, sender) {
   try {
-    // Generate 8-character pairing code
-    const pairingCode = generatePairingCode();
+    cleanupExpiredPairingCodes();
     
-    // Store pairing code
-    activePairingCodes.set(pairingCode, {
-      phone: sender,
-      timestamp: Date.now(),
-      custom: true
-    });
+    let responseText = `🔐 *PAIRING INFORMATION*\n\n`;
     
-    // Send pairing instructions
-    await sock.sendMessage(sender, {
-      text: `🔐 *PERSONAL PAIRING CODE*\n\n` +
-            `Your pairing code: *${pairingCode}*\n\n` +
-            `*Instructions:*\n` +
-            `1. Go to WhatsApp Web on your computer\n` +
-            `2. Click on the 3 dots menu\n` +
-            `3. Select "Link a Device"\n` +
-            `4. Choose "Use phone number instead"\n` +
-            `5. Enter this code: *${pairingCode}*\n\n` +
-            `📍 *Bot Phone Number:* +263775156210\n\n` +
-            `This code will expire in 10 minutes.`
-    });
+    if (currentWhatsAppPairingCode) {
+      responseText += `*Current WhatsApp Pairing Code:* ${currentWhatsAppPairingCode}\n\n`;
+      responseText += `*Instructions:*\n`;
+      responseText += `1. Go to WhatsApp Web on your computer\n`;
+      responseText += `2. Click on the 3 dots menu\n`;
+      responseText += `3. Select "Link a Device"\n`;
+      responseText += `4. Choose "Use phone number instead"\n`;
+      responseText += `5. Enter this code: *${currentWhatsAppPairingCode}*\n\n`;
+      responseText += `📍 *Bot Phone Number:* +263775156210\n\n`;
+      responseText += `This is a real WhatsApp pairing code that will expire in 10 minutes.`;
+    } else {
+      responseText += `❌ *No pairing code available at the moment*\n\n`;
+      responseText += `The bot is currently generating a new authentication code.\n`;
+      responseText += `Please wait a moment and try again.\n\n`;
+      responseText += `I'll notify you when a new pairing code is available.`;
+      
+      // Store user request to notify when code is available
+      activePairingCodes.set(`request_${sender}`, {
+        phone: sender,
+        timestamp: Date.now(),
+        isPairingRequest: true
+      });
+    }
     
-    console.log(`🔐 Generated personal pairing code ${pairingCode} for ${sender}`);
+    await sock.sendMessage(sender, { text: responseText });
+    console.log(`🔐 Sent pairing information to ${sender}`);
     
   } catch (error) {
     console.error('Error handling pair request:', error);
-    await sock.sendMessage(sender, { text: "❌ Error generating pairing code. Please try again." });
+    await sock.sendMessage(sender, { text: "❌ Error generating pairing information. Please try again." });
   }
 }
 
@@ -407,16 +384,42 @@ async function handlePairingCode(sock, message, code, sender) {
   try {
     cleanupExpiredPairingCodes();
     
+    // Check if it's the current WhatsApp pairing code
+    if (currentWhatsAppPairingCode && code === currentWhatsAppPairingCode) {
+      // Pairing successful
+      currentWhatsAppPairingCode = null;
+      pairingCodeTimestamp = null;
+      activePairingCodes.delete(code);
+      
+      await sock.sendMessage(sender, {
+        text: `✅ *PAIRING SUCCESSFUL!*\n\n` +
+              `Your device has been successfully paired with the bot using WhatsApp's authentication system!\n\n` +
+              `You can now use all bot features. Type .help to see available commands.`
+      });
+      
+      console.log(`✅ Successful WhatsApp pairing for ${sender} with code ${code}`);
+      
+      // Activate user subscription
+      try {
+        await subscriptionManager.activateDemo(sender.replace(/@s\.whatsapp\.net$/, ''));
+      } catch (error) {
+        console.error('Error activating demo after pairing:', error);
+      }
+      
+      return;
+    }
+    
+    // Check other active codes
     const pairingData = activePairingCodes.get(code);
     if (!pairingData) {
       await sock.sendMessage(sender, { 
         text: "❌ Invalid or expired pairing code.\n\n" +
-              "Use .pairingcode to see active codes or .pair to generate a new one."
+              "Use .pairingcode to see the current WhatsApp code or .pair for instructions."
       });
       return;
     }
     
-    // Pairing successful
+    // Other types of pairing (if any)
     activePairingCodes.delete(code);
     
     await sock.sendMessage(sender, {
@@ -426,13 +429,6 @@ async function handlePairingCode(sock, message, code, sender) {
     });
     
     console.log(`✅ Successful pairing for ${sender} with code ${code}`);
-    
-    // Activate user subscription
-    try {
-      await subscriptionManager.activateDemo(sender.replace(/@s\.whatsapp\.net$/, ''));
-    } catch (error) {
-      console.error('Error activating demo after pairing:', error);
-    }
     
   } catch (error) {
     console.error('Error handling pairing code:', error);
@@ -447,7 +443,7 @@ class ConnectionManager {
     this.reconnectTimeout = null;
     this.qrCodeGenerated = false;
     this.qrDisplayCount = 0;
-    this.pairingMode = true; // Start with pairing code mode
+    this.pairingCodeDisplayed = false;
   }
 
   async connect() {
@@ -456,28 +452,6 @@ class ConnectionManager {
 
     try {
       console.log('🔗 Initializing WhatsApp connection...');
-
-      // Start with pairing code sequence
-      if (this.pairingMode) {
-        console.log('🔐 Starting authentication with pairing codes...');
-        startPairingCodeSequence();
-        
-        // Wait for pairing code sequence to complete
-        await new Promise(resolve => {
-          const checkSequence = () => {
-            if (pairingCodeAttempts >= MAX_PAIRING_ATTEMPTS) {
-              resolve();
-            } else {
-              setTimeout(checkSequence, 1000);
-            }
-          };
-          checkSequence();
-        });
-        
-        // Switch to QR code mode after pairing sequence
-        this.pairingMode = false;
-        console.log('🔄 Switching to QR code authentication...');
-      }
 
       // Try to load existing auth state
       let authState;
@@ -508,18 +482,35 @@ class ConnectionManager {
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
+        // Enhanced pairing options
+        shouldSyncHistoryMessage: () => true,
+        syncFullHistory: false,
+        linkPreviewImageThumbnailWidth: 192,
+        getMessage: async (key) => {
+          return {
+            conversation: "hello"
+          }
+        }
       });
 
       sock.ev.on('creds.update', authState.saveCreds);
 
-      // Handle connection updates including QR code
+      // Handle connection updates including QR code and pairing codes
       sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr, pairingCode } = update;
 
         console.log('Connection status:', connection);
 
-        // Handle QR code generation (only after pairing sequence)
-        if (qr && !this.pairingMode) {
+        // Handle REAL WhatsApp pairing code
+        if (pairingCode && !this.pairingCodeDisplayed) {
+          console.log('🔐 REAL WhatsApp Pairing Code Received:', pairingCode);
+          this.pairingCodeDisplayed = true;
+          displayWhatsAppPairingCode(pairingCode);
+          return;
+        }
+
+        // Handle QR code generation
+        if (qr) {
           this.qrDisplayCount++;
           this.displayQRCode(qr, this.qrDisplayCount);
         }
@@ -531,7 +522,9 @@ class ConnectionManager {
           console.log('Connection closed, reconnecting:', shouldReconnect);
           this.qrCodeGenerated = false;
           this.qrDisplayCount = 0;
-          this.pairingMode = true; // Reset to pairing mode for reconnection
+          this.pairingCodeDisplayed = false;
+          currentWhatsAppPairingCode = null;
+          pairingCodeTimestamp = null;
 
           if (shouldReconnect) {
             this.reconnect();
@@ -541,6 +534,9 @@ class ConnectionManager {
           isConnected = true;
           reconnectAttempts = 0;
           this.isConnecting = false;
+          this.pairingCodeDisplayed = false;
+          currentWhatsAppPairingCode = null;
+          pairingCodeTimestamp = null;
           groupManager.startGroupDiscovery(sock);
           this.notifyAdmins();
         }
@@ -594,8 +590,8 @@ class ConnectionManager {
       console.log('║                 ALTERNATIVE METHODS                     ║');
       console.log('╠══════════════════════════════════════════════════════════╣');
       console.log('║                                                          ║');
-      console.log('║ 📱 Use .pair command to get a personal pairing code     ║');
-      console.log('║ 📱 Use .pairingcode to see active codes                 ║');
+      console.log('║ 📱 Use .pair command for pairing instructions           ║');
+      console.log('║ 📱 Use .pairingcode to see the current code            ║');
       console.log('║                                                          ║');
       console.log('╚══════════════════════════════════════════════════════════╝');
       console.log('\n');
@@ -613,26 +609,6 @@ class ConnectionManager {
       fs.mkdirSync(authDir, { recursive: true });
 
       console.log('🔄 Creating fresh authentication state...');
-      
-      // Start with pairing code sequence for fresh auth too
-      if (this.pairingMode) {
-        console.log('🔐 Starting fresh authentication with pairing codes...');
-        startPairingCodeSequence();
-        
-        // Wait for pairing code sequence to complete
-        await new Promise(resolve => {
-          const checkSequence = () => {
-            if (pairingCodeAttempts >= MAX_PAIRING_ATTEMPTS) {
-              resolve();
-            } else {
-              setTimeout(checkSequence, 1000);
-            }
-          };
-          checkSequence();
-        });
-        
-        this.pairingMode = false;
-      }
 
       // Create a fresh auth state
       const authState = await useMultiFileAuthState('auth_info_baileys');
@@ -651,17 +627,34 @@ class ConnectionManager {
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
+        // Enhanced pairing options
+        shouldSyncHistoryMessage: () => true,
+        syncFullHistory: false,
+        linkPreviewImageThumbnailWidth: 192,
+        getMessage: async (key) => {
+          return {
+            conversation: "hello"
+          }
+        }
       });
 
       sock.ev.on('creds.update', authState.saveCreds);
 
       sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
+        const { connection, qr, pairingCode } = update;
 
         console.log('Fresh connection status:', connection);
 
-        // Handle QR code display (after pairing sequence)
-        if (qr && !this.pairingMode) {
+        // Handle REAL WhatsApp pairing code
+        if (pairingCode && !this.pairingCodeDisplayed) {
+          console.log('🔐 REAL WhatsApp Pairing Code Received:', pairingCode);
+          this.pairingCodeDisplayed = true;
+          displayWhatsAppPairingCode(pairingCode);
+          return;
+        }
+
+        // Handle QR code display
+        if (qr) {
           this.qrDisplayCount++;
           this.displayQRCode(qr, this.qrDisplayCount);
         }
@@ -671,6 +664,9 @@ class ConnectionManager {
           isConnected = true;
           reconnectAttempts = 0;
           this.isConnecting = false;
+          this.pairingCodeDisplayed = false;
+          currentWhatsAppPairingCode = null;
+          pairingCodeTimestamp = null;
           groupManager.startGroupDiscovery(sock);
           this.notifyAdmins();
         }
@@ -690,8 +686,8 @@ class ConnectionManager {
         await sock.sendMessage(admin, { 
           text: '🤖 Bot is now connected and ready to receive commands!\n\n' +
                 '📱 Bot Phone: +263775156210\n' +
-                '🔐 Use .pair for personal pairing codes\n' +
-                '🔐 Use .pairingcode for active codes'
+                '🔐 Use .pair for pairing instructions\n' +
+                '🔐 Use .pairingcode for current code'
         });
         console.log(`✅ Notified admin: ${admin}`);
       } catch (error) {
@@ -722,10 +718,6 @@ class ConnectionManager {
       clearTimeout(this.reconnectTimeout);
     }
 
-    if (pairingTimer) {
-      clearTimeout(pairingTimer);
-    }
-
     if (groupManager.stopGroupDiscovery) {
       groupManager.stopGroupDiscovery();
     }
@@ -741,7 +733,9 @@ class ConnectionManager {
     this.isConnecting = false;
     this.qrCodeGenerated = false;
     this.qrDisplayCount = 0;
-    this.pairingMode = true;
+    this.pairingCodeDisplayed = false;
+    currentWhatsAppPairingCode = null;
+    pairingCodeTimestamp = null;
     console.log('✅ Disconnected successfully');
   }
 
@@ -752,8 +746,8 @@ class ConnectionManager {
       reconnectAttempts,
       hasQR: this.qrCodeGenerated,
       qrDisplayCount: this.qrDisplayCount,
-      pairingMode: this.pairingMode,
-      pairingCodeAttempts: pairingCodeAttempts,
+      hasPairingCode: !!currentWhatsAppPairingCode,
+      currentPairingCode: currentWhatsAppPairingCode,
       activePairingCodes: activePairingCodes.size,
       maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS
     };
@@ -887,7 +881,6 @@ app.listen(port, '0.0.0.0', () => {
 // Process handlers
 process.on('SIGINT', () => {
   console.log('\n🛑 Received SIGINT, shutting down gracefully...');
-  if (pairingTimer) clearTimeout(pairingTimer);
   connectionManager.disconnect();
   setTimeout(() => {
     process.exit(0);
@@ -896,7 +889,6 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
-  if (pairingTimer) clearTimeout(pairingTimer);
   connectionManager.disconnect();
   setTimeout(() => {
     process.exit(0);
@@ -905,7 +897,6 @@ process.on('SIGTERM', () => {
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
-  if (pairingTimer) clearTimeout(pairingTimer);
   connectionManager.reconnect();
 });
 
