@@ -9,13 +9,16 @@ const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason
 const express = require('express');
 const { Pool } = require('pg');
 
-// Import Download Manager and Subscription Manager
-const DownloadManager = require('./download-manager');
-const SubscriptionManager = require('./subscription-manager');
-const PaymentHandler = require('./payment-handler');
-
 // Group Manager Integration
 const { spawn } = require('child_process');
+
+// Message storage
+const yourMessages = {
+    received: [],
+    sent: [],
+    groups: new Map(),
+    contacts: new Map()
+};
 
 class GroupManager {
     constructor() {
@@ -102,11 +105,22 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000;
 
-// Initialize Managers
+// Initialize Group Manager
 const groupManager = new GroupManager();
-const downloadManager = new DownloadManager();
-const subscriptionManager = new SubscriptionManager();
-const paymentHandler = new PaymentHandler();
+
+// FIXED Logger with proper child() method
+const createLogger = () => {
+    const logger = {
+        trace: (msg) => console.log(`🔍 TRACE: ${msg}`),
+        debug: (msg) => console.log(`🐛 DEBUG: ${msg}`),
+        info: (msg) => console.log(`ℹ️ INFO: ${msg}`),
+        warn: (msg) => console.warn(`⚠️ WARN: ${msg}`),
+        error: (msg) => console.error(`❌ ERROR: ${msg}`),
+        fatal: (msg) => console.error(`💀 FATAL: ${msg}`),
+        child: () => createLogger() // This fixes the error
+    };
+    return logger;
+};
 
 // Core functions
 async function ensureDirectories() {
@@ -189,6 +203,125 @@ function displayQRCode(qr, count) {
     console.log('║      a Device > Scan QR Code                            ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 }
+
+// Simple Download Manager (placeholder - you can replace with your full implementation)
+class SimpleDownloadManager {
+    constructor() {
+        this.downloadsDir = path.join(__dirname, 'downloads');
+        this.ensureDirectoriesExist();
+    }
+
+    ensureDirectoriesExist() {
+        if (!fs.existsSync(this.downloadsDir)) {
+            fs.mkdirSync(this.downloadsDir, { recursive: true });
+        }
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    getStorageUsage(phoneNumber) {
+        const userDir = path.join(this.downloadsDir, phoneNumber);
+        if (!fs.existsSync(userDir)) return 0;
+        
+        let totalSize = 0;
+        try {
+            const files = fs.readdirSync(userDir);
+            files.forEach(file => {
+                const filePath = path.join(userDir, file);
+                try {
+                    totalSize += fs.statSync(filePath).size;
+                } catch (error) {
+                    console.error(`Error getting stats for ${filePath}:`, error);
+                }
+            });
+        } catch (error) {
+            console.error(`Error reading user directory ${userDir}:`, error);
+        }
+        return totalSize;
+    }
+
+    getUserDownloads(phoneNumber) {
+        const userDir = path.join(this.downloadsDir, phoneNumber);
+        if (!fs.existsSync(userDir)) return [];
+        
+        return fs.readdirSync(userDir).map(file => {
+            const filePath = path.join(userDir, file);
+            try {
+                const stats = fs.statSync(filePath);
+                return {
+                    name: file,
+                    size: stats.size,
+                    date: stats.mtime,
+                    path: filePath
+                };
+            } catch (error) {
+                console.error(`Error reading file ${filePath}:`, error);
+                return null;
+            }
+        }).filter(Boolean);
+    }
+
+    isUrlSupported(url) {
+        const supportedSites = ['youtube.com', 'youtu.be', 'instagram.com', 'tiktok.com', 'facebook.com', 'twitter.com'];
+        return supportedSites.some(site => url.includes(site));
+    }
+
+    async downloadContent(url, phoneNumber) {
+        // Simulate download process
+        await delay(2000); // Simulate download time
+        
+        const userDir = path.join(this.downloadsDir, phoneNumber);
+        if (!fs.existsSync(userDir)) {
+            fs.mkdirSync(userDir, { recursive: true });
+        }
+        
+        const filename = `download_${Date.now()}.mp4`;
+        const filePath = path.join(userDir, filename);
+        
+        // Create a dummy file for simulation
+        fs.writeFileSync(filePath, 'Simulated download content');
+        const stats = fs.statSync(filePath);
+        
+        return {
+            path: filePath,
+            name: filename,
+            size: stats.size,
+            type: 'video'
+        };
+    }
+
+    async downloadFromSearch(query, phoneNumber) {
+        // Simulate search and download
+        await delay(3000);
+        
+        const userDir = path.join(this.downloadsDir, phoneNumber);
+        if (!fs.existsSync(userDir)) {
+            fs.mkdirSync(userDir, { recursive: true });
+        }
+        
+        const filename = `search_${query.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.mp4`;
+        const filePath = path.join(userDir, filename);
+        
+        fs.writeFileSync(filePath, `Search result for: ${query}`);
+        const stats = fs.statSync(filePath);
+        
+        return {
+            path: filePath,
+            name: filename,
+            size: stats.size,
+            type: 'video'
+        };
+    }
+}
+
+// Initialize Download Manager
+const downloadManager = new SimpleDownloadManager();
 
 // Enhanced Message Processing with Activation System
 async function processMessage(sock, message) {
@@ -480,15 +613,10 @@ class ConnectionManager {
             const { version, isLatest } = await fetchLatestBaileysVersion();
             console.log(`✅ Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
+            // FIXED: Using proper logger with child() method
             sock = makeWASocket({
                 version,
-                logger: {
-                    trace: () => {},
-                    debug: () => {},
-                    info: (msg) => console.log('ℹ️', msg),
-                    warn: (msg) => console.warn('⚠️', msg),
-                    error: (msg) => console.error('❌', msg)
-                },
+                logger: createLogger(), // This now has the child() method
                 printQRInTerminal: false,
                 auth: state,
                 browser: Browsers.ubuntu('Chrome'),
