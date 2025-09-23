@@ -1,13 +1,14 @@
-
 FROM node:18-bullseye-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Python and pip
 RUN apt-get update && \
     apt-get install -y \
     build-essential \
     python3 \
+    python3-pip \
+    python3-venv \
     make \
     g++ \
     libcairo2-dev \
@@ -16,7 +17,8 @@ RUN apt-get update && \
     libgif-dev \
     librsvg2-dev \
     git \
-    curl && \
+    curl \
+    ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy package files
@@ -32,8 +34,11 @@ RUN npm install web-streams-polyfill
 # Copy application code
 COPY . .
 
+# Install Python dependencies
+RUN pip3 install yt-dlp schedule requests aiohttp
+
 # Create directories
-RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions
+RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions /app/python_deps
 
 # Create non-root user
 RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot && \
