@@ -1,338 +1,320 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn, exec } = require('child_process');
-const util = require('util');
-const axios = require('axios');
+const qrcode = require('qrcode-terminal');
 
-const execPromise = util.promisify(exec);
+// Crypto polyfill for Render
+if (typeof crypto === 'undefined') {
+    global.crypto = require('crypto');
+}
 
-class RealDownloadManager {
-    constructor() {
-        this.downloadsDir = path.join(__dirname, 'downloads');
-        this.tempDir = path.join(__dirname, 'temp');
-        this.ensureDirectoriesExist();
+const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const express = require('express');
+
+// Import our modules
+const GeneralCommands = require('./generalCommands');
+const DownloadManager = require('./downloadManager');
+
+// Config
+const ACTIVATION_KEY = 'Abbie911';
+const CONSTANT_ADMINS = [
+    '0775156210@s.whatsapp.net', 
+    '27614159817@s.whatsapp.net', 
+    '263717457592@s.whatsapp.net', 
+    '263777627210@s.whatsapp.net'
+];
+
+// State
+let sock = null;
+let isConnected = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const userActivations = new Map();
+
+// Initialize managers
+const downloadManager = new DownloadManager();
+const generalCommands = new GeneralCommands(downloadManager);
+
+// Simple logger
+const simpleLogger = {
+    level: 'silent',
+    trace: () => {},
+    debug: () => {},
+    info: () => {},
+    warn: (msg) => console.log('⚠️', msg),
+    error: (msg) => console.log('❌', msg),
+    fatal: (msg) => console.log('💀', msg),
+    child: () => simpleLogger
+};
+
+// QR Code Display - KEPT CLEAN AS REQUESTED
+function showQR(qr) {
+    console.log('\n'.repeat(3));
+    console.log('═'.repeat(50));
+    console.log('📱 WHATSAPP QR CODE - SCAN WITH YOUR PHONE');
+    console.log('═'.repeat(50));
+    qrcode.generate(qr, { small: true });
+    console.log('═'.repeat(50));
+    console.log('1. WhatsApp → Settings → Linked Devices');
+    console.log('2. Tap "Link a Device"');
+    console.log('3. Scan the QR code above');
+    console.log('═'.repeat(50));
+    console.log('\n');
+}
+
+// User Management
+function activateUser(phoneNumber) {
+    userActivations.set(phoneNumber, {
+        activated: true,
+        freeDownloads: 10,
+        activationTime: new Date()
+    });
+}
+
+function isUserActivated(phoneNumber) {
+    const user = userActivations.get(phoneNumber);
+    return user && user.activated;
+}
+
+// Message Handler
+async function handleMessage(message) {
+    if (!message.message) return;
+
+    const sender = message.key.remoteJid;
+    const phoneNumber = sender.split('@')[0];
+    let text = '';
+
+    if (message.message.conversation) {
+        text = message.message.conversation;
+    } else if (message.message.extendedTextMessage) {
+        text = message.message.extendedTextMessage.text;
     }
 
-    ensureDirectoriesExist() {
-        [this.downloadsDir, this.tempDir].forEach(dir => {
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
-            }
-        });
-    }
+    if (!text.startsWith('.')) return;
 
-    // REAL YouTube download using yt-dlp
-    async downloadYouTube(url, phoneNumber, format = 'mp4') {
-        try {
-            const userDir = path.join(this.downloadsDir, phoneNumber);
-            if (!fs.existsSync(userDir)) {
-                fs.mkdirSync(userDir, { recursive: true });
-            }
-
-            let ytDlpCommand;
-            
-            if (format === 'mp3') {
-                ytDlpCommand = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${userDir}/%(title)s.%(ext)s" "${url}"`;
-            } else {
-                ytDlpCommand = `yt-dlp -f "best[height<=720]" -o "${userDir}/%(title)s.%(ext)s" "${url}"`;
-            }
-
-            console.log('Executing:', ytDlpCommand);
-            
-            const { stdout, stderr } = await execPromise(ytDlpCommand, { timeout: 300000 });
-            
-            // Find the downloaded file
-            const files = fs.readdirSync(userDir);
-            const downloadedFile = files.find(file => file.includes(path.basename(url)) || stdout.includes(file));
-            
-            if (!downloadedFile) {
-                throw new Error('Downloaded file not found');
-            }
-
-            const filePath = path.join(userDir, downloadedFile);
-            const stats = fs.statSync(filePath);
-
-            return {
-                path: filePath,
-                name: downloadedFile,
-                size: this.formatBytes(stats.size),
-                type: format === 'mp3' ? 'audio' : 'video',
-                success: true
-            };
-
-        } catch (error) {
-            console.error('YouTube download error:', error);
-            
-            // Fallback to ytdl-core if yt-dlp fails
-            return await this.downloadYouTubeFallback(url, phoneNumber, format);
-        }
-    }
-
-    // Fallback YouTube download
-    async downloadYouTubeFallback(url, phoneNumber, format) {
-        try {
-            const ytdl = await import('ytdl-core');
-            const userDir = path.join(this.downloadsDir, phoneNumber);
-            
-            const info = await ytdl.default.getInfo(url);
-            const title = info.videoDetails.title.replace(/[^a-zA-Z0-9]/g, '_');
-            const filename = `${title}_${Date.now()}.${format === 'mp3' ? 'mp3' : 'mp4'}`;
-            const filePath = path.join(userDir, filename);
-
-            const video = ytdl.default(url, {
-                quality: format === 'mp3' ? 'highestaudio' : 'highest',
-                filter: format === 'mp3' ? 'audioonly' : 'audioandvideo'
-            });
-
-            return new Promise((resolve, reject) => {
-                const writer = fs.createWriteStream(filePath);
-                video.pipe(writer);
-
-                writer.on('finish', () => {
-                    const stats = fs.statSync(filePath);
-                    resolve({
-                        path: filePath,
-                        name: filename,
-                        size: this.formatBytes(stats.size),
-                        type: format === 'mp3' ? 'audio' : 'video',
-                        success: true
-                    });
-                });
-
-                writer.on('error', reject);
-            });
-        } catch (fallbackError) {
-            throw new Error(`YouTube download failed: ${fallbackError.message}`);
-        }
-    }
-
-    // REAL Instagram download using external API
-    async downloadInstagram(url, phoneNumber) {
-        try {
-            // Using a public Instagram downloader API
-            const apiUrl = `https://instagram-downloader-download-instagram-videos-stories.p.rapidapi.com/index`;
-            
-            const response = await axios.get(apiUrl, {
-                params: { url: url },
-                headers: {
-                    'X-RapidAPI-Key': 'your-api-key-here', // You need to get a free API key
-                    'X-RapidAPI-Host': 'instagram-downloader-download-instagram-videos-stories.p.rapidapi.com'
-                },
-                timeout: 30000
-            });
-
-            if (response.data.media) {
-                const mediaUrl = response.data.media;
-                return await this.downloadGeneric(mediaUrl, phoneNumber, 'instagram');
-            }
-            
-            throw new Error('No media found in Instagram response');
-        } catch (error) {
-            throw new Error(`Instagram download failed: ${error.message}`);
-        }
-    }
-
-    // REAL TikTok download using external API
-    async downloadTikTok(url, phoneNumber) {
-        try {
-            const apiUrl = `https://tiktok-downloader-download-tiktok-videos-without-watermark.p.rapidapi.com/vid/index`;
-            
-            const response = await axios.get(apiUrl, {
-                params: { url: url },
-                headers: {
-                    'X-RapidAPI-Key': 'your-api-key-here',
-                    'X-RapidAPI-Host': 'tiktok-downloader-download-tiktok-videos-without-watermark.p.rapidapi.com'
-                },
-                timeout: 30000
-            });
-
-            if (response.data.video) {
-                const videoUrl = response.data.video[0];
-                return await this.downloadGeneric(videoUrl, phoneNumber, 'tiktok');
-            }
-            
-            throw new Error('No video found in TikTok response');
-        } catch (error) {
-            throw new Error(`TikTok download failed: ${error.message}`);
-        }
-    }
-
-    // REAL Generic file download
-    async downloadGeneric(url, phoneNumber, source = 'generic') {
-        try {
-            const userDir = path.join(this.downloadsDir, phoneNumber);
-            if (!fs.existsSync(userDir)) {
-                fs.mkdirSync(userDir, { recursive: true });
-            }
-
-            const response = await axios({
-                method: 'GET',
-                url: url,
-                responseType: 'stream',
-                timeout: 60000,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept': '*/*',
-                    'Accept-Encoding': 'identity',
-                    'Connection': 'keep-alive'
-                }
-            });
-
-            const contentDisposition = response.headers['content-disposition'];
-            const contentType = response.headers['content-type'];
-            const filename = this.generateFilename(url, contentDisposition, contentType, source);
-            const filePath = path.join(userDir, filename);
-
-            const writer = fs.createWriteStream(filePath);
-
-            return new Promise((resolve, reject) => {
-                let downloadedBytes = 0;
-                const totalBytes = parseInt(response.headers['content-length'], 10);
-
-                response.data.on('data', (chunk) => {
-                    downloadedBytes += chunk.length;
-                    // Progress reporting can be added here
-                });
-
-                response.data.pipe(writer);
-
-                writer.on('finish', () => {
-                    const stats = fs.statSync(filePath);
-                    resolve({
-                        path: filePath,
-                        name: filename,
-                        size: this.formatBytes(stats.size),
-                        type: this.getFileType(filename),
-                        success: true
-                    });
-                });
-
-                writer.on('error', (error) => {
-                    if (fs.existsSync(filePath)) {
-                        fs.unlinkSync(filePath);
-                    }
-                    reject(error);
-                });
-
-                response.data.on('error', reject);
-            });
-        } catch (error) {
-            throw new Error(`Download failed: ${error.message}`);
-        }
-    }
-
-    // REAL Search and download first YouTube result
-    async searchAndDownload(query, phoneNumber, format = 'mp4') {
-        try {
-            // Search YouTube using Invidious API
-            const searchUrl = `https://inv.odyssey346.dev/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
-            const response = await axios.get(searchUrl, { timeout: 15000 });
-            
-            if (response.data.length === 0) {
-                throw new Error('No results found');
-            }
-
-            const firstResult = response.data[0];
-            const youtubeUrl = `https://youtube.com/watch?v=${firstResult.videoId}`;
-            
-            await this.downloadYouTube(youtubeUrl, phoneNumber, format);
-
-            return {
-                title: firstResult.title,
-                url: youtubeUrl,
-                duration: this.formatDuration(firstResult.lengthSeconds),
-                author: firstResult.author
-            };
-        } catch (error) {
-            throw new Error(`Search and download failed: ${error.message}`);
-        }
-    }
-
-    // Helper methods
-    generateFilename(url, contentDisposition, contentType, source) {
-        if (contentDisposition) {
-            const match = contentDisposition.match(/filename="?(.+?)"?$/);
-            if (match) return match[1];
-        }
-
-        const ext = this.getExtensionFromContentType(contentType) || 
-                   (source === 'instagram' ? '.mp4' : '.download');
-        
-        return `${source}_${Date.now()}${ext}`;
-    }
-
-    getExtensionFromContentType(contentType) {
-        const extensions = {
-            'video/mp4': '.mp4',
-            'video/webm': '.webm',
-            'audio/mpeg': '.mp3',
-            'image/jpeg': '.jpg',
-            'image/png': '.png',
-            'image/gif': '.gif'
-        };
-        return extensions[contentType] || null;
-    }
-
-    getFileType(filename) {
-        const ext = path.extname(filename).toLowerCase();
-        if (['.mp4', '.avi', '.mov', '.webm'].includes(ext)) return 'video';
-        if (['.mp3', '.wav', '.m4a'].includes(ext)) return 'audio';
-        if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) return 'image';
-        return 'file';
-    }
-
-    formatBytes(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    formatDuration(seconds) {
-        if (!seconds) return 'Unknown';
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
-        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-    }
-
-    getUserDownloads(phoneNumber) {
-        const userDir = path.join(this.downloadsDir, phoneNumber);
-        if (!fs.existsSync(userDir)) return [];
-
-        return fs.readdirSync(userDir).map(file => {
-            const filePath = path.join(userDir, file);
-            try {
-                const stats = fs.statSync(filePath);
-                return {
-                    name: file,
-                    size: this.formatBytes(stats.size),
-                    date: stats.mtime,
-                    path: filePath
-                };
-            } catch (error) {
-                return null;
-            }
-        }).filter(Boolean);
-    }
-
-    getStorageUsage(phoneNumber) {
-        const userDir = path.join(this.downloadsDir, phoneNumber);
-        if (!fs.existsSync(userDir)) return '0 Bytes';
-
-        let totalSize = 0;
-        const files = fs.readdirSync(userDir);
-        files.forEach(file => {
-            const filePath = path.join(userDir, file);
-            try {
-                totalSize += fs.statSync(filePath).size;
-            } catch (error) {
-                console.error('Error getting file size:', error);
-            }
-        });
-
-        return this.formatBytes(totalSize);
+    // Handle commands via GeneralCommands
+    const handled = await generalCommands.handleCommand(sock, sender, phoneNumber, text);
+    
+    if (!handled) {
+        // Fallback to basic commands
+        await handleBasicCommand(sock, sender, phoneNumber, text);
     }
 }
 
-module.exports = RealDownloadManager;
+// Basic command handler (fallback)
+async function handleBasicCommand(sock, sender, phoneNumber, text) {
+    const args = text.slice(1).split(' ');
+    const command = args[0].toLowerCase();
+
+    if (command === 'activate') {
+        if (args[1] === ACTIVATION_KEY) {
+            activateUser(phoneNumber);
+            await sock.sendMessage(sender, {
+                text: '✅ Account activated! You have 10 free downloads.\nUse .help to see all commands'
+            });
+        } else {
+            await sock.sendMessage(sender, { text: '❌ Invalid activation key' });
+        }
+        return;
+    }
+
+    if (command === 'help') {
+        await sock.sendMessage(sender, {
+            text: `📋 BASIC COMMANDS:
+.activate [key] - Activate your account
+.download [url] - Download from any website
+.search [query] - Search and download
+.status - Check bot status
+.help - Show this message
+
+🎯 ADVANCED COMMANDS (after activation):
+.download mp4 [url] - Download as MP4
+.download mp3 [url] - Download as MP3
+.yt [query/url] - YouTube specific download
+.ig [url] - Instagram download
+.tt [url] - TikTok download`
+        });
+        return;
+    }
+
+    if (command === 'status') {
+        await sock.sendMessage(sender, {
+            text: `🤖 BOT STATUS:
+• Connected: ${isConnected ? '✅' : '❌'}
+• Active Users: ${userActivations.size}
+• Your Status: ${isUserActivated(phoneNumber) ? '✅ Activated' : '❌ Not activated'}`
+        });
+        return;
+    }
+
+    await sock.sendMessage(sender, { text: '❌ Unknown command. Use .help' });
+}
+
+// Connection Manager
+class ConnectionManager {
+    constructor() {
+        this.isConnecting = false;
+        this.qrDisplayCount = 0;
+    }
+
+    async connect() {
+        if (this.isConnecting) return;
+        this.isConnecting = true;
+
+        try {
+            // Ensure auth directory exists
+            if (!fs.existsSync('auth_info_baileys')) {
+                fs.mkdirSync('auth_info_baileys', { recursive: true });
+            }
+
+            const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+            const { version } = await fetchLatestBaileysVersion();
+
+            console.log('🔗 Connecting to WhatsApp...');
+
+            const { default: makeWASocket } = await import('@whiskeysockets/baileys');
+            
+            sock = makeWASocket({
+                version,
+                logger: simpleLogger,
+                printQRInTerminal: false,
+                auth: state,
+                browser: Browsers.ubuntu('Chrome'),
+                markOnlineOnConnect: true
+            });
+
+            // Handle connection events
+            sock.ev.on('connection.update', (update) => {
+                const { connection, qr } = update;
+
+                if (qr) {
+                    this.qrDisplayCount++;
+                    showQR(qr);
+                }
+
+                if (connection === 'open') {
+                    this.handleSuccessfulConnection();
+                }
+
+                if (connection === 'close') {
+                    this.handleDisconnection();
+                }
+            });
+
+            // Handle credentials
+            sock.ev.on('creds.update', saveCreds);
+
+            // Handle messages
+            sock.ev.on('messages.upsert', async ({ messages }) => {
+                const msg = messages[0];
+                if (msg.key.remoteJid === 'status@broadcast') return;
+                
+                try {
+                    await handleMessage(msg);
+                } catch (error) {
+                    console.log('Error handling message:', error);
+                }
+            });
+
+        } catch (error) {
+            console.log('❌ Connection error:', error.message);
+            this.handleConnectionError(error);
+        }
+    }
+
+    handleSuccessfulConnection() {
+        isConnected = true;
+        reconnectAttempts = 0;
+        this.isConnecting = false;
+        console.log('✅ WhatsApp connected successfully!');
+        console.log('🤖 Bot is ready to receive messages');
+    }
+
+    handleDisconnection() {
+        isConnected = false;
+        this.isConnecting = false;
+
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            const delay = Math.min(10000 * reconnectAttempts, 60000);
+            console.log(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+            setTimeout(() => this.connect(), delay);
+        } else {
+            console.log('❌ Max reconnection attempts reached');
+        }
+    }
+
+    handleConnectionError(error) {
+        console.log('❌ Connection setup error:', error.message);
+        this.isConnecting = false;
+        this.handleDisconnection();
+    }
+}
+
+// Web Server
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        connected: isConnected,
+        users: userActivations.size,
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/', (req, res) => {
+    res.json({
+        service: 'WhatsApp Download Bot',
+        version: '2.0.0',
+        status: 'running'
+    });
+});
+
+// Start function
+async function start() {
+    try {
+        console.log('🚀 Starting Enhanced WhatsApp Download Bot...');
+        console.log('🔑 Activation Key:', ACTIVATION_KEY);
+        console.log('🌐 Environment:', process.env.NODE_ENV || 'development');
+
+        // Start web server
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`🌐 Server running on port ${PORT}`);
+            console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
+        });
+
+        // Start WhatsApp connection
+        const connectionManager = new ConnectionManager();
+        await connectionManager.connect();
+
+    } catch (error) {
+        console.log('❌ Failed to start:', error);
+        process.exit(1);
+    }
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\n🛑 Shutting down gracefully...');
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Received SIGTERM...');
+    process.exit(0);
+});
+
+// Error handling
+process.on('uncaughtException', (error) => {
+    console.log('💥 Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Start the application
+start();
