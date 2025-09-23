@@ -2,13 +2,10 @@ FROM node:18-bullseye-slim
 
 WORKDIR /app
 
-# Install system dependencies including Python and pip
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y \
     build-essential \
-    python3 \
-    python3-pip \
-    python3-venv \
     make \
     g++ \
     libcairo2-dev \
@@ -34,11 +31,8 @@ RUN npm install web-streams-polyfill
 # Copy application code
 COPY . .
 
-# Install Python dependencies
-RUN pip3 install yt-dlp schedule requests aiohttp
-
 # Create directories
-RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions /app/python_deps
+RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions
 
 # Create non-root user
 RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot && \
@@ -51,4 +45,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
-CMD ["node", "polyfill.js"]
+CMD ["node", "index.js"]
