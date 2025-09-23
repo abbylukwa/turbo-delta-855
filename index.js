@@ -873,23 +873,20 @@ class ConnectionManager {
             }
           }
         });
-
-        // Handle message receipts
-        sock.ev.on('message-receipt.update', (receipts) => {
-          for (const { key, receipt } of receipts) {
-            console.log(`📨 Message receipt: ${key.id} -> ${receipt.type}`);
-          }
-        });
-
-      } catch (error) {
-        console.error('❌ Connection error:', error);
-        this.handleConnectionError(error);
-      }
-    } finally {
-      this.isConnecting = false;
+   try {
+  // Handle message receipts
+  sock.ev.on('message-receipt.update', (receipts) => {
+    for (const { key, receipt } of receipts) {
+      console.log(`📨 Message receipt: ${key.id} -> ${receipt.type}`);
     }
-  }
+  });
 
+} catch (error) {
+  console.error('❌ Connection error:', error);
+  this.handleConnectionError(error);
+} finally {
+  this.isConnecting = false;
+}
   scheduleNextAuthMethod() {
     // Clear any existing timer
     if (this.pairingCodeTimer) {
