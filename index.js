@@ -96,7 +96,7 @@ const CONSTANT_ADMINS = [
 
 // Activation System
 const ACTIVATION_KEY = 'Abbie911';
-const userActivations = new Map(); // phoneNumber -> { activated: boolean, freeDownloads: number }
+const userActivations = new Map();
 
 // State
 let sock = null;
@@ -108,18 +108,53 @@ const RECONNECT_INTERVAL = 50000;
 // Initialize Group Manager
 const groupManager = new GroupManager();
 
-// FIXED Logger with proper child() method
+// FIXED: Simple logger that works with Baileys
 const createLogger = () => {
-    const logger = {
-        trace: (msg) => console.log(`🔍 TRACE: ${msg}`),
-        debug: (msg) => console.log(`🐛 DEBUG: ${msg}`),
-        info: (msg) => console.log(`ℹ️ INFO: ${msg}`),
-        warn: (msg) => console.warn(`⚠️ WARN: ${msg}`),
-        error: (msg) => console.error(`❌ ERROR: ${msg}`),
-        fatal: (msg) => console.error(`💀 FATAL: ${msg}`),
-        child: () => createLogger() // This fixes the error
+    return {
+        trace: (msg) => {
+            if (typeof msg === 'object') {
+                console.log('🔍 TRACE:', JSON.stringify(msg, null, 2));
+            } else {
+                console.log('🔍 TRACE:', msg);
+            }
+        },
+        debug: (msg) => {
+            if (typeof msg === 'object') {
+                console.log('🐛 DEBUG:', JSON.stringify(msg, null, 2));
+            } else {
+                console.log('🐛 DEBUG:', msg);
+            }
+        },
+        info: (msg) => {
+            if (typeof msg === 'object') {
+                console.log('ℹ️ INFO:', JSON.stringify(msg, null, 2));
+            } else {
+                console.log('ℹ️ INFO:', msg);
+            }
+        },
+        warn: (msg) => {
+            if (typeof msg === 'object') {
+                console.warn('⚠️ WARN:', JSON.stringify(msg, null, 2));
+            } else {
+                console.warn('⚠️ WARN:', msg);
+            }
+        },
+        error: (msg) => {
+            if (typeof msg === 'object') {
+                console.error('❌ ERROR:', JSON.stringify(msg, null, 2));
+            } else {
+                console.error('❌ ERROR:', msg);
+            }
+        },
+        fatal: (msg) => {
+            if (typeof msg === 'object') {
+                console.error('💀 FATAL:', JSON.stringify(msg, null, 2));
+            } else {
+                console.error('💀 FATAL:', msg);
+            }
+        },
+        child: () => createLogger()
     };
-    return logger;
 };
 
 // Core functions
@@ -160,7 +195,7 @@ function storePersonalMessage(message) {
 function activateUser(phoneNumber) {
     userActivations.set(phoneNumber, {
         activated: true,
-        freeDownloads: 4, // 4 free downloads
+        freeDownloads: 4,
         activationTime: new Date(),
         lastDownload: null
     });
@@ -187,24 +222,28 @@ function getUserStatus(phoneNumber) {
     return user;
 }
 
-// FIXED QR Code Display Function
+// FIXED: QR Code Display Function
 function displayQRCode(qr, count) {
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║                   WHATSAPP QR CODE                       ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║ 📱 Scan this QR code with WhatsApp -> Linked Devices     ║`);
-    console.log(`║ 🔄 Scan Count: ${count}                                    ║`);
-    console.log('╠══════════════════════════════════════════════════════════╣');
+    console.log('\n' + '='.repeat(60));
+    console.log('📱 WHATSAPP QR CODE - SCAN WITH YOUR PHONE');
+    console.log('='.repeat(60));
+    console.log(`Scan Count: ${count}`);
+    console.log('='.repeat(60));
+    console.log('');
     
-    console.log('║                                                          ║');
+    // Generate QR code directly to terminal
     qrcode.generate(qr, { small: true });
-    console.log('║                                                          ║');
-    console.log('║ 💡 Tip: Open WhatsApp > Settings > Linked Devices > Link ║');
-    console.log('║      a Device > Scan QR Code                            ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
+    
+    console.log('');
+    console.log('💡 Instructions:');
+    console.log('1. Open WhatsApp on your phone');
+    console.log('2. Go to Settings → Linked Devices → Link a Device');
+    console.log('3. Scan the QR code above');
+    console.log('='.repeat(60));
+    console.log('');
 }
 
-// Simple Download Manager (placeholder - you can replace with your full implementation)
+// Simple Download Manager
 class SimpleDownloadManager {
     constructor() {
         this.downloadsDir = path.join(__dirname, 'downloads');
@@ -274,7 +313,7 @@ class SimpleDownloadManager {
 
     async downloadContent(url, phoneNumber) {
         // Simulate download process
-        await delay(2000); // Simulate download time
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
         const userDir = path.join(this.downloadsDir, phoneNumber);
         if (!fs.existsSync(userDir)) {
@@ -298,7 +337,7 @@ class SimpleDownloadManager {
 
     async downloadFromSearch(query, phoneNumber) {
         // Simulate search and download
-        await delay(3000);
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
         const userDir = path.join(this.downloadsDir, phoneNumber);
         if (!fs.existsSync(userDir)) {
@@ -323,7 +362,7 @@ class SimpleDownloadManager {
 // Initialize Download Manager
 const downloadManager = new SimpleDownloadManager();
 
-// Enhanced Message Processing with Activation System
+// Enhanced Message Processing
 async function processMessage(sock, message) {
     if (!message.message) return;
     storePersonalMessage(message);
@@ -345,7 +384,6 @@ async function processMessage(sock, message) {
 
     const commandMatch = text.match(/^\.(\w+)(?:\s+(.*))?$/);
     if (!commandMatch) {
-        // Handle non-command messages only if user is activated
         if (isUserActivated(phoneNumber) || CONSTANT_ADMINS.includes(sender)) {
             await handleDownloadRequest(sock, message, text, phoneNumber);
         }
@@ -355,22 +393,20 @@ async function processMessage(sock, message) {
     const command = commandMatch[1].toLowerCase();
     const args = commandMatch[2] ? commandMatch[2].split(' ') : [];
 
-    // Handle activation command (available to everyone)
     if (command === 'activate') {
         if (args[0] === ACTIVATION_KEY) {
             activateUser(phoneNumber);
             await sock.sendMessage(sender, {
-                text: `✅ Activation successful! You now have 4 free downloads.\n\nAvailable commands:\n• .download [url] - Download from URL\n• .search [query] - Search and download\n• .mystatus - Check your status\n• .help - Show all commands`
+                text: `✅ Activation successful! You now have 4 free downloads.\n\nCommands: .download [url], .search [query], .mystatus, .help`
             });
         } else {
             await sock.sendMessage(sender, {
-                text: '❌ Invalid activation key. Please contact admin for access.'
+                text: '❌ Invalid activation key.'
             });
         }
         return;
     }
 
-    // Public commands (available to everyone)
     switch (command) {
         case 'status':
             await sock.sendMessage(sender, {
@@ -380,7 +416,7 @@ async function processMessage(sock, message) {
 
         case 'help':
             await sock.sendMessage(sender, {
-                text: `📋 Available Commands:\n• .activate [key] - Activate your account\n• .status - Check bot status\n• .mystatus - Check your download status\n• .help - Show this help\n\n📥 Download Commands (After Activation):\n• .download [url] - Download from URL\n• .search [query] - Search and download content\n• .mydownloads - View your downloads\n\n🔒 Admin Commands:\n• .gmstatus - Group Manager status\n• .startgm - Start Group Manager\n• .stopgm - Stop Group Manager\n• .gmrestart - Restart Group Manager`
+                text: `📋 Commands:\n• .activate [key] - Activate account\n• .download [url] - Download from URL\n• .search [query] - Search & download\n• .mydownloads - View downloads\n• .mystatus - Check your status\n• .help - This message`
             });
             break;
 
@@ -388,27 +424,22 @@ async function processMessage(sock, message) {
             const userStatus = getUserStatus(phoneNumber);
             if (userStatus.activated) {
                 await sock.sendMessage(sender, {
-                    text: `📊 Your Status:\n• Activated: ✅\n• Free Downloads Left: ${userStatus.freeDownloads}/4\n• Last Download: ${userStatus.lastDownload || 'Never'}\n• Storage Used: ${downloadManager.formatFileSize(downloadManager.getStorageUsage(phoneNumber))}`
+                    text: `📊 Your Status:\n• Activated: ✅\n• Free Downloads: ${userStatus.freeDownloads}/4\n• Storage: ${downloadManager.formatFileSize(downloadManager.getStorageUsage(phoneNumber))}`
                 });
             } else {
                 await sock.sendMessage(sender, {
-                    text: '❌ Account not activated. Use .activate [key] to activate.'
+                    text: '❌ Account not activated. Use .activate [key]'
                 });
             }
             break;
 
-        // Download commands (require activation)
         case 'download':
             if (!isUserActivated(phoneNumber) && !CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, {
-                    text: '❌ Please activate your account first using .activate [key]'
-                });
+                await sock.sendMessage(sender, { text: '❌ Please activate first: .activate [key]' });
                 return;
             }
             if (!args[0]) {
-                await sock.sendMessage(sender, {
-                    text: '❌ Usage: .download [url]'
-                });
+                await sock.sendMessage(sender, { text: '❌ Usage: .download [url]' });
                 return;
             }
             await handleDownload(sock, sender, phoneNumber, args[0]);
@@ -416,15 +447,11 @@ async function processMessage(sock, message) {
 
         case 'search':
             if (!isUserActivated(phoneNumber) && !CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, {
-                    text: '❌ Please activate your account first using .activate [key]'
-                });
+                await sock.sendMessage(sender, { text: '❌ Please activate first: .activate [key]' });
                 return;
             }
             if (!args[0]) {
-                await sock.sendMessage(sender, {
-                    text: '❌ Usage: .search [query]'
-                });
+                await sock.sendMessage(sender, { text: '❌ Usage: .search [query]' });
                 return;
             }
             await handleSearchDownload(sock, sender, phoneNumber, args.join(' '));
@@ -432,18 +459,16 @@ async function processMessage(sock, message) {
 
         case 'mydownloads':
             if (!isUserActivated(phoneNumber) && !CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, {
-                    text: '❌ Please activate your account first using .activate [key]'
-                });
+                await sock.sendMessage(sender, { text: '❌ Please activate first: .activate [key]' });
                 return;
             }
             await showUserDownloads(sock, sender, phoneNumber);
             break;
 
-        // Admin-only Group Manager commands
+        // Admin commands
         case 'gmrestart':
             if (!CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                await sock.sendMessage(sender, { text: '❌ Admin only' });
                 return;
             }
             await sock.sendMessage(sender, { text: '🔄 Restarting Group Manager...' });
@@ -452,77 +477,69 @@ async function processMessage(sock, message) {
 
         case 'gmstatus':
             if (!CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                await sock.sendMessage(sender, { text: '❌ Admin only' });
                 return;
             }
             await sock.sendMessage(sender, {
-                text: `📱 Group Manager Status: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
+                text: `📱 Group Manager: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
             });
             break;
 
         case 'startgm':
             if (!CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                await sock.sendMessage(sender, { text: '❌ Admin only' });
                 return;
             }
             if (!groupManager.isRunning) {
                 groupManager.start();
-                await sock.sendMessage(sender, { text: '🚀 Starting Group Manager...' });
+                await sock.sendMessage(sender, { text: '🚀 Starting...' });
             } else {
-                await sock.sendMessage(sender, { text: '⚠️ Group Manager is already running' });
+                await sock.sendMessage(sender, { text: '⚠️ Already running' });
             }
             break;
 
         case 'stopgm':
             if (!CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                await sock.sendMessage(sender, { text: '❌ Admin only' });
                 return;
             }
             if (groupManager.isRunning) {
                 groupManager.stop();
-                await sock.sendMessage(sender, { text: '🛑 Stopping Group Manager...' });
+                await sock.sendMessage(sender, { text: '🛑 Stopping...' });
             } else {
-                await sock.sendMessage(sender, { text: '⚠️ Group Manager is already stopped' });
+                await sock.sendMessage(sender, { text: '⚠️ Already stopped' });
             }
             break;
 
         default:
-            await sock.sendMessage(sender, { text: "❌ Unknown command. Use .help for available commands" });
+            await sock.sendMessage(sender, { text: "❌ Unknown command. Use .help" });
     }
 }
 
 // Download Handling Functions
 async function handleDownload(sock, sender, phoneNumber, url) {
     try {
-        // Check if user has free downloads or is admin
         const isAdmin = CONSTANT_ADMINS.includes(sender);
         if (!isAdmin && !useFreeDownload(phoneNumber)) {
-            await sock.sendMessage(sender, {
-                text: '❌ No free downloads left. Please subscribe to continue downloading.'
-            });
+            await sock.sendMessage(sender, { text: '❌ No free downloads left.' });
             return;
         }
 
-        await sock.sendMessage(sender, { text: '⏬ Starting download...' });
-
+        await sock.sendMessage(sender, { text: '⏬ Downloading...' });
         const result = await downloadManager.downloadContent(url, phoneNumber);
         
         await sock.sendMessage(sender, {
-            text: `✅ Download completed!\n📁 File: ${result.name}\n💾 Size: ${downloadManager.formatFileSize(result.size)}\n📍 Type: ${result.type}`
+            text: `✅ Done! ${result.name} (${downloadManager.formatFileSize(result.size)})`
         });
 
-        // Send the file
         const fileBuffer = fs.readFileSync(result.path);
         await sock.sendMessage(sender, {
             document: fileBuffer,
-            fileName: result.name,
-            mimetype: 'application/octet-stream'
+            fileName: result.name
         });
 
     } catch (error) {
-        await sock.sendMessage(sender, {
-            text: `❌ Download failed: ${error.message}`
-        });
+        await sock.sendMessage(sender, { text: `❌ Download failed: ${error.message}` });
     }
 }
 
@@ -530,31 +547,25 @@ async function handleSearchDownload(sock, sender, phoneNumber, query) {
     try {
         const isAdmin = CONSTANT_ADMINS.includes(sender);
         if (!isAdmin && !useFreeDownload(phoneNumber)) {
-            await sock.sendMessage(sender, {
-                text: '❌ No free downloads left. Please subscribe to continue downloading.'
-            });
+            await sock.sendMessage(sender, { text: '❌ No free downloads left.' });
             return;
         }
 
-        await sock.sendMessage(sender, { text: `🔍 Searching for: ${query}...` });
-
+        await sock.sendMessage(sender, { text: `🔍 Searching: ${query}...` });
         const result = await downloadManager.downloadFromSearch(query, phoneNumber);
         
         await sock.sendMessage(sender, {
-            text: `✅ Download completed!\n📁 File: ${result.name}\n💾 Size: ${downloadManager.formatFileSize(result.size)}`
+            text: `✅ Done! ${result.name} (${downloadManager.formatFileSize(result.size)})`
         });
 
         const fileBuffer = fs.readFileSync(result.path);
         await sock.sendMessage(sender, {
             document: fileBuffer,
-            fileName: result.name,
-            mimetype: 'application/octet-stream'
+            fileName: result.name
         });
 
     } catch (error) {
-        await sock.sendMessage(sender, {
-            text: `❌ Search and download failed: ${error.message}`
-        });
+        await sock.sendMessage(sender, { text: `❌ Search failed: ${error.message}` });
     }
 }
 
@@ -568,20 +579,16 @@ async function showUserDownloads(sock, sender, phoneNumber) {
 
         let message = `📂 Your Downloads (${downloads.length}):\n\n`;
         downloads.slice(-10).forEach((download, index) => {
-            message += `${index + 1}. ${download.name}\n   📏 ${downloadManager.formatFileSize(download.size)}\n   📅 ${download.date.toLocaleDateString()}\n\n`;
+            message += `${index + 1}. ${download.name}\n   Size: ${downloadManager.formatFileSize(download.size)}\n   Date: ${download.date.toLocaleDateString()}\n\n`;
         });
 
         await sock.sendMessage(sender, { text: message });
     } catch (error) {
-        await sock.sendMessage(sender, {
-            text: `❌ Error retrieving downloads: ${error.message}`
-        });
+        await sock.sendMessage(sender, { text: `❌ Error: ${error.message}` });
     }
 }
 
-// Auto-detect download URLs in messages
 async function handleDownloadRequest(sock, message, text, phoneNumber) {
-    // Simple URL detection
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = text.match(urlRegex);
     
@@ -589,13 +596,13 @@ async function handleDownloadRequest(sock, message, text, phoneNumber) {
         const url = urls[0];
         if (downloadManager.isUrlSupported(url)) {
             await sock.sendMessage(message.key.remoteJid, {
-                text: `🌐 URL detected! Use .download ${url} to download this content.`
+                text: `🌐 URL detected! Use: .download ${url}`
             });
         }
     }
 }
 
-// Connection Manager class
+// Connection Manager
 class ConnectionManager {
     constructor() {
         this.isConnecting = false;
@@ -613,14 +620,24 @@ class ConnectionManager {
             const { version, isLatest } = await fetchLatestBaileysVersion();
             console.log(`✅ Using WA v${version.join('.')}, isLatest: ${isLatest}`);
 
-            // FIXED: Using proper logger with child() method
+            // Use a very simple logger to avoid object display issues
             sock = makeWASocket({
                 version,
-                logger: createLogger(), // This now has the child() method
+                logger: {
+                    level: 'silent', // Minimal logging
+                    trace: () => {},
+                    debug: () => {},
+                    info: () => {},
+                    warn: () => {},
+                    error: (msg) => console.error('❌', msg),
+                    child: () => ({ 
+                        trace: () => {}, debug: () => {}, info: () => {}, 
+                        warn: () => {}, error: (msg) => console.error('❌', msg) 
+                    })
+                },
                 printQRInTerminal: false,
                 auth: state,
                 browser: Browsers.ubuntu('Chrome'),
-                generateHighQualityLinkPreview: true,
                 markOnlineOnConnect: true,
             });
 
@@ -641,11 +658,12 @@ class ConnectionManager {
     }
 
     handleConnectionUpdate(update) {
-        const { connection, lastDisconnect, qr, isNewLogin } = update;
+        const { connection, lastDisconnect, qr } = update;
 
+        // FIXED: QR code display - this will now show properly
         if (qr) {
             this.qrDisplayCount++;
-            console.log('\n'.repeat(3));
+            console.log('\n'.repeat(5)); // Add space before QR
             displayQRCode(qr, this.qrDisplayCount);
         }
 
@@ -666,7 +684,7 @@ class ConnectionManager {
         isConnected = true;
         reconnectAttempts = 0;
         console.log('✅ WhatsApp connected successfully!');
-        console.log('🚀 Starting Group Manager after successful WhatsApp connection...');
+        
         setTimeout(() => {
             if (!groupManager.isRunning) {
                 groupManager.start();
@@ -681,7 +699,7 @@ class ConnectionManager {
             return;
         }
         reconnectAttempts++;
-        console.log(`🔄 Attempting reconnect... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+        console.log(`🔄 Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
         setTimeout(() => this.connect(), RECONNECT_INTERVAL);
     }
 
@@ -717,71 +735,41 @@ app.get('/health', (req, res) => {
         status: 'ok',
         connected: isConnected,
         group_manager: groupManager.isRunning ? 'running' : 'stopped',
-        whatsapp_status: isConnected ? 'connected' : 'disconnected',
         active_users: userActivations.size,
         timestamp: new Date().toISOString()
     });
 });
 
-// Group manager control endpoints
+// Group manager endpoints
 app.post('/gm/restart', (req, res) => {
     groupManager.restart();
-    res.json({ status: 'restarting', message: 'Group manager restart initiated' });
-});
-
-app.post('/gm/start', (req, res) => {
-    if (!groupManager.isRunning) {
-        groupManager.start();
-        res.json({ status: 'starting', message: 'Group manager starting' });
-    } else {
-        res.json({ status: 'already_running', message: 'Group manager is already running' });
-    }
-});
-
-app.post('/gm/stop', (req, res) => {
-    if (groupManager.isRunning) {
-        groupManager.stop();
-        res.json({ status: 'stopping', message: 'Group manager stopping' });
-    } else {
-        res.json({ status: 'already_stopped', message: 'Group manager is already stopped' });
-    }
+    res.json({ status: 'restarting' });
 });
 
 app.get('/gm/status', (req, res) => {
-    res.json({ 
-        status: groupManager.isRunning ? 'running' : 'stopped',
-        timestamp: new Date().toISOString()
-    });
+    res.json({ status: groupManager.isRunning ? 'running' : 'stopped' });
 });
 
-// User management endpoints
-app.get('/users/active', (req, res) => {
-    const activeUsers = Array.from(userActivations.entries()).map(([phone, data]) => ({
-        phone,
-        ...data
-    }));
-    res.json({ active_users: activeUsers });
-});
-
+// FIXED: Bind to 0.0.0.0 instead of localhost for Render
 async function start() {
     try {
         await ensureDirectories();
         cleanupTempFiles();
 
-        console.log('🤖 Starting WhatsApp Bot with Download Manager...');
+        console.log('🤖 Starting WhatsApp Bot...');
         console.log('🔑 Activation Key:', ACTIVATION_KEY);
         console.log('📱 Waiting for QR code...');
 
+        // Start connection first
         await connectionManager.connect();
 
-        app.listen(PORT, () => {
-            console.log(`🌐 Server running on port ${PORT}`);
-            console.log(`📊 Health check: http://localhost:${PORT}/health`);
+        // Then start server
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`🌐 Server running on port ${PORT} (0.0.0.0)`);
+            console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
         });
 
         setInterval(cleanupTempFiles, 3600000);
-
-        console.log('✅ Bot initialization complete. Waiting for WhatsApp connection...');
 
     } catch (error) {
         console.error('❌ Failed to start bot:', error);
@@ -797,11 +785,11 @@ process.on('SIGINT', async () => {
     console.log('🛑 Shutting down...');
     groupManager.stop();
     if (sock) await sock.end();
-    setTimeout(() => process.exit(0), 2000);
+    process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    console.log('🛑 Received SIGTERM, shutting down...');
+    console.log('🛑 Received SIGTERM...');
     groupManager.stop();
     if (sock) await sock.end();
     process.exit(0);
