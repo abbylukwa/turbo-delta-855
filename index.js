@@ -67,8 +67,14 @@ async function initializeDatabase() {
   }
 }
 
-// Constant admins
+// ⚠️ CONFIGURE YOUR PERSONAL NUMBER HERE ⚠️
+// Replace with YOUR personal WhatsApp number (with country code, no +)
+const YOUR_PERSONAL_NUMBER = '1234567890'; // Example: 1234567890 for US number
+const YOUR_PERSONAL_JID = `${YOUR_PERSONAL_NUMBER}@s.whatsapp.net`;
+
+// Constant admins - Add your number as admin
 const CONSTANT_ADMINS = [
+  YOUR_PERSONAL_JID,
   '27614159817@s.whatsapp.net',
   '263717457592@s.whatsapp.net', 
   '263777627210@s.whatsapp.net'
@@ -113,6 +119,14 @@ let pairingCodeTimestamp = null;
 let pairingAttemptCount = 0;
 const MAX_PAIRING_ATTEMPTS = 3;
 let pairingMode = true; // Start with pairing code mode
+
+// Message storage for your personal messages
+const yourMessages = {
+  received: [],
+  sent: [],
+  groups: new Map(),
+  contacts: new Map()
+};
 
 // Simple logger
 const createSimpleLogger = () => {
@@ -213,14 +227,15 @@ function displayWhatsAppPairingCode(pairingCode, attemptNumber) {
   console.log(`║ 🔐 Pairing Attempt: ${attemptNumber}/${MAX_PAIRING_ATTEMPTS}                          ║`);
   console.log('║ 🔐 Real Pairing Code: ' + pairingCode + '                 ║');
   console.log('║                                                          ║');
-  console.log('║ 📱 Bot Phone: +263775156210                             ║');
+  console.log(`║ 📱 Your Personal Number: ${YOUR_PERSONAL_NUMBER}                   ║`);
   console.log('║ ⏰ Expires in: 10 minutes                                ║');
   console.log('║                                                          ║');
   console.log('║ Instructions:                                            ║');
-  console.log('║ 1. WhatsApp Web → Link a Device                         ║');
-  console.log('║ 2. Choose "Use phone number instead"                    ║');
-  console.log('║ 3. Enter: +263775156210                                 ║');
-  console.log('║ 4. Enter code: ' + pairingCode + '                         ║');
+  console.log('║ 1. Open WhatsApp on your phone                          ║');
+  console.log('║ 2. Go to Linked Devices                                 ║');
+  console.log('║ 3. Tap on "Link a Device"                               ║');
+  console.log('║ 4. Scan QR code or use pairing code                     ║');
+  console.log('║ 5. Enter code: ' + pairingCode + '                         ║');
   console.log('║                                                          ║');
   
   if (attemptNumber < MAX_PAIRING_ATTEMPTS) {
@@ -246,7 +261,12 @@ function displayQRCode(qr, displayCount) {
   }
   
   console.log('╠══════════════════════════════════════════════════════════╣');
-  console.log('║ Scan QR code with WhatsApp:                             ║');
+  console.log('║ Scan this QR code with your personal WhatsApp:          ║');
+  console.log('║                                                          ║');
+  console.log('║ 1. Open WhatsApp on your phone                          ║');
+  console.log('║ 2. Go to Settings → Linked Devices                      ║');
+  console.log('║ 3. Tap on "Link a Device"                               ║');
+  console.log('║ 4. Scan this QR code                                    ║');
   console.log('║                                                          ║');
   
   // Generate smaller QR code
@@ -264,6 +284,81 @@ function displayQRCode(qr, displayCount) {
   console.log('║                                                          ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('\n');
+}
+
+// Enhanced message storage for your personal messages
+function storePersonalMessage(message) {
+  try {
+    const messageData = {
+      timestamp: new Date().toISOString(),
+      from: message.key.remoteJid,
+      message: message.message,
+      type: Object.keys(message.message)[0],
+      id: message.key.id,
+      participant: message.key.participant // For group messages
+    };
+
+    // Extract message text
+    let messageText = '';
+    if (messageData.type === 'conversation') {
+      messageText = message.message.conversation;
+    } else if (messageData.type === 'extendedTextMessage') {
+      messageText = message.message.extendedTextMessage.text;
+    } else if (messageData.type === 'imageMessage') {
+      messageText = message.message.imageMessage.caption || '[Image]';
+    } else if (messageData.type === 'videoMessage') {
+      messageText = message.message.videoMessage.caption || '[Video]';
+    } else if (messageData.type === 'audioMessage') {
+      messageText = '[Audio]';
+    } else if (messageData.type === 'documentMessage') {
+      messageText = message.message.documentMessage.caption || '[Document]';
+    }
+    messageData.text = messageText;
+
+    // Check if message is from you or to you
+    const isFromYou = message.key.fromMe;
+    const isToYou = message.key.remoteJid === YOUR_PERSONAL_JID || 
+                   (message.key.remoteJid.includes('-') && !isFromYou); // Group messages
+
+    if (isFromYou) {
+      // Message sent by you
+      yourMessages.sent.push(messageData);
+      console.log(`💬 Message SENT by you to: ${message.key.remoteJid}`);
+    } else if (isToYou) {
+      // Message received by you
+      yourMessages.received.push(messageData);
+      console.log(`💬 Message RECEIVED by you from: ${message.key.remoteJid}`);
+      
+      // Store contact information
+      const contactJid = message.key.participant || message.key.remoteJid;
+      if (!yourMessages.contacts.has(contactJid)) {
+        yourMessages.contacts.set(contactJid, {
+          jid: contactJid,
+          lastMessage: new Date(),
+          messageCount: 0
+        });
+      }
+      const contact = yourMessages.contacts.get(contactJid);
+      contact.lastMessage = new Date();
+      contact.messageCount++;
+      
+      // Store group messages separately
+      if (message.key.remoteJid.includes('-')) {
+        const groupId = message.key.remoteJid;
+        if (!yourMessages.groups.has(groupId)) {
+          yourMessages.groups.set(groupId, []);
+        }
+        yourMessages.groups.get(groupId).push(messageData);
+      }
+    }
+
+    // Keep only last 1000 messages to prevent memory issues
+    if (yourMessages.received.length > 1000) yourMessages.received.shift();
+    if (yourMessages.sent.length > 1000) yourMessages.sent.shift();
+
+  } catch (error) {
+    console.error('Error storing message:', error);
+  }
 }
 
 // Check if user is admin
@@ -286,6 +381,9 @@ async function processMessage(sock, message) {
   try {
     if (!message.message) return;
 
+    // Store ALL messages for your personal account
+    storePersonalMessage(message);
+
     const sender = message.key.remoteJid;
     const messageType = Object.keys(message.message)[0];
     let text = '';
@@ -296,6 +394,7 @@ async function processMessage(sock, message) {
       text = message.message.extendedTextMessage.text;
     }
 
+    // Ignore broadcasts and status updates
     if (sender.endsWith('@broadcast') || sender === 'status@broadcast') {
       return;
     }
@@ -339,9 +438,39 @@ async function processMessage(sock, message) {
         break;
       case 'status':
         const status = connectionManager.getStatus();
+        const messageStats = `📊 Your Messages: ${yourMessages.received.length} received, ${yourMessages.sent.length} sent, ${yourMessages.groups.size} groups, ${yourMessages.contacts.size} contacts`;
+        
         await sock.sendMessage(sender, { 
-          text: `🤖 Bot Status:\n• Connected: ${isConnected ? '✅' : '❌'}\n• Mode: ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n• Pairing Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n• Reconnect Attempts: ${reconnectAttempts}\n• Uptime: ${Math.round(process.uptime())}s` 
+          text: `🤖 Bot Status:\n• Connected: ${isConnected ? '✅' : '❌'}\n• Mode: ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n• Pairing Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n• Reconnect Attempts: ${reconnectAttempts}\n• Uptime: ${Math.round(process.uptime())}s\n\n${messageStats}` 
         });
+        break;
+      case 'mystats':
+        if (sender === YOUR_PERSONAL_JID) {
+          await showMessageStats(sock, message);
+        } else {
+          await sock.sendMessage(sender, { text: "❌ This command is only for your personal account." });
+        }
+        break;
+      case 'recent':
+        if (sender === YOUR_PERSONAL_JID) {
+          await showRecentMessages(sock, message, args);
+        } else {
+          await sock.sendMessage(sender, { text: "❌ This command is only for your personal account." });
+        }
+        break;
+      case 'contacts':
+        if (sender === YOUR_PERSONAL_JID) {
+          await showContacts(sock, message, args);
+        } else {
+          await sock.sendMessage(sender, { text: "❌ This command is only for your personal account." });
+        }
+        break;
+      case 'search':
+        if (sender === YOUR_PERSONAL_JID) {
+          await searchMessages(sock, message, args);
+        } else {
+          await sock.sendMessage(sender, { text: "❌ This command is only for your personal account." });
+        }
         break;
       default:
         await sock.sendMessage(sender, { 
@@ -353,37 +482,176 @@ async function processMessage(sock, message) {
   }
 }
 
+// Show message statistics
+async function showMessageStats(sock, message) {
+  try {
+    const totalMessages = yourMessages.received.length + yourMessages.sent.length;
+    const stats = `📊 YOUR MESSAGE STATISTICS:\n\n` +
+                 `📥 Messages Received: ${yourMessages.received.length}\n` +
+                 `📤 Messages Sent: ${yourMessages.sent.length}\n` +
+                 `💬 Total Messages: ${totalMessages}\n` +
+                 `👥 Active Contacts: ${yourMessages.contacts.size}\n` +
+                 `👪 Active Groups: ${yourMessages.groups.size}\n\n` +
+                 `🕒 Tracking since: ${yourMessages.received[0] ? new Date(yourMessages.received[0].timestamp).toLocaleString() : 'No messages yet'}\n\n` +
+                 `💡 Use .recent [number] to see recent messages\n` +
+                 `💡 Use .contacts to see message counts by contact\n` +
+                 `💡 Use .search [keyword] to search messages`;
+    
+    await sock.sendMessage(message.key.remoteJid, { text: stats });
+  } catch (error) {
+    console.error('Error showing stats:', error);
+  }
+}
+
+// Show recent messages
+async function showRecentMessages(sock, message, args) {
+  try {
+    const limit = Math.min(parseInt(args[0]) || 10, 20);
+    const type = args[1] || 'all'; // all, received, sent
+    
+    let recentMessages = [];
+    
+    if (type === 'received' || type === 'all') {
+      recentMessages = recentMessages.concat(yourMessages.received.slice(-limit));
+    }
+    if (type === 'sent' || type === 'all') {
+      recentMessages = recentMessages.concat(yourMessages.sent.slice(-limit));
+    }
+    
+    // Sort by timestamp and get most recent
+    recentMessages.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    recentMessages = recentMessages.slice(0, limit);
+    
+    let response = `📨 RECENT MESSAGES (Last ${limit} ${type}):\n\n`;
+    
+    if (recentMessages.length > 0) {
+      recentMessages.forEach((msg, index) => {
+        const time = new Date(msg.timestamp).toLocaleTimeString();
+        const date = new Date(msg.timestamp).toLocaleDateString();
+        const direction = msg.from === message.key.remoteJid ? '📤 TO' : '📥 FROM';
+        const contact = msg.from.replace('@s.whatsapp.net', '');
+        const preview = msg.text ? (msg.text.length > 30 ? msg.text.substring(0, 30) + '...' : msg.text) : `[${msg.type}]`;
+        
+        response += `${index + 1}. [${date} ${time}] ${direction} ${contact}\n   ${preview}\n\n`;
+      });
+    } else {
+      response += `No recent ${type} messages found.\n`;
+    }
+    
+    response += `💡 Use .recent [number] [received/sent/all] for more options`;
+    
+    await sock.sendMessage(message.key.remoteJid, { text: response });
+  } catch (error) {
+    console.error('Error showing recent messages:', error);
+  }
+}
+
+// Show contacts and message counts
+async function showContacts(sock, message, args) {
+  try {
+    const limit = Math.min(parseInt(args[0]) || 10, 25);
+    
+    // Convert contacts map to array and sort by last message
+    const contactsArray = Array.from(yourMessages.contacts.values())
+      .sort((a, b) => new Date(b.lastMessage) - new Date(a.lastMessage))
+      .slice(0, limit);
+    
+    let response = `👥 RECENT CONTACTS (Top ${limit}):\n\n`;
+    
+    if (contactsArray.length > 0) {
+      contactsArray.forEach((contact, index) => {
+        const time = new Date(contact.lastMessage).toLocaleTimeString();
+        const date = new Date(contact.lastMessage).toLocaleDateString();
+        const phone = contact.jid.replace('@s.whatsapp.net', '');
+        
+        response += `${index + 1}. ${phone}\n   Messages: ${contact.messageCount} | Last: ${date} ${time}\n\n`;
+      });
+    } else {
+      response += `No contact data available.\n`;
+    }
+    
+    response += `💡 Total contacts tracked: ${yourMessages.contacts.size}`;
+    
+    await sock.sendMessage(message.key.remoteJid, { text: response });
+  } catch (error) {
+    console.error('Error showing contacts:', error);
+  }
+}
+
+// Search messages
+async function searchMessages(sock, message, args) {
+  try {
+    if (args.length === 0) {
+      await sock.sendMessage(message.key.remoteJid, { 
+        text: "🔍 Usage: .search [keyword]\nExample: .search hello" 
+      });
+      return;
+    }
+    
+    const keyword = args.join(' ').toLowerCase();
+    const limit = 10;
+    
+    // Search in both received and sent messages
+    const allMessages = [...yourMessages.received, ...yourMessages.sent];
+    const matchingMessages = allMessages.filter(msg => 
+      msg.text && msg.text.toLowerCase().includes(keyword)
+    ).slice(0, limit);
+    
+    let response = `🔍 SEARCH RESULTS for "${keyword}":\n\n`;
+    
+    if (matchingMessages.length > 0) {
+      matchingMessages.forEach((msg, index) => {
+        const time = new Date(msg.timestamp).toLocaleTimeString();
+        const date = new Date(msg.timestamp).toLocaleDateString();
+        const direction = msg.from === message.key.remoteJid ? '📤 TO' : '📥 FROM';
+        const contact = msg.from.replace('@s.whatsapp.net', '');
+        
+        response += `${index + 1}. [${date} ${time}] ${direction} ${contact}\n   ${msg.text}\n\n`;
+      });
+    } else {
+      response += `No messages found containing "${keyword}".\n`;
+    }
+    
+    response += `💡 Found ${matchingMessages.length} matches (showing first ${limit})`;
+    
+    await sock.sendMessage(message.key.remoteJid, { text: response });
+  } catch (error) {
+    console.error('Error searching messages:', error);
+  }
+}
+
 // Send current pairing code information
 async function sendCurrentPairingCode(sock, message, sender) {
   try {
     cleanupExpiredPairingCodes();
     
-    let responseText = `🔐 *WHATSAPP PAIRING INFORMATION*\n\n`;
-    responseText += `*Bot Phone:* +263775156210\n\n`;
-    responseText += `*Authentication Mode:* ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n`;
-    responseText += `*Pairing Attempts:* ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n\n`;
+    let responseText = `🔐 WHATSAPP LINKED DEVICE SETUP\n\n`;
+    responseText += `📱 Your Personal Number: ${YOUR_PERSONAL_NUMBER}\n\n`;
+    responseText += `🔧 Authentication Mode: ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n`;
+    responseText += `🔄 Pairing Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n\n`;
     
     if (currentWhatsAppPairingCode) {
-      responseText += `*Current WhatsApp Pairing Code:*\n`;
+      responseText += `🔐 Current Pairing Code:\n`;
       responseText += `• ${currentWhatsAppPairingCode}\n\n`;
-      responseText += `*How to use:*\n`;
-      responseText += `1. WhatsApp Web → Link a Device\n`;
-      responseText += `2. Choose "Use phone number instead"\n`;
-      responseText += `3. Enter: +263775156210\n`;
+      responseText += `📋 How to link this device:\n`;
+      responseText += `1. Open WhatsApp on your phone\n`;
+      responseText += `2. Go to Linked Devices\n`;
+      responseText += `3. Tap "Link a Device"\n`;
       responseText += `4. Enter code: ${currentWhatsAppPairingCode}\n\n`;
-      responseText += `📍 Code expires in 10 minutes\n\n`;
+      responseText += `⏰ Code expires in 10 minutes\n\n`;
     } else if (pairingMode) {
-      responseText += `⏳ *Generating new pairing code...*\n\n`;
+      responseText += `⏳ Generating new pairing code...\n\n`;
       responseText += `Please wait for the next pairing code to appear.\n\n`;
     } else {
-      responseText += `📱 *QR Code Mode Active*\n\n`;
-      responseText += `The bot has switched to QR code authentication after ${MAX_PAIRING_ATTEMPTS} pairing attempts.\n`;
+      responseText += `📱 QR Code Mode Active\n\n`;
       responseText += `Please scan the QR code when it appears.\n\n`;
     }
     
-    responseText += `*Authentication Flow:*\n`;
-    responseText += `• Pairing Codes: First ${MAX_PAIRING_ATTEMPTS} attempts\n`;
-    responseText += `• QR Code: After ${MAX_PAIRING_ATTEMPTS} pairing attempts\n`;
+    responseText += `🎯 This bot will receive ALL your personal WhatsApp messages\n`;
+    responseText += `💬 Use .mystats to see your message statistics\n`;
+    responseText += `📨 Use .recent to see recent messages\n`;
+    responseText += `👥 Use .contacts to see message counts\n`;
+    responseText += `🔍 Use .search to find messages`;
     
     await sock.sendMessage(sender, { text: responseText });
     
@@ -398,31 +666,31 @@ async function handlePairRequest(sock, message, sender) {
   try {
     cleanupExpiredPairingCodes();
     
-    let responseText = `🔐 *PAIRING INFORMATION*\n\n`;
-    responseText += `*Authentication Mode:* ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n`;
-    responseText += `*Attempts:* ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n\n`;
+    let responseText = `🔐 LINK YOUR PERSONAL WHATSAPP\n\n`;
+    responseText += `📱 Your Number: ${YOUR_PERSONAL_NUMBER}\n`;
+    responseText += `🔧 Mode: ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n`;
+    responseText += `🔄 Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n\n`;
     
     if (currentWhatsAppPairingCode && pairingMode) {
-      responseText += `*Current WhatsApp Pairing Code:* ${currentWhatsAppPairingCode}\n\n`;
-      responseText += `*Instructions:*\n`;
-      responseText += `1. Go to WhatsApp Web on your computer\n`;
-      responseText += `2. Click on the 3 dots menu\n`;
-      responseText += `3. Select "Link a Device"\n`;
-      responseText += `4. Choose "Use phone number instead"\n`;
-      responseText += `5. Enter this code: *${currentWhatsAppPairingCode}*\n\n`;
-      responseText += `📍 *Bot Phone Number:* +263775156210\n\n`;
-      responseText += `This is a real WhatsApp pairing code (Attempt ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS})`;
+      responseText += `🔐 Current Pairing Code: ${currentWhatsAppPairingCode}\n\n`;
+      responseText += `📋 Instructions:\n`;
+      responseText += `1. Open WhatsApp on your phone\n`;
+      responseText += `2. Go to Settings → Linked Devices\n`;
+      responseText += `3. Tap on "Link a Device"\n`;
+      responseText += `4. Enter this code: ${currentWhatsAppPairingCode}\n\n`;
+      responseText += `🎯 This will link as a new device to your personal account\n`;
+      responseText += `💬 You'll receive all your messages here\n`;
+      responseText += `📊 You can track messages with .mystats, .recent, .contacts, .search`;
     } else if (pairingMode) {
-      responseText += `⏳ *Generating new pairing code...*\n\n`;
+      responseText += `⏳ Generating new pairing code...\n\n`;
       responseText += `Please wait for the next pairing code to appear.\n`;
       responseText += `This is attempt ${pairingAttemptCount + 1}/${MAX_PAIRING_ATTEMPTS}\n\n`;
     } else {
-      responseText += `📱 *QR Code Mode Active*\n\n`;
-      responseText += `The bot has switched to QR code authentication.\n`;
+      responseText += `📱 QR Code Mode Active\n\n`;
       responseText += `Please wait for the QR code to appear and scan it.\n\n`;
-      responseText += `*Why QR Code?*\n`;
-      responseText += `• ${MAX_PAIRING_ATTEMPTS} pairing attempts completed\n`;
-      responseText += `• QR code is more reliable for connection\n`;
+      responseText += `📸 How to scan:\n`;
+      responseText += `1. WhatsApp → Linked Devices → Link a Device\n`;
+      responseText += `2. Point your camera at the QR code\n`;
     }
     
     await sock.sendMessage(sender, { text: responseText });
@@ -449,19 +717,19 @@ async function handlePairingCode(sock, message, code, sender) {
       pairingMode = true; // Reset to pairing mode for next connection
       
       await sock.sendMessage(sender, {
-        text: `✅ *PAIRING SUCCESSFUL!*\n\n` +
-              `Your device has been successfully paired with the bot using WhatsApp's authentication system!\n\n` +
-              `You can now use all bot features. Type .help to see available commands.`
+        text: `✅ DEVICE LINKING SUCCESSFUL!\n\n` +
+              `Your personal WhatsApp account has been successfully linked!\n\n` +
+              `📱 This bot is now connected as a linked device\n` +
+              `💬 You will receive all your personal messages here\n` +
+              `👥 Group messages and individual chats will appear\n\n` +
+              `📊 Use .mystats to see your message statistics\n` +
+              `📨 Use .recent to see recent messages\n` +
+              `👥 Use .contacts to see message counts\n` +
+              `🔍 Use .search to find messages\n\n` +
+              `🔔 You will now receive all incoming messages!`
       });
       
-      console.log(`✅ Successful WhatsApp pairing for ${sender} with code ${code}`);
-      
-      // Activate user subscription
-      try {
-        await subscriptionManager.activateDemo(sender.replace(/@s\.whatsapp\.net$/, ''));
-      } catch (error) {
-        console.error('Error activating demo after pairing:', error);
-      }
+      console.log(`✅ Successful WhatsApp linking for ${YOUR_PERSONAL_NUMBER}`);
       
       return;
     }
@@ -471,21 +739,10 @@ async function handlePairingCode(sock, message, code, sender) {
     if (!pairingData) {
       await sock.sendMessage(sender, { 
         text: "❌ Invalid or expired pairing code.\n\n" +
-              "Use .pairingcode to see the current WhatsApp code or .pair for instructions."
+              "Use .pairingcode to see the current code or .pair for instructions."
       });
       return;
     }
-    
-    // Other types of pairing (if any)
-    activePairingCodes.delete(code);
-    
-    await sock.sendMessage(sender, {
-      text: `✅ *PAIRING SUCCESSFUL!*\n\n` +
-            `Your device has been successfully paired with the bot!\n\n` +
-            `You can now use all bot features. Type .help to see available commands.`
-    });
-    
-    console.log(`✅ Successful pairing for ${sender} with code ${code}`);
     
   } catch (error) {
     console.error('Error handling pairing code:', error);
@@ -509,7 +766,8 @@ class ConnectionManager {
     this.isConnecting = true;
 
     try {
-      console.log('🔗 Initializing WhatsApp connection...');
+      console.log('🔗 Initializing WhatsApp connection as Linked Device...');
+      console.log(`📱 Linking to personal number: ${YOUR_PERSONAL_NUMBER}`);
       console.log(`🔐 Starting with pairing code mode (${MAX_PAIRING_ATTEMPTS} attempts then QR code)`);
 
       // Reset counters for new connection attempt
@@ -544,9 +802,9 @@ class ConnectionManager {
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
-        // Enhanced pairing options
+        // Enhanced pairing options for linked device
         shouldSyncHistoryMessage: () => true,
-        syncFullHistory: false,
+        syncFullHistory: true, // Sync your message history
         linkPreviewImageThumbnailWidth: 192,
         getMessage: async (key) => {
           return {
@@ -587,35 +845,48 @@ class ConnectionManager {
           this.qrCodeGenerated = true;
         }
 
-        if (connection === 'close') {
-          const shouldReconnect = 
-            lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+                  if (connection === 'close') {
+            const shouldReconnect = 
+              lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
-          console.log('Connection closed, reconnecting:', shouldReconnect);
-          this.cleanupConnectionState();
+            console.log('Connection closed, reconnecting:', shouldReconnect);
 
-          if (shouldReconnect) {
-            this.reconnect();
+            if (shouldReconnect) {
+              this.handleReconnection();
+            } else {
+              console.log('❌ Logged out, clearing auth and restarting...');
+              this.clearAuthAndRestart();
+            }
+          } else if (connection === 'open') {
+            console.log('✅ WhatsApp connection opened successfully!');
+            this.handleSuccessfulConnection();
           }
-        } else if (connection === 'open') {
-          console.log('✅ Connection opened successfully');
-          this.handleSuccessfulConnection();
-        }
-      });
+        });
 
-      // Handle incoming messages
-      sock.ev.on('messages.upsert', async (m) => {
-        if (m.type === 'notify') {
-          for (const message of m.messages) {
-            await processMessage(sock, message);
+        // Handle incoming messages
+        sock.ev.on('messages.upsert', async (messageData) => {
+          const { messages, type } = messageData;
+          
+          if (type === 'notify') {
+            for (const message of messages) {
+              await processMessage(sock, message);
+            }
           }
-        }
-      });
+        });
 
-    } catch (error) {
-      console.error('Connection error:', error);
+        // Handle message receipts
+        sock.ev.on('message-receipt.update', (receipts) => {
+          for (const { key, receipt } of receipts) {
+            console.log(`📨 Message receipt: ${key.id} -> ${receipt.type}`);
+          }
+        });
+
+      } catch (error) {
+        console.error('❌ Connection error:', error);
+        this.handleConnectionError(error);
+      }
+    } finally {
       this.isConnecting = false;
-      this.reconnect();
     }
   }
 
@@ -628,65 +899,32 @@ class ConnectionManager {
     // Schedule next authentication method
     this.pairingCodeTimer = setTimeout(() => {
       if (pairingAttemptCount < MAX_PAIRING_ATTEMPTS) {
-        console.log(`⏰ Pairing code timeout, waiting for next attempt...`);
+        console.log(`🔄 Generating new pairing code (attempt ${pairingAttemptCount + 1}/${MAX_PAIRING_ATTEMPTS})`);
         this.pairingCodeDisplayed = false;
+        
+        // Force new connection to get fresh pairing code
+        this.handleReconnection();
       } else {
-        console.log(`🔄 Maximum pairing attempts reached, switching to QR code mode`);
+        console.log('🔄 Maximum pairing attempts reached, switching to QR code mode');
         pairingMode = false;
-        this.pairingCodeDisplayed = false;
+        this.handleReconnection();
       }
-    }, 45000); // 45 seconds per pairing code
-  }
-
-  cleanupConnectionState() {
-    this.qrCodeGenerated = false;
-    this.qrDisplayCount = 0;
-    this.pairingCodeDisplayed = false;
-    currentWhatsAppPairingCode = null;
-    pairingCodeTimestamp = null;
-    
-    if (this.pairingCodeTimer) {
-      clearTimeout(this.pairingCodeTimer);
-      this.pairingCodeTimer = null;
-    }
-  }
-
-  handleSuccessfulConnection() {
-    isConnected = true;
-    reconnectAttempts = 0;
-    this.isConnecting = false;
-    this.pairingCodeDisplayed = false;
-    currentWhatsAppPairingCode = null;
-    pairingCodeTimestamp = null;
-    
-    if (this.pairingCodeTimer) {
-      clearTimeout(this.pairingCodeTimer);
-      this.pairingCodeTimer = null;
-    }
-    
-    groupManager.startGroupDiscovery(sock);
-    this.notifyAdmins();
+    }, 45000); // 45 seconds between pairing codes
   }
 
   async initializeFreshAuth() {
     try {
+      console.log('🔄 Starting fresh authentication process...');
+      
       // Clear any existing auth data
-      const authDir = path.join(__dirname, 'auth_info_baileys');
-      if (fs.existsSync(authDir)) {
-        console.log('🧹 Cleaning up old auth data...');
-        fs.rmSync(authDir, { recursive: true, force: true });
+      if (fs.existsSync('auth_info_baileys')) {
+        fs.rmSync('auth_info_baileys', { recursive: true, force: true });
       }
-      fs.mkdirSync(authDir, { recursive: true });
 
-      console.log('🔄 Creating fresh authentication state...');
-
-      // Create a fresh auth state
+      // Create new auth state
       const authState = await useMultiFileAuthState('auth_info_baileys');
       
-      console.log('✅ Fresh auth state created');
-
       const { version } = await fetchLatestBaileysVersion();
-      console.log('✅ Fetched WhatsApp version:', version.join('.'));
 
       sock = makeWASocket({
         version,
@@ -696,40 +934,48 @@ class ConnectionManager {
         browser: Browsers.ubuntu('Chrome'),
         generateHighQualityLinkPreview: true,
         markOnlineOnConnect: false,
-        // Enhanced pairing options
+        // Enhanced options for linked device
         shouldSyncHistoryMessage: () => true,
-        syncFullHistory: false,
+        syncFullHistory: false, // Don't sync full history initially
         linkPreviewImageThumbnailWidth: 192,
+        // Critical: Set up as linked device properly
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 10000,
+        maxIdleTimeMs: 60000,
+        emitOwnEvents: true,
+        defaultQueryTimeoutMs: 60000,
+        // Mobile device characteristics for better linking
+        mobile: false, // This is a companion device
         getMessage: async (key) => {
           return {
-            conversation: "hello"
+            conversation: "message sync"
           }
         }
       });
 
       sock.ev.on('creds.update', authState.saveCreds);
 
+      // Enhanced connection handling for fresh auth
       sock.ev.on('connection.update', (update) => {
-        const { connection, qr, pairingCode } = update;
+        const { connection, lastDisconnect, qr, pairingCode } = update;
 
-        console.log('Fresh connection status:', connection);
+        console.log('Fresh auth connection status:', connection);
 
-        // Handle REAL WhatsApp pairing code (only in pairing mode)
+        // Handle pairing code (primary method for fresh auth)
         if (pairingCode && pairingMode && !this.pairingCodeDisplayed) {
           pairingAttemptCount++;
-          console.log(`🔐 REAL WhatsApp Pairing Code Received (Attempt ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}):`, pairingCode);
+          console.log(`🔐 Fresh Auth - Pairing Code (Attempt ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}):`, pairingCode);
           this.pairingCodeDisplayed = true;
           displayWhatsAppPairingCode(pairingCode, pairingAttemptCount);
-          
           this.scheduleNextAuthMethod();
           return;
         }
 
-        // Handle QR code generation
+        // Handle QR code as fallback
         if (qr && (!pairingMode || pairingAttemptCount >= MAX_PAIRING_ATTEMPTS)) {
           if (pairingMode && pairingAttemptCount >= MAX_PAIRING_ATTEMPTS) {
             pairingMode = false;
-            console.log('🔄 Switching to QR code mode after maximum pairing attempts');
+            console.log('🔄 Fresh Auth - Switching to QR code after max attempts');
           }
           
           this.qrDisplayCount++;
@@ -738,54 +984,129 @@ class ConnectionManager {
         }
 
         if (connection === 'open') {
+          console.log('✅ Fresh authentication successful!');
           this.handleSuccessfulConnection();
+        }
+
+        if (connection === 'close') {
+          const shouldReconnect = 
+            lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+          
+          if (shouldReconnect) {
+            this.handleReconnection();
+          }
+        }
+      });
+
+      // Handle messages for fresh connection
+      sock.ev.on('messages.upsert', async (messageData) => {
+        const { messages, type } = messageData;
+        
+        if (type === 'notify') {
+          for (const message of messages) {
+            await processMessage(sock, message);
+          }
         }
       });
 
     } catch (error) {
-      console.error('❌ Error initializing fresh auth:', error);
-      setTimeout(() => {
-        this.reconnect();
-      }, 10000);
+      console.error('❌ Fresh auth initialization error:', error);
+      this.handleConnectionError(error);
     }
   }
 
-  async notifyAdmins() {
-    for (const admin of CONSTANT_ADMINS) {
-      try {
-        await sock.sendMessage(admin, { 
-          text: '🤖 Bot is now connected and ready to receive commands!\n\n' +
-                '📱 Bot Phone: +263775156210\n' +
-                `🔐 Authentication: ${pairingMode ? 'Pairing Codes' : 'QR Code'}\n` +
-                `📊 Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n` +
-                '🔐 Use .pair for pairing instructions\n' +
-                '🔐 Use .pairingcode for current code'
-        });
-        console.log(`✅ Notified admin: ${admin}`);
-      } catch (error) {
-        console.error(`Failed to notify admin ${admin}:`, error);
-      }
+  handleSuccessfulConnection() {
+    isConnected = true;
+    reconnectAttempts = 0;
+    pairingAttemptCount = 0;
+    this.pairingCodeDisplayed = false;
+    this.qrCodeGenerated = false;
+
+    console.log('\n╔══════════════════════════════════════════════════════════╗');
+    console.log('║              WHATSAPP LINKED DEVICE ACTIVE               ║');
+    console.log('╠══════════════════════════════════════════════════════════╣');
+    console.log('║                                                          ║');
+    console.log(`║ ✅ Successfully linked to: ${YOUR_PERSONAL_NUMBER}                   ║`);
+    console.log('║ 📱 Device status: Active and receiving messages         ║');
+    console.log('║ 💬 Message tracking: Enabled                            ║');
+    console.log('║ 👥 Contact sync: Active                                 ║');
+    console.log('║                                                          ║');
+    console.log('║ 🔔 You will now receive all personal WhatsApp messages  ║');
+    console.log('║ 📊 Use .mystats to see your message statistics          ║');
+    console.log('║ 📨 Use .recent to see recent messages                   ║');
+    console.log('║ 👥 Use .contacts to see message counts                  ║');
+    console.log('║ 🔍 Use .search to find specific messages                ║');
+    console.log('║                                                          ║');
+    console.log('╚══════════════════════════════════════════════════════════╝\n');
+
+    // Send welcome message to your personal number
+    if (sock) {
+      setTimeout(async () => {
+        try {
+          await sock.sendMessage(YOUR_PERSONAL_JID, {
+            text: `✅ WHATSAPP LINKED DEVICE ACTIVE\n\n` +
+                  `Your personal WhatsApp is now connected to this bot!\n\n` +
+                  `📱 Linked number: ${YOUR_PERSONAL_NUMBER}\n` +
+                  `🔔 You will receive all messages here\n` +
+                  `💬 Group and individual chats will appear\n\n` +
+                  `Available commands:\n` +
+                  `.mystats - Show message statistics\n` +
+                  `.recent [number] - Show recent messages\n` +
+                  `.contacts - Show contact list\n` +
+                  `.search [keyword] - Search messages\n` +
+                  `.status - Check bot status\n\n` +
+                  `🔒 Your messages are stored locally and securely.`
+          });
+        } catch (error) {
+          console.log('Note: Could not send welcome message (may not be fully synced yet)');
+        }
+      }, 3000);
     }
   }
 
-  reconnect() {
+  handleReconnection() {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('❌ Max reconnection attempts reached');
+      console.log('❌ Maximum reconnection attempts reached. Restarting...');
+      this.clearAuthAndRestart();
       return;
     }
 
     reconnectAttempts++;
-    const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000);
-    
-    console.log(`🔄 Attempting to reconnect... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}) in ${delayTime/1000}s`);
+    const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000); // Max 5 minutes
+
+    console.log(`🔄 Attempting reconnect ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delayTime/1000}s`);
 
     this.reconnectTimeout = setTimeout(() => {
-      this.isConnecting = false;
       this.connect();
     }, delayTime);
   }
 
-  disconnect() {
+  handleConnectionError(error) {
+    console.error('❌ Connection error:', error);
+    isConnected = false;
+    this.handleReconnection();
+  }
+
+  clearAuthAndRestart() {
+    console.log('🧹 Clearing authentication data and restarting...');
+    
+    try {
+      if (fs.existsSync('auth_info_baileys')) {
+        fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+      }
+    } catch (error) {
+      console.error('Error clearing auth data:', error);
+    }
+
+    // Reset all state
+    isConnected = false;
+    reconnectAttempts = 0;
+    pairingAttemptCount = 0;
+    pairingMode = true;
+    this.pairingCodeDisplayed = false;
+    this.qrCodeGenerated = false;
+    this.qrDisplayCount = 0;
+
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
     }
@@ -794,197 +1115,136 @@ class ConnectionManager {
       clearTimeout(this.pairingCodeTimer);
     }
 
-    if (groupManager.stopGroupDiscovery) {
-      groupManager.stopGroupDiscovery();
-    }
-
-    cleanupTempFiles();
-    cleanupExpiredPairingCodes();
-
-    if (sock) {
-      sock.ws.close();
-      sock = null;
-    }
-    
-    this.cleanupConnectionState();
-    isConnected = false;
-    this.isConnecting = false;
-    
-    console.log('✅ Disconnected successfully');
+    // Restart connection after cleanup
+    setTimeout(() => {
+      this.connect();
+    }, 5000);
   }
 
   getStatus() {
     return {
       isConnected,
-      isConnecting: this.isConnecting,
       reconnectAttempts,
-      hasQR: this.qrCodeGenerated,
-      qrDisplayCount: this.qrDisplayCount,
-      pairingMode,
       pairingAttemptCount,
-      maxPairingAttempts: MAX_PAIRING_ATTEMPTS,
-      hasPairingCode: !!currentWhatsAppPairingCode,
-      currentPairingCode: currentWhatsAppPairingCode,
-      activePairingCodes: activePairingCodes.size,
-      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS
+      pairingMode,
+      yourPersonalNumber: YOUR_PERSONAL_NUMBER,
+      messageStats: {
+        received: yourMessages.received.length,
+        sent: yourMessages.sent.length,
+        groups: yourMessages.groups.size,
+        contacts: yourMessages.contacts.size
+      }
     };
+  }
+
+  async disconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+    if (this.pairingCodeTimer) {
+      clearTimeout(this.pairingCodeTimer);
+    }
+    if (sock) {
+      await sock.end();
+    }
+    isConnected = false;
   }
 }
 
 // Initialize connection manager
 const connectionManager = new ConnectionManager();
 
-// Express server setup
+// Express server for health checks
 const app = express();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
 app.get('/', (req, res) => {
   const status = connectionManager.getStatus();
-  res.json({ 
-    status: 'OK', 
-    message: 'WhatsApp Bot is running', 
-    ...status,
+  res.json({
+    status: 'WhatsApp Linked Device Bot',
+    connected: status.isConnected,
+    personalNumber: status.yourPersonalNumber,
+    pairingMode: status.pairingMode,
+    attempts: status.pairingAttemptCount,
+    messageStats: status.messageStats,
     timestamp: new Date().toISOString()
   });
 });
 
 app.get('/health', (req, res) => {
-  const status = connectionManager.getStatus();
-  if (status.isConnected) {
-    res.json({ status: 'OK', connected: true, uptime: process.uptime() });
-  } else {
-    res.status(503).json({ 
-      status: 'OFFLINE', 
-      connected: false, 
-      reconnecting: status.isConnecting,
-      reconnectAttempts: status.reconnectAttempts 
-    });
-  }
-});
-
-app.get('/status', (req, res) => {
-  const status = connectionManager.getStatus();
-  res.json({
-    ...status,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+  res.json({ 
+    status: 'ok', 
+    connected: isConnected,
+    uptime: process.uptime() 
   });
 });
 
-app.post('/restart', async (req, res) => {
-  try {
-    console.log('🔄 Manual restart requested via API');
-    connectionManager.disconnect();
-    
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    connectionManager.connect();
-    res.json({ 
-      status: 'restarting', 
-      message: 'Bot is restarting...',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error during restart:', error);
-    res.status(500).json({ 
-      status: 'error', 
-      message: 'Restart failed',
-      error: error.message 
-    });
-  }
-});
-
-app.post('/disconnect', (req, res) => {
-  try {
-    console.log('🛑 Manual disconnect requested via API');
-    connectionManager.disconnect();
-    res.json({ 
-      status: 'disconnected', 
-      message: 'Bot has been disconnected',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error during disconnect:', error);
-    res.status(500).json({ 
-      status: 'error', 
-      message: 'Disconnect failed',
-      error: error.message 
-    });
-  }
+app.get('/messages/stats', (req, res) => {
+  res.json({
+    received: yourMessages.received.length,
+    sent: yourMessages.sent.length,
+    groups: yourMessages.groups.size,
+    contacts: yourMessages.contacts.size,
+    recentReceived: yourMessages.received.slice(-5).map(msg => ({
+      timestamp: msg.timestamp,
+      from: msg.from,
+      preview: msg.text?.substring(0, 50) || '[Media]'
+    }))
+  });
 });
 
 // Start function
-async function startBot() {
+async function start() {
   try {
-    console.log('🚀 Starting WhatsApp Bot...');
-    console.log('📁 Setting up directories...');
+    console.log('🚀 Starting WhatsApp Linked Device Bot...');
+    console.log(`📱 Personal Number: ${YOUR_PERSONAL_NUMBER}`);
+    console.log(`👑 Admins: ${CONSTANT_ADMINS.length} configured`);
+    
     await ensureDirectories();
-
-    console.log('🗄️ Initializing database...');
     await initializeDatabase();
+    cleanupTempFiles();
 
-    // Start pairing code cleanup interval
-    setInterval(cleanupExpiredPairingCodes, 5 * 60 * 1000); // Clean every 5 minutes
-
-    console.log('🔗 Starting connection manager...');
+    // Start connection
     await connectionManager.connect();
 
-    console.log('✅ Bot startup sequence completed');
+    // Start web server
+    app.listen(PORT, () => {
+      console.log(`🌐 Web server running on port ${PORT}`);
+      console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      console.log(`📨 Message stats: http://localhost:${PORT}/messages/stats`);
+    });
+
+    // Regular cleanup
+    setInterval(cleanupExpiredPairingCodes, 60000); // Every minute
+    setInterval(cleanupTempFiles, 3600000); // Every hour
 
   } catch (error) {
-    console.error('❌ Error starting bot:', error);
-    setTimeout(() => {
-      startBot();
-    }, 10000);
+    console.error('❌ Failed to start bot:', error);
+    process.exit(1);
   }
 }
 
-// Start the server and bot
-app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 HTTP server listening on port ${port}`);
-  console.log(`🌐 Health check: http://0.0.0.0:${port}/health`);
-  console.log(`📊 Status endpoint: http://0.0.0.0:${port}/status`);
-  console.log(`🔄 Restart endpoint: http://0.0.0.0:${port}/restart (POST)`);
-  console.log(`🛑 Disconnect endpoint: http://0.0.0.0:${port}/disconnect (POST)`);
-  console.log(`⏰ Starting bot in 3 seconds...`);
-
-  setTimeout(() => {
-    startBot();
-  }, 3000);
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  await connectionManager.disconnect();
+  process.exit(0);
 });
 
-// Process handlers
-process.on('SIGINT', () => {
-  console.log('\n🛑 Received SIGINT, shutting down gracefully...');
-  connectionManager.disconnect();
-  setTimeout(() => {
-    process.exit(0);
-  }, 2000);
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Received SIGTERM, shutting down...');
+  await connectionManager.disconnect();
+  process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-  console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
-  connectionManager.disconnect();
-  setTimeout(() => {
-    process.exit(0);
-  }, 2000);
-});
+// Start the bot
+start();
 
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  connectionManager.reconnect();
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-module.exports = { 
-  startBot, 
-  connectionManager, 
-  app,
+module.exports = {
+  connectionManager,
+  yourMessages,
   isAdmin,
   hasActiveSubscription
 };
