@@ -93,13 +93,6 @@ let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_INTERVAL = 50000;
-const MAX_PAIRING_ATTEMPTS = 3;
-let pairingAttemptCount = 0;
-let pairingMode = true;
-let currentWhatsAppPairingCode = null;
-let pairingCodeTimestamp = null;
-const activePairingCodes = new Map();
-const PAIRING_CODE_EXPIRY = 10 * 60 * 1000;
 
 // Message storage
 const yourMessages = {
@@ -111,17 +104,6 @@ const yourMessages = {
 
 // Initialize Group Manager
 const groupManager = new GroupManager();
-
-// Logger
-const createSimpleLogger = () => ({
-    trace: console.log,
-    debug: console.log,
-    info: console.log,
-    warn: console.warn,
-    error: console.error,
-    fatal: console.error,
-    child: () => createSimpleLogger()
-});
 
 // Core functions
 async function ensureDirectories() {
@@ -141,57 +123,6 @@ function cleanupTempFiles() {
     });
 }
 
-function cleanupExpiredPairingCodes() {
-    const now = Date.now();
-    for (const [code, data] of activePairingCodes.entries()) {
-        if (now - data.timestamp > PAIRING_CODE_EXPIRY) {
-            activePairingCodes.delete(code);
-        }
-    }
-    if (currentWhatsAppPairingCode && now - pairingCodeTimestamp > PAIRING_CODE_EXPIRY) {
-        currentWhatsAppPairingCode = null;
-        pairingCodeTimestamp = null;
-    }
-}
-
-function displayWhatsAppPairingCode(code, attempt) {
-    currentWhatsAppPairingCode = code;
-    pairingCodeTimestamp = Date.now();
-    activePairingCodes.set(code, {
-        phone: 'whatsapp_generated',
-        timestamp: pairingCodeTimestamp,
-        isRealWhatsAppCode: true,
-        attempt
-    });
-
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║                   WHATSAPP PAIRING CODE                  ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║ 🔐 Attempt: ${attempt}/${MAX_PAIRING_ATTEMPTS} | Code: ${code}                ║`);
-    console.log(`║ 📱 Your Number: ${YOUR_PERSONAL_NUMBER}                   ║`);
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-}
-
-function displayQRCode(qr, count) {
-    console.log('\n╔══════════════════════════════════════════════════════════╗');
-    console.log('║                   WHATSAPP QR CODE                       ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║ 📱 Scan this QR code with WhatsApp -> Linked Devices     ║`);
-    console.log(`║ 🔄 Scan Count: ${count}                                    ║`);
-    console.log('╠══════════════════════════════════════════════════════════╣');
-
-    // Generate proper WhatsApp-compatible QR code
-    qrcode.generate(qr, { 
-        small: true,
-        scale: 2
-    });
-
-    console.log('║                                                          ║');
-    console.log('║ 💡 Tip: Open WhatsApp > Settings > Linked Devices > Link ║');
-    console.log('║      a Device > Scan QR Code                            ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-}
-
 function storePersonalMessage(message) {
     try {
         const messageData = {
@@ -208,7 +139,30 @@ function storePersonalMessage(message) {
     }
 }
 
-// Message processing
+// FIXED QR Code Display Function
+function displayQRCode(qr, count) {
+    console.log('\n╔══════════════════════════════════════════════════════════╗');
+    console.log('║                   WHATSAPP QR CODE                       ║');
+    console.log('╠══════════════════════════════════════════════════════════╣');
+    console.log(`║ 📱 Scan this QR code with WhatsApp -> Linked Devices     ║`);
+    console.log(`║ 🔄 Scan Count: ${count}                                    ║`);
+    console.log('╠══════════════════════════════════════════════════════════╣');
+    
+    // Clear some space for the QR code
+    console.log('║                                                          ║');
+    
+    // Generate the QR code properly
+    qrcode.generate(qr, { 
+        small: true 
+    });
+    
+    console.log('║                                                          ║');
+    console.log('║ 💡 Tip: Open WhatsApp > Settings > Linked Devices > Link ║');
+    console.log('║      a Device > Scan QR Code                            ║');
+    console.log('╚══════════════════════════════════════════════════════════╝\n');
+}
+
+// Message processing - IGNORES non-admin group manager commands
 async function processMessage(sock, message) {
     if (!message.message) return;
     storePersonalMessage(message);
@@ -233,60 +187,68 @@ async function processMessage(sock, message) {
     const command = commandMatch[1].toLowerCase();
     const args = commandMatch[2] ? commandMatch[2].split(' ') : [];
 
+    // Handle public commands (available to everyone)
     switch (command) {
         case 'status':
             await sock.sendMessage(sender, {
-                text: `🤖 Bot Status:\n• Connected: ${isConnected ? '✅' : '❌'}\n• Mode: ${pairingMode ? 'Pairing' : 'QR'}\n• Attempts: ${pairingAttemptCount}/${MAX_PAIRING_ATTEMPTS}\n• Group Manager: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
+                text: `🤖 Bot Status:\n• Connected: ${isConnected ? '✅' : '❌'}\n• Group Manager: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
             });
             break;
 
-        case 'mystats':
-            if (sender === YOUR_PERSONAL_JID) {
-                await sock.sendMessage(sender, {
-                    text: `📊 Your Stats:\n📥 Received: ${yourMessages.received.length}\n📤 Sent: ${yourMessages.sent.length}\n👥 Contacts: ${yourMessages.contacts.size}\n📱 GM Status: ${groupManager.isRunning ? 'Running' : 'Stopped'}`
-                });
-            }
+        case 'help':
+            await sock.sendMessage(sender, {
+                text: `📋 Available Commands:\n• .status - Check bot status\n• .help - Show this help\n\n🔒 Admin Commands:\n• .gmstatus - Group Manager status\n• .startgm - Start Group Manager\n• .stopgm - Stop Group Manager\n• .gmrestart - Restart Group Manager`
+            });
             break;
 
+        // Group Manager Commands - ADMIN ONLY
         case 'gmrestart':
-            if (CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, { text: '🔄 Restarting Group Manager...' });
-                groupManager.restart();
+            if (!CONSTANT_ADMINS.includes(sender)) {
+                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                return;
             }
+            await sock.sendMessage(sender, { text: '🔄 Restarting Group Manager...' });
+            groupManager.restart();
             break;
 
         case 'gmstatus':
-            if (CONSTANT_ADMINS.includes(sender)) {
-                await sock.sendMessage(sender, {
-                    text: `📱 Group Manager Status: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
-                });
+            if (!CONSTANT_ADMINS.includes(sender)) {
+                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                return;
             }
+            await sock.sendMessage(sender, {
+                text: `📱 Group Manager Status: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}`
+            });
             break;
 
         case 'startgm':
-            if (CONSTANT_ADMINS.includes(sender)) {
-                if (!groupManager.isRunning) {
-                    groupManager.start();
-                    await sock.sendMessage(sender, { text: '🚀 Starting Group Manager...' });
-                } else {
-                    await sock.sendMessage(sender, { text: '⚠️ Group Manager is already running' });
-                }
+            if (!CONSTANT_ADMINS.includes(sender)) {
+                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                return;
+            }
+            if (!groupManager.isRunning) {
+                groupManager.start();
+                await sock.sendMessage(sender, { text: '🚀 Starting Group Manager...' });
+            } else {
+                await sock.sendMessage(sender, { text: '⚠️ Group Manager is already running' });
             }
             break;
 
         case 'stopgm':
-            if (CONSTANT_ADMINS.includes(sender)) {
-                if (groupManager.isRunning) {
-                    groupManager.stop();
-                    await sock.sendMessage(sender, { text: '🛑 Stopping Group Manager...' });
-                } else {
-                    await sock.sendMessage(sender, { text: '⚠️ Group Manager is already stopped' });
-                }
+            if (!CONSTANT_ADMINS.includes(sender)) {
+                await sock.sendMessage(sender, { text: '❌ Access denied. Admin only command.' });
+                return;
+            }
+            if (groupManager.isRunning) {
+                groupManager.stop();
+                await sock.sendMessage(sender, { text: '🛑 Stopping Group Manager...' });
+            } else {
+                await sock.sendMessage(sender, { text: '⚠️ Group Manager is already stopped' });
             }
             break;
 
         default:
-            await sock.sendMessage(sender, { text: "❌ Unknown command" });
+            await sock.sendMessage(sender, { text: "❌ Unknown command. Use .help for available commands" });
     }
 }
 
@@ -294,7 +256,6 @@ async function processMessage(sock, message) {
 class ConnectionManager {
     constructor() {
         this.isConnecting = false;
-        this.pairingCodeDisplayed = false;
         this.qrDisplayCount = 0;
     }
 
@@ -311,8 +272,14 @@ class ConnectionManager {
 
             sock = makeWASocket({
                 version,
-                logger: createSimpleLogger(),
-                printQRInTerminal: false, // We'll handle QR display ourselves
+                logger: {
+                    trace: () => {},
+                    debug: () => {},
+                    info: (msg) => console.log('ℹ️', msg),
+                    warn: (msg) => console.warn('⚠️', msg),
+                    error: (msg) => console.error('❌', msg)
+                },
+                printQRInTerminal: false, // We handle QR display ourselves
                 auth: state,
                 browser: Browsers.ubuntu('Chrome'),
                 generateHighQualityLinkPreview: true,
@@ -338,8 +305,10 @@ class ConnectionManager {
     handleConnectionUpdate(update) {
         const { connection, lastDisconnect, qr, isNewLogin } = update;
 
+        // FIXED: Proper QR code handling
         if (qr) {
             this.qrDisplayCount++;
+            console.log('\n'.repeat(3)); // Add space before QR code
             displayQRCode(qr, this.qrDisplayCount);
         }
 
@@ -385,14 +354,19 @@ class ConnectionManager {
     handleConnectionError(error) {
         console.error('❌ Connection error:', error);
         isConnected = false;
+        this.isConnecting = false;
         this.handleReconnection();
     }
 
     clearAuthAndRestart() {
+        console.log('🔄 Clearing auth and restarting...');
         if (fs.existsSync('auth_info_baileys')) {
             fs.rmSync('auth_info_baileys', { recursive: true, force: true });
         }
-        setTimeout(() => this.connect(), 5000);
+        setTimeout(() => {
+            this.isConnecting = false;
+            this.connect();
+        }, 5000);
     }
 }
 
@@ -445,12 +419,24 @@ app.get('/gm/status', (req, res) => {
     });
 });
 
+// QR Code endpoint for web display
+app.get('/qr', (req, res) => {
+    if (isConnected) {
+        return res.json({ status: 'already_connected', message: 'WhatsApp is already connected' });
+    }
+    res.json({ 
+        status: 'waiting_for_qr', 
+        message: 'QR code will be displayed in terminal when available' 
+    });
+});
+
 async function start() {
     try {
         await ensureDirectories();
         cleanupTempFiles();
 
         console.log('🤖 Starting WhatsApp Bot and Group Manager...');
+        console.log('📱 Waiting for QR code...');
 
         // Start the connection manager
         await connectionManager.connect();
@@ -463,7 +449,6 @@ async function start() {
         });
 
         // Setup cleanup intervals
-        setInterval(cleanupExpiredPairingCodes, 60000);
         setInterval(cleanupTempFiles, 3600000);
 
         console.log('✅ Bot initialization complete. Waiting for WhatsApp connection...');
