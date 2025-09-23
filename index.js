@@ -1,8 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
-const { ReadableStream } = require('web-streams-polyfill');
-global.ReadableStream = ReadableStream;
+
+// Crypto polyfill for Render - ADD THIS AT THE TOP
+if (typeof crypto === 'undefined') {
+    global.crypto = require('crypto');
+}
 
 const { delay } = require('@whiskeysockets/baileys');
 const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
@@ -108,55 +111,6 @@ const RECONNECT_INTERVAL = 50000;
 // Initialize Group Manager
 const groupManager = new GroupManager();
 
-// FIXED: Simple logger that works with Baileys
-const createLogger = () => {
-    return {
-        trace: (msg) => {
-            if (typeof msg === 'object') {
-                console.log('🔍 TRACE:', JSON.stringify(msg, null, 2));
-            } else {
-                console.log('🔍 TRACE:', msg);
-            }
-        },
-        debug: (msg) => {
-            if (typeof msg === 'object') {
-                console.log('🐛 DEBUG:', JSON.stringify(msg, null, 2));
-            } else {
-                console.log('🐛 DEBUG:', msg);
-            }
-        },
-        info: (msg) => {
-            if (typeof msg === 'object') {
-                console.log('ℹ️ INFO:', JSON.stringify(msg, null, 2));
-            } else {
-                console.log('ℹ️ INFO:', msg);
-            }
-        },
-        warn: (msg) => {
-            if (typeof msg === 'object') {
-                console.warn('⚠️ WARN:', JSON.stringify(msg, null, 2));
-            } else {
-                console.warn('⚠️ WARN:', msg);
-            }
-        },
-        error: (msg) => {
-            if (typeof msg === 'object') {
-                console.error('❌ ERROR:', JSON.stringify(msg, null, 2));
-            } else {
-                console.error('❌ ERROR:', msg);
-            }
-        },
-        fatal: (msg) => {
-            if (typeof msg === 'object') {
-                console.error('💀 FATAL:', JSON.stringify(msg, null, 2));
-            } else {
-                console.error('💀 FATAL:', msg);
-            }
-        },
-        child: () => createLogger()
-    };
-};
-
 // Core functions
 async function ensureDirectories() {
     const dirs = ['auth_info_baileys', 'data', 'downloads', 'downloads/music', 'downloads/videos', 'downloads/reels'];
@@ -222,7 +176,7 @@ function getUserStatus(phoneNumber) {
     return user;
 }
 
-// FIXED: QR Code Display Function
+// FIXED: Improved QR Code Display Function
 function displayQRCode(qr, count) {
     console.log('\n' + '='.repeat(60));
     console.log('📱 WHATSAPP QR CODE - SCAN WITH YOUR PHONE');
@@ -231,14 +185,19 @@ function displayQRCode(qr, count) {
     console.log('='.repeat(60));
     console.log('');
 
-    // Generate QR code directly to terminal
-    qrcode.generate(qr, { small: true });
+    // Generate QR code directly to terminal with better formatting
+    try {
+        qrcode.generate(qr, { small: true });
+    } catch (error) {
+        console.log('QR Code:', qr); // Fallback: show raw QR string
+    }
 
     console.log('');
     console.log('💡 Instructions:');
     console.log('1. Open WhatsApp on your phone');
     console.log('2. Go to Settings → Linked Devices → Link a Device');
     console.log('3. Scan the QR code above');
+    console.log('4. The bot will automatically reconnect after scanning');
     console.log('='.repeat(60));
     console.log('');
 }
@@ -602,11 +561,13 @@ async function handleDownloadRequest(sock, message, text, phoneNumber) {
     }
 }
 
-// Connection Manager
+// FIXED: Improved Connection Manager
 class ConnectionManager {
     constructor() {
         this.isConnecting = false;
         this.qrDisplayCount = 0;
+        this.lastQRTime = 0;
+        this.qrDisplayInterval = 30000; // Show QR every 30 seconds max
     }
 
     async connect() {
@@ -617,28 +578,24 @@ class ConnectionManager {
             await ensureDirectories();
             const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-            const { version, isLatest } = await fetchLatestBaileysVersion();
-            console.log(`✅ Using WA v${version.join('.')}, isLatest: ${isLatest}`);
+            const { version } = await fetchLatestBaileysVersion();
+            console.log(`✅ Using WA v${version.join('.')}`);
 
-            // Use a very simple logger to avoid object display issues
             sock = makeWASocket({
                 version,
                 logger: {
-                    level: 'silent', // Minimal logging
-                    trace: () => {},
-                    debug: () => {},
-                    info: () => {},
-                    warn: () => {},
-                    error: (msg) => console.error('❌', msg),
-                    child: () => ({ 
-                        trace: () => {}, debug: () => {}, info: () => {}, 
-                        warn: () => {}, error: (msg) => console.error('❌', msg) 
-                    })
+                    level: 'warn', // Only show warnings and errors
+                    warn: (msg) => console.warn('⚠️', msg),
+                    error: (msg) => console.error('❌', msg)
                 },
-                printQRInTerminal: false,
+                printQRInTerminal: false, // We handle QR display ourselves
                 auth: state,
                 browser: Browsers.ubuntu('Chrome'),
                 markOnlineOnConnect: true,
+                syncFullHistory: false,
+                fireInitQueries: true,
+                connectTimeoutMs: 60000,
+                keepAliveIntervalMs: 30000
             });
 
             sock.ev.on('creds.update', saveCreds);
@@ -651,6 +608,8 @@ class ConnectionManager {
                 }
             });
 
+            console.log('🔗 Connection initialized successfully');
+
         } catch (error) {
             console.error('❌ Connection setup error:', error);
             this.handleConnectionError(error);
@@ -658,13 +617,24 @@ class ConnectionManager {
     }
 
     handleConnectionUpdate(update) {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr, isNewLogin } = update;
 
-        // FIXED: QR code display - this will now show properly
+        // FIXED: Better QR code handling with rate limiting
         if (qr) {
-            this.qrDisplayCount++;
-            console.log('\n'.repeat(5)); // Add space before QR
-            displayQRCode(qr, this.qrDisplayCount);
+            const now = Date.now();
+            if (now - this.lastQRTime > this.qrDisplayInterval) {
+                this.qrDisplayCount++;
+                this.lastQRTime = now;
+                console.log('\n'.repeat(3)); // Add space before QR
+                displayQRCode(qr, this.qrDisplayCount);
+                
+                // Auto-clear QR after 2 minutes if not scanned
+                setTimeout(() => {
+                    if (!isConnected) {
+                        console.log('⏰ QR code expired. Generating new one...');
+                    }
+                }, 120000);
+            }
         }
 
         if (connection === 'open') {
@@ -672,53 +642,70 @@ class ConnectionManager {
         } else if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) {
-                this.handleReconnection();
+                this.handleReconnection(lastDisconnect);
             } else {
                 console.log('❌ Connection closed. You are logged out.');
                 this.clearAuthAndRestart();
             }
+        } else if (connection === 'connecting') {
+            console.log('🔄 Connecting to WhatsApp...');
         }
     }
 
     handleSuccessfulConnection() {
         isConnected = true;
         reconnectAttempts = 0;
+        this.isConnecting = false;
         console.log('✅ WhatsApp connected successfully!');
+        console.log('🤖 Bot is now ready to receive messages');
 
+        // Start group manager after successful connection
         setTimeout(() => {
             if (!groupManager.isRunning) {
+                console.log('🚀 Starting Group Manager...');
                 groupManager.start();
             }
         }, 3000);
     }
 
-    handleReconnection() {
+    handleReconnection(disconnect) {
+        this.isConnecting = false;
+        
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             console.log('❌ Max reconnection attempts reached');
             this.clearAuthAndRestart();
             return;
         }
+        
         reconnectAttempts++;
-        console.log(`🔄 Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-        setTimeout(() => this.connect(), RECONNECT_INTERVAL);
+        const delayTime = Math.min(RECONNECT_INTERVAL * reconnectAttempts, 300000); // Max 5 minutes
+        console.log(`🔄 Reconnecting in ${delayTime/1000} seconds... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+        
+        setTimeout(() => this.connect(), delayTime);
     }
 
     handleConnectionError(error) {
         console.error('❌ Connection error:', error);
         isConnected = false;
         this.isConnecting = false;
-        this.handleReconnection();
+        this.handleReconnection({ error });
     }
 
     clearAuthAndRestart() {
-        console.log('🔄 Clearing auth and restarting...');
-        if (fs.existsSync('auth_info_baileys')) {
-            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+        console.log('🔄 Clearing auth data and restarting...');
+        try {
+            if (fs.existsSync('auth_info_baileys')) {
+                fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                console.log('🗑️ Auth data cleared');
+            }
+        } catch (error) {
+            console.error('Error clearing auth data:', error);
         }
+        
         setTimeout(() => {
             this.isConnecting = false;
             this.connect();
-        }, 5000);
+        }, 10000);
     }
 }
 
@@ -736,6 +723,7 @@ app.get('/health', (req, res) => {
         connected: isConnected,
         group_manager: groupManager.isRunning ? 'running' : 'stopped',
         active_users: userActivations.size,
+        reconnect_attempts: reconnectAttempts,
         timestamp: new Date().toISOString()
     });
 });
@@ -750,7 +738,7 @@ app.get('/gm/status', (req, res) => {
     res.json({ status: groupManager.isRunning ? 'running' : 'stopped' });
 });
 
-// FIXED: Bind to 0.0.0.0 instead of localhost for Render
+// Start function
 async function start() {
     try {
         await ensureDirectories();
@@ -758,17 +746,19 @@ async function start() {
 
         console.log('🤖 Starting WhatsApp Bot...');
         console.log('🔑 Activation Key:', ACTIVATION_KEY);
+        console.log('🌐 Environment:', process.env.NODE_ENV || 'development');
         console.log('📱 Waiting for QR code...');
 
-        // Start connection first
+        // Start connection
         await connectionManager.connect();
 
-        // Then start server
+        // Start web server
         app.listen(PORT, '0.0.0.0', () => {
-            console.log(`🌐 Server running on port ${PORT} (0.0.0.0)`);
+            console.log(`🌐 Server running on port ${PORT}`);
             console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
         });
 
+        // Regular cleanup
         setInterval(cleanupTempFiles, 3600000);
 
     } catch (error) {
@@ -777,28 +767,40 @@ async function start() {
     }
 }
 
-// Start bot
+// Start the bot
 start();
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-    console.log('🛑 Shutting down...');
+    console.log('\n🛑 Shutting down gracefully...');
     groupManager.stop();
-    if (sock) await sock.end();
+    if (sock) {
+        await sock.end();
+        console.log('📱 WhatsApp connection closed');
+    }
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    console.log('🛑 Received SIGTERM...');
+    console.log('\n🛑 Received SIGTERM, shutting down...');
     groupManager.stop();
     if (sock) await sock.end();
     process.exit(0);
 });
 
-// Auto-restart group manager
+// Auto-restart group manager if connection is active
 setInterval(() => {
     if (isConnected && !groupManager.isRunning) {
         console.log('🔄 Auto-restarting Group Manager...');
         groupManager.start();
     }
 }, 30000);
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+    console.error('💥 Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
