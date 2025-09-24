@@ -17,8 +17,8 @@ class GroupManager {
         
         // Your WhatsApp Channels
         this.channels = {
-            music: '120363176385325321@g.us', // Music channel ID
-            entertainment: '120363176385325322@g.us' // Entertainment channel ID
+            music: '0029VbBn8li3LdQQcJbvwm2S@g.us', // Music channel ID
+            entertainment: '0029Vb6GzqcId7nWURAdJv0M@g.us' // Entertainment channel ID
         };
         
         this.channelLinks = {
