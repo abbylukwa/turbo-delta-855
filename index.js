@@ -1,14 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
-
-// Crypto polyfill for Render
-if (typeof crypto === 'undefined') {
-    global.crypto = require('crypto');
-}
-
 const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion, makeWASocket } = require('@whiskeysockets/baileys');
 const express = require('express');
+
+// Import GroupManager from external file
+const GroupManager = require('./GroupManager');
 
 // Config
 const ACTIVATION_KEY = 'Abbie911';
@@ -19,18 +16,13 @@ const CONSTANT_ADMINS = [
     '263777627210@s.whatsapp.net'
 ];
 
-// Your actual channel links
-const CHANNELS = {
-    music: '120363328966235253@g.us', // Converted from https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
-    entertainment: '120363328966235254@g.us' // Converted from https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
-};
-
 // State
 let sock = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const userActivations = new Map();
+let groupManager = null;
 
 // Simple logger
 const simpleLogger = {
@@ -44,7 +36,12 @@ const simpleLogger = {
     child: () => simpleLogger
 };
 
-// QR Code Display - KEPT CLEAN AS REQUESTED
+// Crypto polyfill for Render
+if (typeof crypto === 'undefined') {
+    global.crypto = require('crypto');
+}
+
+// QR Code Display
 function showQR(qr) {
     console.log('\n'.repeat(3));
     console.log('═'.repeat(50));
@@ -66,6 +63,7 @@ function activateUser(phoneNumber) {
         freeDownloads: 10,
         activationTime: new Date()
     });
+    console.log(`✅ User activated: ${phoneNumber}`);
 }
 
 function isUserActivated(phoneNumber) {
@@ -77,7 +75,24 @@ function isAdmin(sender) {
     return CONSTANT_ADMINS.includes(sender);
 }
 
-// Message Handler - IGNORES NON-ADMIN/NON-ACTIVATED USERS
+// Initialize Group Manager when WhatsApp connects
+function initializeGroupManager() {
+    if (!groupManager && sock) {
+        console.log('🚀 Initializing Group Manager from external file...');
+        try {
+            groupManager = new GroupManager(sock);
+            groupManager.start().then(() => {
+                console.log('✅ External Group Manager started successfully!');
+            }).catch(error => {
+                console.log('❌ Failed to start external Group Manager:', error);
+            });
+        } catch (error) {
+            console.log('❌ Error initializing external Group Manager:', error);
+        }
+    }
+}
+
+// Message Handler
 async function handleMessage(message) {
     if (!message.message) return;
 
@@ -166,6 +181,7 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         helpText += `*ADMIN COMMANDS:*\n`;
         helpText += `.users - Show active users\n`;
         helpText += `.stats - Show bot statistics\n`;
+        helpText += `.groupstatus - Check group manager status\n`;
 
         await sock.sendMessage(sender, { text: helpText });
         return;
@@ -176,11 +192,33 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         const statusText = `🤖 *BOT STATUS*\n\n` +
                          `• Connection: ${isConnected ? '✅ Connected' : '❌ Disconnected'}\n` +
                          `• Active Users: ${userActivations.size}\n` +
+                         `• Group Manager: ${groupManager && groupManager.isRunning ? '✅ Running' : '❌ Stopped'}\n` +
                          `• Your Status: ${admin ? '👑 Admin' : activated ? '✅ Activated' : '❌ Not activated'}\n` +
                          `• Downloads Left: ${activated ? '10' : '0'}\n\n` +
                          `Server: ${isConnected ? '🟢 Online' : '🔴 Offline'}`;
 
         await sock.sendMessage(sender, { text: statusText });
+        return;
+    }
+
+    // Group status command
+    if (command === 'groupstatus') {
+        if (!admin) {
+            await sock.sendMessage(sender, { 
+                text: '❌ Admin only command. Contact admin for assistance.'
+            });
+            return;
+        }
+
+        const groupStatus = groupManager ? 
+            `• Status: ${groupManager.isRunning ? '✅ Running' : '❌ Stopped'}\n` +
+            `• Active Tasks: ${groupManager.intervals ? groupManager.intervals.length + groupManager.timeouts.length : 'N/A'}\n` +
+            `• External File: ✅ Loaded` :
+            '❌ Group Manager not initialized';
+
+        await sock.sendMessage(sender, {
+            text: `👥 *GROUP MANAGER STATUS*\n\n${groupStatus}`
+        });
         return;
     }
 
@@ -209,6 +247,7 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
                 text: `📊 *BOT STATISTICS*\n\n` +
                       `• Total Active Users: ${userActivations.size}\n` +
                       `• Connection Status: ${isConnected ? '✅' : '❌'}\n` +
+                      `• Group Manager: ${groupManager ? '✅' : '❌'}\n` +
                       `• Uptime: ${process.uptime().toFixed(0)}s\n` +
                       `• Memory Usage: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)}MB`
             });
@@ -375,12 +414,20 @@ class ConnectionManager {
         console.log('🤖 Bot is ready to receive messages');
         console.log(`🔑 Admin users: ${CONSTANT_ADMINS.length}`);
         console.log(`👥 Active users: ${userActivations.size}`);
-        console.log(`📢 Channels configured: ${Object.keys(CHANNELS).length}`);
+        
+        // Initialize Group Manager from external file after successful connection
+        initializeGroupManager();
     }
 
     handleDisconnection(update) {
         isConnected = false;
         this.isConnecting = false;
+
+        // Stop group manager on disconnection
+        if (groupManager) {
+            groupManager.stop();
+            groupManager = null;
+        }
 
         const { lastDisconnect } = update;
         if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
@@ -420,7 +467,8 @@ app.get('/health', (req, res) => {
         status: 'ok',
         connected: isConnected,
         activeUsers: userActivations.size,
-        admins: CONSTANT_ADMINS.length,
+        groupManagerActive: groupManager ? groupManager.isRunning : false,
+        externalGroupManager: true,
         timestamp: new Date().toISOString()
     });
 });
@@ -431,7 +479,9 @@ app.get('/', (req, res) => {
         version: '2.0.0',
         status: 'running',
         activationRequired: true,
-        adminCount: CONSTANT_ADMINS.length
+        adminCount: CONSTANT_ADMINS.length,
+        groupManager: groupManager ? 'active' : 'inactive',
+        externalGroupManager: true
     });
 });
 
@@ -442,8 +492,8 @@ async function start() {
         console.log('🔑 Activation Key:', ACTIVATION_KEY);
         console.log('👑 Admin Users:', CONSTANT_ADMINS.length);
         console.log('🌐 Environment:', process.env.NODE_ENV || 'development');
-        console.log('📢 Channels:', CHANNELS);
         console.log('💡 Bot will IGNORE messages from non-activated users except admins');
+        console.log('📁 Group Manager: External file');
 
         // Start web server
         app.listen(PORT, '0.0.0.0', () => {
@@ -464,17 +514,15 @@ async function start() {
 // Graceful shutdown
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down gracefully...');
-    if (sock) {
-        sock.end();
-    }
+    if (groupManager) groupManager.stop();
+    if (sock) sock.end();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('\n🛑 Received SIGTERM...');
-    if (sock) {
-        sock.end();
-    }
+    if (groupManager) groupManager.stop();
+    if (sock) sock.end();
     process.exit(0);
 });
 
