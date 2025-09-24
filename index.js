@@ -5,7 +5,7 @@ const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVer
 const express = require('express');
 
 // Import GroupManager from external file
-const GroupManager = require('./GroupManager');
+const GroupManager = require('./group-manager.js');
 
 // Config
 const ACTIVATION_KEY = 'Abbie911';
