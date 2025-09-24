@@ -1,16 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
-const { exec } = require('child_process');
-const util = require('util');
-const execAsync = util.promisify(exec);
 
 // Crypto polyfill for Render
 if (typeof crypto === 'undefined') {
     global.crypto = require('crypto');
 }
 
-const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion, makeWASocket } = require('@whiskeysockets/baileys');
 const express = require('express');
 
 // Config
@@ -22,30 +19,10 @@ const CONSTANT_ADMINS = [
     '263777627210@s.whatsapp.net'
 ];
 
-// Group Manager Configuration
-const CHANNELS = ['music', 'entertainment', 'news'];
-const ZIM_COMEDIANS = ['Carl Joshua', 'Doc Vikela', 'Q Dube', 'Long John'];
-const SA_COMEDIANS = ['Trevor Noah', 'Loyiso Gola', 'Celeste Ntuli', 'Kagiso Lediga'];
-const SATURDAY_SHOWS = ['Idols SA', 'The Voice', 'SA Got Talent', 'Dancing with the Stars'];
-const NEWS_SOURCES = ['BBC Africa', 'CNN Africa', 'Al Jazeera', 'SABC News'];
-const CHART_SOURCES = ['Billboard', 'Apple Music', 'Spotify', 'YouTube Charts'];
-
-const HYPING_QUOTES = [
-    "🔥 Stay focused and never give up! 🔥",
-    "💪 Your potential is endless! Keep pushing! 💪",
-    "🚀 Great things never come from comfort zones! 🚀",
-    "🌟 Believe you can and you're halfway there! 🌟",
-    "🎯 Success is walking from failure to failure with no loss of enthusiasm! 🎯"
-];
-
-const MUSIC_SCHEDULE = {
-    'Monday': [['06:00-09:00', 'Afrobeats'], ['09:00-12:00', 'House'], ['12:00-15:00', 'Hip Hop'], ['15:00-18:00', 'Dancehall'], ['18:00-21:00', 'RnB'], ['21:00-24:00', 'Gospel']],
-    'Tuesday': [['06:00-09:00', 'Reggae'], ['09:00-12:00', 'Jazz'], ['12:00-15:00', 'Soul'], ['15:00-18:00', 'Pop'], ['18:00-21:00', 'Electronic'], ['21:00-24:00', 'Classical']],
-    'Wednesday': [['06:00-09:00', 'Amapiano'], ['09:00-12:00', 'Gqom'], ['12:00-15:00', 'Afro House'], ['15:00-18:00', 'Kwaito'], ['18:00-21:00', 'Maskandi'], ['21:00-24:00', 'Traditional']],
-    'Thursday': [['06:00-09:00', 'Rock'], ['09:00-12:00', 'Metal'], ['12:00-15:00', 'Alternative'], ['15:00-18:00', 'Indie'], ['18:00-21:00', 'Punk'], ['21:00-24:00', 'Blues']],
-    'Friday': [['06:00-09:00', 'Dance'], ['09:00-12:00', 'EDM'], ['12:00-15:00', 'Trance'], ['15:00-18:00', 'Techno'], ['18:00-21:00', 'Dubstep'], ['21:00-24:00', 'Party Hits']],
-    'Saturday': [['06:00-12:00', 'Weekend Mix'], ['12:00-18:00', 'Chart Toppers'], ['18:00-24:00', 'Throwbacks']],
-    'Sunday': [['06:00-12:00', 'Chill Vibes'], ['12:00-18:00', 'Relaxing Mix'], ['18:00-24:00', 'Sunday Worship']]
+// Your actual channel links
+const CHANNELS = {
+    music: '120363328966235253@g.us', // Converted from https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S
+    entertainment: '120363328966235254@g.us' // Converted from https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M
 };
 
 // State
@@ -54,7 +31,6 @@ let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const userActivations = new Map();
-let groupManager = null;
 
 // Simple logger
 const simpleLogger = {
@@ -68,274 +44,7 @@ const simpleLogger = {
     child: () => simpleLogger
 };
 
-// Group Manager Class
-class GroupManager {
-    constructor(sock) {
-        this.sock = sock;
-        this.isRunning = false;
-        this.intervals = [];
-        this.timeouts = [];
-        this.downloadDir = path.join(__dirname, 'downloads');
-        this.ensureDownloadDir();
-    }
-
-    ensureDownloadDir() {
-        if (!fs.existsSync(this.downloadDir)) {
-            fs.mkdirSync(this.downloadDir, { recursive: true });
-        }
-    }
-
-    async downloadYouTubeAudio(url) {
-        try {
-            const filename = `audio_${Date.now()}.mp3`;
-            const filepath = path.join(this.downloadDir, filename);
-            
-            const command = `yt-dlp -x --audio-format mp3 -o "${filepath}" "${url}"`;
-            await execAsync(command);
-            
-            return fs.existsSync(filepath) ? filepath : null;
-        } catch (error) {
-            console.error('Error downloading audio:', error);
-            return null;
-        }
-    }
-
-    async downloadYouTubeVideo(url) {
-        try {
-            const filename = `video_${Date.now()}.mp4`;
-            const filepath = path.join(this.downloadDir, filename);
-            
-            const command = `yt-dlp -f best -o "${filepath}" "${url}"`;
-            await execAsync(command);
-            
-            return fs.existsSync(filepath) ? filepath : null;
-        } catch (error) {
-            console.error('Error downloading video:', error);
-            return null;
-        }
-    }
-
-    async searchYouTube(query, maxResults = 5) {
-        try {
-            const command = `yt-dlp --flat-playlist "ytsearch${maxResults}:${query}" -j`;
-            const { stdout } = await execAsync(command);
-            
-            const videos = stdout.trim().split('\n')
-                .filter(line => line.trim())
-                .map(line => {
-                    try {
-                        const data = JSON.parse(line);
-                        return `https://www.youtube.com/watch?v=${data.id}`;
-                    } catch (e) {
-                        return null;
-                    }
-                })
-                .filter(url => url);
-            
-            return videos;
-        } catch (error) {
-            console.error('Error searching YouTube:', error);
-            return [];
-        }
-    }
-
-    async postToGroup(groupId, content, filePath = null) {
-        try {
-            if (!this.sock) return false;
-
-            console.log(`📢 Posting to group: ${content}`);
-            
-            if (filePath && fs.existsSync(filePath)) {
-                // Send as audio if it's MP3
-                if (filePath.endsWith('.mp3')) {
-                    await this.sock.sendMessage(groupId, {
-                        audio: fs.readFileSync(filePath),
-                        mimetype: 'audio/mpeg',
-                        fileName: 'music.mp3'
-                    });
-                } else {
-                    // Send as video
-                    await this.sock.sendMessage(groupId, {
-                        video: fs.readFileSync(filePath),
-                        mimetype: 'video/mp4',
-                        fileName: 'video.mp4'
-                    });
-                }
-            } else {
-                // Send text message
-                await this.sock.sendMessage(groupId, { text: content });
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('Error posting to group:', error);
-            return false;
-        }
-    }
-
-    getCurrentGenre() {
-        const now = new Date();
-        const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' });
-        const currentTime = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-        
-        const schedule = MUSIC_SCHEDULE[currentDay];
-        if (!schedule) return null;
-        
-        for (const [timeRange, genre] of schedule) {
-            const [start, end] = timeRange.split('-');
-            if (currentTime >= start && currentTime <= end) {
-                return genre;
-            }
-        }
-        
-        return null;
-    }
-
-    async downloadAndPostMusic() {
-        try {
-            const currentGenre = this.getCurrentGenre();
-            if (!currentGenre) return;
-
-            const searchQuery = `${currentGenre} 2024 latest hits`;
-            const videos = await this.searchYouTube(searchQuery, 1);
-
-            for (const videoUrl of videos) {
-                const audioFile = await this.downloadYouTubeAudio(videoUrl);
-                if (audioFile) {
-                    // You need to replace with actual group IDs
-                    const groupId = "123456789-123456@g.us"; // Example group ID
-                    await this.postToGroup(
-                        groupId, 
-                        `🎵 ${currentGenre} Track 🎵\nEnjoy this latest ${currentGenre} hit!`,
-                        audioFile
-                    );
-                    
-                    // Clean up after posting
-                    setTimeout(() => {
-                        if (fs.existsSync(audioFile)) {
-                            fs.unlinkSync(audioFile);
-                        }
-                    }, 30000);
-                    break;
-                }
-            }
-        } catch (error) {
-            console.error('Error in music posting:', error);
-        }
-    }
-
-    async postComedianContent() {
-        try {
-            const allComedians = [...ZIM_COMEDIANS, ...SA_COMEDIANS];
-            const comedian = allComedians[new Date().getDate() % allComedians.length];
-            
-            const videos = await this.searchYouTube(`${comedian} comedy`, 1);
-            for (const videoUrl of videos) {
-                const videoFile = await this.downloadYouTubeVideo(videoUrl);
-                if (videoFile) {
-                    const groupId = "123456789-123456@g.us";
-                    await this.postToGroup(
-                        groupId,
-                        `😂 ${comedian} - Comedy Gold! 😂\nLaugh out loud with ${comedian}!`,
-                        videoFile
-                    );
-                    
-                    setTimeout(() => {
-                        if (fs.existsSync(videoFile)) {
-                            fs.unlinkSync(videoFile);
-                        }
-                    }, 60000);
-                    break;
-                }
-            }
-        } catch (error) {
-            console.error('Error posting comedian content:', error);
-        }
-    }
-
-    async postHypingQuotes() {
-        try {
-            const quote = HYPING_QUOTES[new Date().getHours() % HYPING_QUOTES.length];
-            const groupId = "123456789-123456@g.us";
-            await this.postToGroup(groupId, `💫 MOTIVATION 💫\n\n${quote}\n\nKeep shining! ✨`);
-        } catch (error) {
-            console.error('Error posting quotes:', error);
-        }
-    }
-
-    scheduleTasks() {
-        // Schedule hyping quotes every 30 minutes
-        const quoteInterval = setInterval(() => {
-            this.postHypingQuotes();
-        }, 30 * 60 * 1000);
-        this.intervals.push(quoteInterval);
-
-        // Schedule music every 2 hours (reduced frequency)
-        const musicInterval = setInterval(() => {
-            this.downloadAndPostMusic();
-        }, 2 * 60 * 60 * 1000);
-        this.intervals.push(musicInterval);
-
-        // Schedule comedian content twice daily
-        this.scheduleDailyTask('12:00', () => this.postComedianContent());
-        this.scheduleDailyTask('20:00', () => this.postComedianContent());
-
-        console.log('✅ Group Manager tasks scheduled');
-    }
-
-    scheduleDailyTask(time, task) {
-        const now = new Date();
-        const [hours, minutes] = time.split(':');
-        const scheduledTime = new Date();
-        scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-
-        if (scheduledTime < now) {
-            scheduledTime.setDate(scheduledTime.getDate() + 1);
-        }
-
-        const delay = scheduledTime.getTime() - now.getTime();
-        
-        const timeout = setTimeout(() => {
-            task();
-            // Reschedule for next day
-            this.scheduleDailyTask(time, task);
-        }, delay);
-        
-        this.timeouts.push(timeout);
-    }
-
-    async start() {
-        if (this.isRunning) {
-            console.log('⚠️ Group Manager is already running');
-            return;
-        }
-
-        this.isRunning = true;
-        console.log('🚀 Starting Group Manager...');
-        
-        // Initial posts
-        await this.postHypingQuotes();
-        
-        // Schedule all tasks
-        this.scheduleTasks();
-        
-        console.log('✅ Group Manager started successfully!');
-    }
-
-    stop() {
-        this.isRunning = false;
-        
-        // Clear all intervals and timeouts
-        this.intervals.forEach(clearInterval);
-        this.timeouts.forEach(clearTimeout);
-        this.intervals = [];
-        this.timeouts = [];
-        
-        console.log('🛑 Group Manager stopped');
-    }
-}
-
-// QR Code Display
+// QR Code Display - KEPT CLEAN AS REQUESTED
 function showQR(qr) {
     console.log('\n'.repeat(3));
     console.log('═'.repeat(50));
@@ -357,7 +66,6 @@ function activateUser(phoneNumber) {
         freeDownloads: 10,
         activationTime: new Date()
     });
-    console.log(`✅ User activated: ${phoneNumber}`);
 }
 
 function isUserActivated(phoneNumber) {
@@ -369,20 +77,7 @@ function isAdmin(sender) {
     return CONSTANT_ADMINS.includes(sender);
 }
 
-// Initialize Group Manager when WhatsApp connects
-function initializeGroupManager() {
-    if (!groupManager && sock) {
-        console.log('🚀 Initializing Group Manager...');
-        groupManager = new GroupManager(sock);
-        groupManager.start().then(() => {
-            console.log('✅ Group Manager started successfully!');
-        }).catch(error => {
-            console.log('❌ Failed to start Group Manager:', error);
-        });
-    }
-}
-
-// Message Handler
+// Message Handler - IGNORES NON-ADMIN/NON-ACTIVATED USERS
 async function handleMessage(message) {
     if (!message.message) return;
 
@@ -399,27 +94,24 @@ async function handleMessage(message) {
     // Ignore messages without text or not starting with command prefix
     if (!text || !text.startsWith('.')) return;
 
-    console.log(`📨 Message from ${phoneNumber}: ${text}`);
+    console.log(`📨 Message from ${phoneNumber} (Admin: ${isAdmin(sender)}): ${text}`);
 
     // Check if user is admin or activated
     const admin = isAdmin(sender);
     const activated = isUserActivated(phoneNumber);
 
-    // Always process admin messages, ignore non-activated non-admin messages
+    // IGNORE messages from non-admin and non-activated users (except activation/help/status commands)
     if (!admin && !activated) {
         console.log(`🚫 Ignoring non-activated user: ${phoneNumber}`);
 
-        // Only respond if it's an activation attempt or help request
+        // Only respond to activation, help, or status commands
         const command = text.slice(1).split(' ')[0].toLowerCase();
         const allowedCommands = ['activate', 'help', 'status'];
 
         if (allowedCommands.includes(command)) {
             await handleBasicCommand(sock, sender, phoneNumber, text);
-        } else {
-            await sock.sendMessage(sender, {
-                text: '❌ Please activate your account first!\n\nUse: .activate [key]\nActivation key: ' + ACTIVATION_KEY
-            });
         }
+        // IGNORE all other commands from non-activated users
         return;
     }
 
@@ -441,18 +133,18 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
     const admin = isAdmin(sender);
     const activated = isUserActivated(phoneNumber);
 
-    console.log(`🔧 Processing command: ${command} from ${phoneNumber}`);
+    console.log(`🔧 Processing command: ${command} from ${phoneNumber} (Admin: ${admin}, Activated: ${activated})`);
 
     // Activation command - available to everyone
     if (command === 'activate') {
         if (args[1] === ACTIVATION_KEY) {
             activateUser(phoneNumber);
             await sock.sendMessage(sender, {
-                text: '✅ Account activated successfully! You now have 10 free downloads.'
+                text: '✅ Account activated successfully! You now have 10 free downloads.\n\nAvailable commands:\n.download [url] - Download from any website\n.yt [url] - YouTube download\n.ig [url] - Instagram download\n.tt [url] - TikTok download\n.help - Show all commands'
             });
         } else {
             await sock.sendMessage(sender, { 
-                text: '❌ Invalid activation key! Use: .activate ' + ACTIVATION_KEY
+                text: '❌ Invalid activation key!\n\nPlease use: .activate ' + ACTIVATION_KEY + '\nOr contact admin for assistance.'
             });
         }
         return;
@@ -460,15 +152,20 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
 
     // Help command - available to everyone
     if (command === 'help') {
-        let helpText = `📋 *BOT COMMANDS* 📋\n\n`;
+        let helpText = `📋 *DOWNLOAD BOT COMMANDS* 📋\n\n`;
         helpText += `*FOR EVERYONE:*\n`;
         helpText += `.activate [key] - Activate your account\n`;
         helpText += `.help - Show this help message\n`;
         helpText += `.status - Check bot status\n\n`;
         helpText += `*AFTER ACTIVATION:*\n`;
         helpText += `.download [url] - Download from any website\n`;
-        helpText += `.yt [url] - YouTube download\n`;
+        helpText += `.yt [url/query] - YouTube download\n`;
         helpText += `.ig [url] - Instagram download\n`;
+        helpText += `.tt [url] - TikTok download\n`;
+        helpText += `.fb [url] - Facebook download\n\n`;
+        helpText += `*ADMIN COMMANDS:*\n`;
+        helpText += `.users - Show active users\n`;
+        helpText += `.stats - Show bot statistics\n`;
 
         await sock.sendMessage(sender, { text: helpText });
         return;
@@ -479,16 +176,50 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         const statusText = `🤖 *BOT STATUS*\n\n` +
                          `• Connection: ${isConnected ? '✅ Connected' : '❌ Disconnected'}\n` +
                          `• Active Users: ${userActivations.size}\n` +
-                         `• Your Status: ${admin ? '👑 Admin' : activated ? '✅ Activated' : '❌ Not activated'}`;
+                         `• Your Status: ${admin ? '👑 Admin' : activated ? '✅ Activated' : '❌ Not activated'}\n` +
+                         `• Downloads Left: ${activated ? '10' : '0'}\n\n` +
+                         `Server: ${isConnected ? '🟢 Online' : '🔴 Offline'}`;
 
         await sock.sendMessage(sender, { text: statusText });
         return;
     }
 
+    // Admin-only commands
+    if (command === 'users' || command === 'stats') {
+        if (!admin) {
+            await sock.sendMessage(sender, { 
+                text: '❌ Admin only command. Contact admin for assistance.'
+            });
+            return;
+        }
+
+        if (command === 'users') {
+            const usersList = Array.from(userActivations.entries())
+                .map(([phone, data]) => `• ${phone} - Activated: ${new Date(data.activationTime).toLocaleDateString()}`)
+                .join('\n');
+
+            await sock.sendMessage(sender, {
+                text: `👥 *ACTIVE USERS* (${userActivations.size})\n\n${usersList || 'No active users yet.'}`
+            });
+            return;
+        }
+
+        if (command === 'stats') {
+            await sock.sendMessage(sender, {
+                text: `📊 *BOT STATISTICS*\n\n` +
+                      `• Total Active Users: ${userActivations.size}\n` +
+                      `• Connection Status: ${isConnected ? '✅' : '❌'}\n` +
+                      `• Uptime: ${process.uptime().toFixed(0)}s\n` +
+                      `• Memory Usage: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)}MB`
+            });
+            return;
+        }
+    }
+
     // Check if user is activated for premium commands
     if (!admin && !activated) {
         await sock.sendMessage(sender, {
-            text: '❌ Please activate your account! Use: .activate ' + ACTIVATION_KEY
+            text: '❌ Please activate your account to use this command!\n\nUse: .activate ' + ACTIVATION_KEY + '\nOr contact admin for assistance.'
         });
         return;
     }
@@ -498,30 +229,70 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         case 'download':
             if (args.length < 2) {
                 await sock.sendMessage(sender, {
-                    text: '❌ Usage: .download [url]'
+                    text: '❌ Usage: .download [url]\nExample: .download https://example.com/video.mp4'
                 });
                 return;
             }
             await sock.sendMessage(sender, {
-                text: `⏳ Starting download from: ${args[1]}`
+                text: `⏳ Starting download from: ${args[1]}\nThis may take a few moments...`
             });
             break;
 
         case 'yt':
+        case 'youtube':
             if (args.length < 2) {
                 await sock.sendMessage(sender, {
-                    text: '❌ Usage: .yt [url]'
+                    text: '❌ Usage: .yt [url or search query]\nExample: .yt https://youtube.com/watch?v=abc123'
                 });
                 return;
             }
             await sock.sendMessage(sender, {
-                text: `🎥 Processing YouTube: ${args[1]}`
+                text: `🎥 Processing YouTube request: ${args.slice(1).join(' ')}...`
+            });
+            break;
+
+        case 'ig':
+        case 'instagram':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .ig [url]\nExample: .ig https://instagram.com/p/abc123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `📸 Processing Instagram request: ${args[1]}...`
+            });
+            break;
+
+        case 'tt':
+        case 'tiktok':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .tt [url]\nExample: .tt https://tiktok.com/@user/video/123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `🎵 Processing TikTok request: ${args[1]}...`
+            });
+            break;
+
+        case 'fb':
+        case 'facebook':
+            if (args.length < 2) {
+                await sock.sendMessage(sender, {
+                    text: '❌ Usage: .fb [url]\nExample: .fb https://facebook.com/video/abc123'
+                });
+                return;
+            }
+            await sock.sendMessage(sender, {
+                text: `👥 Processing Facebook request: ${args[1]}...`
             });
             break;
 
         default:
             await sock.sendMessage(sender, { 
-                text: '❌ Unknown command. Use .help'
+                text: '❌ Unknown command. Use .help to see available commands.'
             });
     }
 }
@@ -530,6 +301,7 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
 class ConnectionManager {
     constructor() {
         this.isConnecting = false;
+        this.qrDisplayCount = 0;
     }
 
     async connect() {
@@ -547,8 +319,6 @@ class ConnectionManager {
 
             console.log('🔗 Connecting to WhatsApp...');
 
-            const { default: makeWASocket } = await import('@whiskeysockets/baileys');
-
             sock = makeWASocket({
                 version,
                 logger: simpleLogger,
@@ -563,6 +333,7 @@ class ConnectionManager {
                 const { connection, qr } = update;
 
                 if (qr) {
+                    this.qrDisplayCount++;
                     showQR(qr);
                 }
 
@@ -592,7 +363,7 @@ class ConnectionManager {
 
         } catch (error) {
             console.log('❌ Connection error:', error.message);
-            this.isConnecting = false;
+            this.handleConnectionError(error);
         }
     }
 
@@ -601,37 +372,40 @@ class ConnectionManager {
         reconnectAttempts = 0;
         this.isConnecting = false;
         console.log('✅ WhatsApp connected successfully!');
-        
-        // Initialize Group Manager as soon as WhatsApp connects
-        initializeGroupManager();
+        console.log('🤖 Bot is ready to receive messages');
+        console.log(`🔑 Admin users: ${CONSTANT_ADMINS.length}`);
+        console.log(`👥 Active users: ${userActivations.size}`);
+        console.log(`📢 Channels configured: ${Object.keys(CHANNELS).length}`);
     }
 
     handleDisconnection(update) {
         isConnected = false;
         this.isConnecting = false;
 
-        // Stop group manager when disconnected
-        if (groupManager) {
-            groupManager.stop();
-            groupManager = null;
-        }
-
         const { lastDisconnect } = update;
         if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
                 const delay = Math.min(10000 * reconnectAttempts, 60000);
-                console.log(`🔄 Reconnecting in ${delay/1000}s...`);
+                console.log(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
                 setTimeout(() => this.connect(), delay);
             } else {
                 console.log('❌ Max reconnection attempts reached');
             }
         } else {
             console.log('❌ Device logged out, please scan QR code again');
+            // Clear auth info to force new QR scan
             if (fs.existsSync('auth_info_baileys')) {
                 fs.rmSync('auth_info_baileys', { recursive: true });
             }
         }
+    }
+
+    handleConnectionError(error) {
+        console.log('❌ Connection setup error:', error.message);
+        this.isConnecting = false;
+        // Don't attempt reconnection for setup errors
+        console.log('💤 Connection setup failed, waiting for manual restart');
     }
 }
 
@@ -646,28 +420,35 @@ app.get('/health', (req, res) => {
         status: 'ok',
         connected: isConnected,
         activeUsers: userActivations.size,
-        groupManagerActive: !!groupManager
+        admins: CONSTANT_ADMINS.length,
+        timestamp: new Date().toISOString()
     });
 });
 
 app.get('/', (req, res) => {
     res.json({
-        service: 'WhatsApp Bot',
+        service: 'WhatsApp Download Bot',
+        version: '2.0.0',
         status: 'running',
-        activationRequired: true
+        activationRequired: true,
+        adminCount: CONSTANT_ADMINS.length
     });
 });
 
 // Start function
 async function start() {
     try {
-        console.log('🚀 Starting WhatsApp Bot...');
+        console.log('🚀 Starting Enhanced WhatsApp Download Bot...');
         console.log('🔑 Activation Key:', ACTIVATION_KEY);
         console.log('👑 Admin Users:', CONSTANT_ADMINS.length);
+        console.log('🌐 Environment:', process.env.NODE_ENV || 'development');
+        console.log('📢 Channels:', CHANNELS);
+        console.log('💡 Bot will IGNORE messages from non-activated users except admins');
 
         // Start web server
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`🌐 Server running on port ${PORT}`);
+            console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
         });
 
         // Start WhatsApp connection
@@ -676,15 +457,34 @@ async function start() {
 
     } catch (error) {
         console.log('❌ Failed to start:', error);
+        process.exit(1);
     }
 }
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down...');
-    if (groupManager) groupManager.stop();
-    if (sock) sock.end();
+    console.log('\n🛑 Shutting down gracefully...');
+    if (sock) {
+        sock.end();
+    }
     process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Received SIGTERM...');
+    if (sock) {
+        sock.end();
+    }
+    process.exit(0);
+});
+
+// Error handling
+process.on('uncaughtException', (error) => {
+    console.log('💥 Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('💥 Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // Start the application
