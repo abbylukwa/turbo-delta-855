@@ -1,25 +1,25 @@
 {
   "name": "whatsapp-bot",
-  "version": "1.0.0",
-  "description": "Advanced WhatsApp Bot with download manager and group management",
-  "main": "polyfill.js",
+  "version": "2.0.0",
+  "description": "Advanced WhatsApp Bot with download manager and group management - Using WhatsApp Web.js",
+  "main": "bot.js",
   "scripts": {
-    "start": "node polyfill.js",
-    "dev": "nodemon polyfill.js",
-    "test": "echo \"Error: no tests specified\" && exit 1"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "test": "echo \"Error: no tests specified\" && exit 1",
+    "install-deps": "npm install"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.4.0",
-    "express": "^4.18.2",
-    "pg": "^8.11.3",
+    "whatsapp-web.js": "^1.23.0",
     "qrcode-terminal": "^0.12.0",
-    "web-streams-polyfill": "^3.2.1",
-    "node-fetch": "^2.7.0",
-    "crypto-browserify": "^3.12.0",
-    "buffer": "^6.0.3",
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
     "ytdl-core": "^4.11.5",
     "instagram-url-direct": "^2.0.5",
-    "axios": "^1.6.0"
+    "puppeteer": "^21.5.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=16.0.0"
@@ -29,7 +29,11 @@
     "bot",
     "download",
     "manager",
-    "group"
+    "group",
+    "youtube",
+    "instagram",
+    "tiktok",
+    "facebook"
   ],
   "author": "Abner",
   "license": "MIT"
