@@ -17,7 +17,9 @@
     "node-fetch": "^2.7.0",
     "crypto-browserify": "^3.12.0",
     "buffer": "^6.0.3",
-    "ytdl-core": "^4.11.5"
+    "ytdl-core": "^4.11.5",
+    "instagram-url-direct": "^2.0.5",
+    "axios": "^1.6.0"
   },
   "engines": {
     "node": ">=16.0.0"
