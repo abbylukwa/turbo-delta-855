@@ -15,28 +15,38 @@ RUN apt-get update && \
     librsvg2-dev \
     git \
     curl \
-    ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+    ffmpeg \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files first for better caching
 COPY package*.json ./
 
-# Install with more permissive flags
-RUN npm config set legacy-peer-deps true && \
-    npm install --production --no-optional
+# Update npm to latest version
+RUN npm install -g npm@latest
 
-# Install web-streams-polyfill
-RUN npm install web-streams-polyfill
+# Clean npm cache and install with proper flags
+RUN npm cache clean --force && \
+    npm install --production --omit=dev --omit=optional --legacy-peer-deps
+
+# Install updated versions of problematic packages
+RUN npm install \
+    glob@^10.0.0 \
+    rimraf@^5.0.0 \
+    web-streams-polyfill@^3.3.0 \
+    --no-save
 
 # Copy application code
 COPY . .
 
-# Create directories
+# Create necessary directories
 RUN mkdir -p /app/data /app/auth_info_baileys /app/backups /app/downloads /app/sessions
 
-# Create non-root user
-RUN groupadd -r nodejs && useradd -r -g nodejs -s /bin/bash whatsappbot && \
-    chown -R whatsappbot:nodejs /app
+# Fix permissions and create non-root user
+RUN groupadd -r nodejs && \
+    useradd -r -g nodejs -s /bin/bash whatsappbot && \
+    chown -R whatsappbot:nodejs /app && \
+    chmod -R 755 /app
 
 USER whatsappbot
 
