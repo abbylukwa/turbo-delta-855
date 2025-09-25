@@ -15,8 +15,8 @@ RUN apt-get update && \
 # Copy package files first for better caching
 COPY package*.json ./
 
-# Install dependencies with clean cache
-RUN npm ci --omit=dev --omit=optional \
+# Install dependencies (using npm install instead of ci)
+RUN npm install --omit=dev --omit=optional --no-audit --no-fund \
     && npm cache clean --force
 
 # Copy application code
