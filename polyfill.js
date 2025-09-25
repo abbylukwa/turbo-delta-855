@@ -1,109 +1,74 @@
-// polyfill.js - Comprehensive polyfills for WhatsApp Bot
+// polyfill.js - Essential polyfills for WhatsApp Bot
 
-console.log('🚀 Loading polyfills...');
+console.log('🚀 Loading essential polyfills...');
 
-// ===== CRITICAL: crypto.subtle polyfill =====
-if (typeof globalThis.crypto === 'undefined') {
-    console.log('🔧 Setting up crypto polyfill...');
+// ===== CRITICAL: crypto.subtle polyfill for Baileys =====
+if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.subtle) {
+    console.log('🔧 Setting up crypto polyfill for WhatsApp Baileys...');
     try {
-        // Use Node.js native crypto
         const nodeCrypto = require('crypto');
-        globalThis.crypto = {
-            // Basic crypto functions
-            randomBytes: nodeCrypto.randomBytes,
-            createHash: nodeCrypto.createHash,
-            createHmac: nodeCrypto.createHmac,
-            
-            // Subtle crypto implementation for WhatsApp
-            subtle: {
-                digest: async (algorithm, data) => {
-                    const algo = algorithm.toLowerCase().replace('-', '');
-                    const hash = nodeCrypto.createHash(algo);
-                    hash.update(data);
-                    return hash.digest();
-                },
-                
-                importKey: async (format, keyData, algorithm, extractable, keyUsages) => {
-                    return {
-                        algorithm,
-                        extractable,
-                        usages: keyUsages,
-                        type: 'secret'
-                    };
-                },
-                
-                encrypt: async (algorithm, key, data) => {
-                    const cipher = nodeCrypto.createCipher('aes-256-cbc', key);
-                    let encrypted = cipher.update(data);
-                    encrypted = Buffer.concat([encrypted, cipher.final()]);
-                    return encrypted;
-                },
-                
-                decrypt: async (algorithm, key, data) => {
-                    const decipher = nodeCrypto.createDecipher('aes-256-cbc', key);
-                    let decrypted = decipher.update(data);
-                    decrypted = Buffer.concat([decrypted, decipher.final()]);
-                    return decrypted;
-                },
-                
-                sign: async (algorithm, key, data) => {
-                    const sign = nodeCrypto.createSign('RSA-SHA256');
-                    sign.update(data);
-                    return sign.sign(key);
-                },
-                
-                verify: async (algorithm, key, signature, data) => {
-                    const verify = nodeCrypto.createVerify('RSA-SHA256');
-                    verify.update(data);
-                    return verify.verify(key, signature);
-                },
-                
-                deriveKey: async (algorithm, baseKey, derivedKeyAlgorithm, extractable, keyUsages) => {
-                    return {
-                        algorithm: derivedKeyAlgorithm,
-                        extractable,
-                        usages: keyUsages
-                    };
-                },
-                
-                deriveBits: async (algorithm, baseKey, length) => {
-                    return nodeCrypto.randomBytes(length / 8);
-                },
-                
-                generateKey: async (algorithm, extractable, keyUsages) => {
-                    return {
-                        publicKey: Buffer.from('mock-public-key'),
-                        privateKey: Buffer.from('mock-private-key'),
-                        type: 'key-pair'
-                    };
+        
+        if (typeof globalThis.crypto === 'undefined') {
+            globalThis.crypto = {
+                getRandomValues: function(array) {
+                    return nodeCrypto.randomFillSync(array);
                 }
+            };
+        }
+
+        // Minimal subtle implementation specifically for WhatsApp Baileys
+        globalThis.crypto.subtle = {
+            digest: async (algorithm, data) => {
+                const algo = algorithm.toLowerCase().replace('-', '');
+                const hash = nodeCrypto.createHash(algo);
+                hash.update(data);
+                return hash.digest();
             },
-            
-            getRandomValues: function(array) {
-                return nodeCrypto.randomFillSync(array);
+
+            importKey: async (format, keyData, algorithm, extractable, keyUsages) => {
+                return { type: 'secret', usages: keyUsages };
+            },
+
+            encrypt: async (algorithm, key, data) => {
+                const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key.slice(0, 32), Buffer.alloc(12, 0));
+                return Buffer.concat([cipher.update(data), cipher.final()]);
+            },
+
+            decrypt: async (algorithm, key, data) => {
+                const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', key.slice(0, 32), Buffer.alloc(12, 0));
+                return Buffer.concat([decipher.update(data), decipher.final()]);
+            },
+
+            sign: async (algorithm, key, data) => {
+                const sign = nodeCrypto.createSign('sha256');
+                sign.update(data);
+                return sign.sign(key);
+            },
+
+            verify: async (algorithm, key, signature, data) => {
+                const verify = nodeCrypto.createVerify('sha256');
+                verify.update(data);
+                return verify.verify(key, signature);
+            },
+
+            // Minimal implementations for other required methods
+            generateKey: async (algorithm, extractable, keyUsages) => {
+                return Promise.resolve({});
+            },
+
+            deriveKey: async (algorithm, baseKey, derivedKeyAlgorithm, extractable, keyUsages) => {
+                return Promise.resolve({});
+            },
+
+            deriveBits: async (algorithm, baseKey, length) => {
+                return nodeCrypto.randomBytes(length / 8);
             }
         };
-        console.log('✅ Native crypto polyfill complete');
+        console.log('✅ Crypto polyfill complete - WhatsApp Baileys should work now');
     } catch (error) {
         console.error('❌ Crypto polyfill failed:', error.message);
         process.exit(1);
     }
-} else if (!globalThis.crypto.subtle) {
-    console.log('🔧 Adding subtle to existing crypto...');
-    const nodeCrypto = require('crypto');
-    globalThis.crypto.subtle = {
-        digest: async (algorithm, data) => {
-            const algo = algorithm.toLowerCase().replace('-', '');
-            const hash = nodeCrypto.createHash(algo);
-            hash.update(data);
-            return hash.digest();
-        },
-        importKey: () => Promise.resolve({}),
-        encrypt: () => Promise.resolve(Buffer.alloc(0)),
-        decrypt: () => Promise.resolve(Buffer.alloc(0)),
-        sign: () => Promise.resolve(Buffer.alloc(0)),
-        verify: () => Promise.resolve(true)
-    };
 }
 
 // ===== TextEncoder/TextDecoder =====
@@ -113,47 +78,25 @@ if (typeof globalThis.TextEncoder === 'undefined') {
     console.log('✅ TextEncoder/TextDecoder polyfilled');
 }
 
-// ===== Blob & File =====
+// ===== Blob =====
 if (typeof globalThis.Blob === 'undefined') {
     try {
-        const { Blob } = require('buffer');
-        globalThis.Blob = Blob;
+        globalThis.Blob = require('buffer').Blob;
         console.log('✅ Blob polyfilled');
     } catch (error) {
-        console.warn('⚠️ Blob polyfill failed:', error.message);
-        // Fallback Blob implementation
+        // Simple fallback Blob
         globalThis.Blob = class Blob {
             constructor(parts = [], options = {}) {
-                this.parts = parts;
-                this.type = options.type || '';
-                this.size = parts.reduce((size, part) => size + (part.length || part.size || 0), 0);
-            }
-            
-            arrayBuffer() {
-                return Promise.resolve(Buffer.concat(this.parts.map(part => 
+                this._buffer = Buffer.concat(parts.map(part => 
                     Buffer.isBuffer(part) ? part : Buffer.from(part)
                 ));
+                this.type = options.type || '';
+                this.size = this._buffer.length;
             }
-            
-            text() {
-                return Promise.resolve(Buffer.concat(this.parts.map(part => 
-                    Buffer.isBuffer(part) ? part : Buffer.from(part)
-                ).toString());
-            }
+            arrayBuffer() { return Promise.resolve(this._buffer); }
+            text() { return Promise.resolve(this._buffer.toString()); }
         };
     }
-}
-
-if (typeof globalThis.File === 'undefined' && globalThis.Blob) {
-    class File extends globalThis.Blob {
-        constructor(blobParts, name, options = {}) {
-            super(blobParts, options);
-            this.name = name;
-            this.lastModified = options.lastModified || Date.now();
-        }
-    }
-    globalThis.File = File;
-    console.log('✅ File polyfilled');
 }
 
 // ===== fetch API =====
@@ -162,32 +105,31 @@ if (typeof globalThis.fetch === 'undefined') {
         globalThis.fetch = require('node-fetch');
         console.log('✅ fetch polyfilled');
     } catch (error) {
-        console.warn('⚠️ fetch polyfill failed:', error.message);
-        // Simple fetch fallback using http/https modules
+        // Use native http module as fallback
         const http = require('http');
         const https = require('https');
         
         globalThis.fetch = function(url, options = {}) {
             return new Promise((resolve, reject) => {
                 const lib = url.startsWith('https') ? https : http;
-                const req = lib.request(url, options, (res) => {
-                    let data = [];
-                    
-                    res.on('data', chunk => data.push(chunk));
+                const req = lib.request(url, { 
+                    method: options.method || 'GET',
+                    headers: options.headers || {}
+                }, (res) => {
+                    const chunks = [];
+                    res.on('data', chunk => chunks.push(chunk));
                     res.on('end', () => {
-                        const response = {
+                        const buffer = Buffer.concat(chunks);
+                        resolve({
                             ok: res.statusCode >= 200 && res.statusCode < 300,
                             status: res.statusCode,
                             statusText: res.statusMessage,
-                            headers: res.headers,
-                            arrayBuffer: () => Promise.resolve(Buffer.concat(data)),
-                            text: () => Promise.resolve(Buffer.concat(data).toString()),
-                            json: () => Promise.resolve(JSON.parse(Buffer.concat(data).toString()))
-                        };
-                        resolve(response);
+                            arrayBuffer: () => Promise.resolve(buffer),
+                            text: () => Promise.resolve(buffer.toString()),
+                            json: () => Promise.resolve(JSON.parse(buffer.toString()))
+                        });
                     });
                 });
-                
                 req.on('error', reject);
                 if (options.body) req.write(options.body);
                 req.end();
@@ -204,34 +146,18 @@ if (typeof globalThis.Buffer === 'undefined') {
 
 // ===== process.nextTick =====
 if (typeof globalThis.process === 'undefined') {
-    globalThis.process = {
-        nextTick: (callback) => setImmediate(callback),
-        env: process.env || {},
-        version: process.version,
-        versions: process.versions
-    };
+    globalThis.process = require('process');
 } else if (!globalThis.process.nextTick) {
     globalThis.process.nextTick = (callback) => setImmediate(callback);
 }
 
-// ===== Web Streams Polyfill =====
-if (typeof globalThis.ReadableStream === 'undefined') {
-    try {
-        const { ReadableStream } = require('web-streams-polyfill');
-        globalThis.ReadableStream = ReadableStream;
-        console.log('✅ ReadableStream polyfilled');
-    } catch (error) {
-        console.warn('⚠️ ReadableStream polyfill failed:', error.message);
-    }
-}
+console.log('✅ All essential polyfills loaded successfully!');
+console.log('🚀 Starting WhatsApp Bot main application...');
 
-console.log('✅ All polyfills loaded successfully!');
-console.log('🚀 Starting WhatsApp Bot...');
-
-// Import and start the main application
+// Start the main application
 try {
     require('./index.js');
 } catch (error) {
-    console.error('❌ Failed to start application:', error);
+    console.error('❌ Failed to start main application:', error);
     process.exit(1);
 }
