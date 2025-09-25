@@ -1,3 +1,4 @@
+// group-manager-web.js
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -8,37 +9,37 @@ const util = require('util');
 const execAsync = util.promisify(exec);
 
 class GroupManager {
-    constructor(sock) {
-        this.sock = sock;
+    constructor(client) {
+        this.client = client;
         this.isRunning = false;
         this.intervals = [];
         this.timeouts = [];
         this.downloadDir = path.join(__dirname, 'downloads');
-        
+
         // Your WhatsApp Channels
         this.channels = {
             music: '0029VbBn8li3LdQQcJbvwm2S@g.us', // Music channel ID
             entertainment: '0029Vb6GzqcId7nWURAdJv0M@g.us' // Entertainment channel ID
         };
-        
+
         this.channelLinks = {
             music: 'https://whatsapp.com/channel/0029VbBn8li3LdQQcJbvwm2S',
             entertainment: 'https://whatsapp.com/channel/0029Vb6GzqcId7nWURAdJv0M'
         };
-        
+
         // Store all joined groups
         this.joinedGroups = new Set();
-        
-        // Admins
+
+        // Admins (updated for WhatsApp Web.js format - @c.us)
         this.constantAdmins = [
-            '0775156210@s.whatsapp.net',
-            '27614159817@s.whatsapp.net', 
-            '263717457592@s.whatsapp.net',
-            '263777627210@s.whatsapp.net'
+            '263775156210@c.us', // 0775156210
+            '27614159817@c.us', 
+            '263717457592@c.us',
+            '263777627210@c.us'
         ];
-        
+
         this.ensureDownloadDir();
-        
+
         // Comedians databases with social media handles
         this.zimComedians = [
             { name: 'Carl Joshua Ncube', instagram: 'carljoshuancube', youtube: '@carljoshuancube' },
@@ -52,7 +53,7 @@ class GroupManager {
             { name: 'King Kandoro', instagram: 'kingkandoro', youtube: '@kingkandoro' },
             { name: 'Bhutisi', instagram: 'bhutisi', youtube: '@bhutisi' }
         ];
-        
+
         this.saComedians = [
             { name: 'Trevor Noah', instagram: 'trevornoah', youtube: '@trevornoah' },
             { name: 'Loyiso Gola', instagram: 'loyisogola', youtube: '@loyisogola' },
@@ -65,12 +66,12 @@ class GroupManager {
             { name: 'Nik Rabinowitz', instagram: 'nikrabinowitz', youtube: '@nikrabinowitz' },
             { name: 'Marc Lottering', instagram: 'marclottering', youtube: '@marclottering' }
         ];
-        
+
         this.saturdayShows = [
             'Wild N Out', 'America\'s Got Talent', 'The Masked Singer',
             'Lip Sync Battle', 'So You Think You Can Dance', 'World of Dance', 'The Voice'
         ];
-        
+
         this.newsSources = [
             { name: 'BBC News Africa', url: 'https://www.bbc.com/africa' },
             { name: 'Al Jazeera English', url: 'https://www.aljazeera.com' },
@@ -80,12 +81,12 @@ class GroupManager {
             { name: 'eNCA', url: 'https://www.enca.com' },
             { name: 'Africanews', url: 'https://www.africanews.com' }
         ];
-        
+
         this.musicCharts = [
             'Billboard', 'Spotify Charts', 'Apple Music Top 100',
             'Shazam Global Top 200', 'YouTube Music Trending'
         ];
-        
+
         this.musicSchedule = {
             'Monday': [
                 ['06:00-09:00', 'Acoustic'],
@@ -137,7 +138,7 @@ class GroupManager {
                 ['18:00-22:00', 'Soul/Neo-Soul']
             ]
         };
-        
+
         this.hypingQuotes = [
             "🔥 Stay focused and never give up! 🔥",
             "💪 Your potential is endless! Keep pushing! 💪",
@@ -145,7 +146,7 @@ class GroupManager {
             "🌟 Believe you can and you're halfway there! 🌟",
             "🎯 Success is walking from failure to failure with no loss of enthusiasm! 🎯"
         ];
-        
+
         // YouTube search queries for each genre
         this.genreQueries = {
             'Acoustic': ['acoustic cover 2024', 'acoustic songs', 'unplugged music'],
@@ -187,12 +188,13 @@ class GroupManager {
     async start() {
         if (this.isRunning) return;
         this.isRunning = true;
-        console.log('🚀 Starting Group Manager...');
+        console.log('🚀 Starting Group Manager (WhatsApp Web.js)...');
 
         this.startScheduledTasks();
         this.setupMessageHandlers();
-        
+
         console.log('✅ Group Manager started successfully!');
+        console.log('📋 Features: Scheduled posts, Admin-only commands, Auto-group management');
     }
 
     stop() {
@@ -205,72 +207,166 @@ class GroupManager {
     }
 
     setupMessageHandlers() {
-        // Track group joins
-        this.sock.ev.on('group-participants.update', async (update) => {
-            if (update.action === 'add' && update.participants.includes(this.sock.user.id)) {
-                this.joinedGroups.add(update.id);
-                console.log(`✅ Bot added to group: ${update.id}`);
-                await this.sendWelcomeMessage(update.id);
+        // Handle group messages - ONLY RESPOND TO ADMINS
+        this.client.on('message', async (message) => {
+            try {
+                // Ignore if not a group message
+                if (!message.from.endsWith('@g.us')) return;
+
+                const sender = message.author || message.from;
+                const body = message.body || '';
+
+                console.log(`👥 Group message from ${sender}: ${body}`);
+
+                // Check if sender is admin
+                if (!this.isAdmin(sender)) {
+                    console.log(`🚫 Ignoring non-admin message from ${sender}`);
+                    return; // IGNORE NON-ADMIN MESSAGES
+                }
+
+                // Process admin commands
+                if (body.startsWith('!broadcast')) {
+                    await this.handleBroadcastCommand(message, sender, body);
+                }
+                else if (body.startsWith('!schedule')) {
+                    await this.handleScheduleCommand(message, sender, body);
+                }
+                else if (body.startsWith('!stats')) {
+                    await this.handleStatsCommand(message, sender);
+                }
+                else if (body.startsWith('!bot')) {
+                    await this.handleBotCommand(message, sender);
+                }
+
+            } catch (error) {
+                console.error('Group message handling error:', error);
             }
         });
 
-        // Handle broadcast commands
-        this.sock.ev.on('messages.upsert', async ({ messages }) => {
-            const message = messages[0];
-            if (!message.message) return;
+        // Track when bot is added to groups
+        this.client.on('group_join', async (notification) => {
+            try {
+                this.joinedGroups.add(notification.chatId);
+                console.log(`✅ Bot added to group: ${notification.chatId}`);
+                await this.sendWelcomeMessage(notification.chatId);
+            } catch (error) {
+                console.error('Group join error:', error);
+            }
+        });
 
-            const text = message.message.conversation || 
-                         message.message.extendedTextMessage?.text || '';
-            
-            if (text.startsWith('.broadcast')) {
-                await this.handleBroadcastCommand(message);
+        // Track when bot is removed from groups
+        this.client.on('group_leave', async (notification) => {
+            try {
+                this.joinedGroups.delete(notification.chatId);
+                console.log(`🚪 Bot removed from group: ${notification.chatId}`);
+            } catch (error) {
+                console.error('Group leave error:', error);
             }
         });
     }
 
-    async handleBroadcastCommand(message) {
-        const sender = message.key.remoteJid;
-        if (!this.constantAdmins.includes(sender)) {
-            await this.sock.sendMessage(sender, { text: '❌ Admin only command.' });
+    isAdmin(sender) {
+        return this.constantAdmins.includes(sender);
+    }
+
+    async handleBroadcastCommand(message, sender, body) {
+        if (!this.isAdmin(sender)) {
+            await message.reply('❌ Admin only command.');
             return;
         }
 
-        const text = message.message.conversation || message.message.extendedTextMessage.text;
-        const content = text.replace('.broadcast', '').trim();
-
+        const content = body.replace('!broadcast', '').trim();
         if (!content) {
-            await this.sock.sendMessage(sender, { text: '❌ Usage: .broadcast [message]' });
+            await message.reply('❌ Usage: !broadcast [message]');
             return;
         }
 
         try {
             const groups = Array.from(this.joinedGroups);
             let successCount = 0;
-            
+
             for (const groupJid of groups) {
                 try {
-                    await this.delay(2000);
-                    await this.sock.sendMessage(groupJid, { 
-                        text: `📢 *BROADCAST*\n\n${content}\n\n*Our Channels:*\n🎵 Music: ${this.channelLinks.music}\n🎭 Entertainment: ${this.channelLinks.entertainment}`
-                    });
+                    await this.delay(2000); // Avoid rate limiting
+                    await this.client.sendMessage(groupJid, 
+                        `📢 *ADMIN BROADCAST*\n\n${content}\n\n*Our Channels:*\n🎵 Music: ${this.channelLinks.music}\n🎭 Entertainment: ${this.channelLinks.entertainment}`
+                    );
                     successCount++;
+                    console.log(`✅ Broadcast sent to ${groupJid}`);
                 } catch (error) {
-                    console.log(`❌ Failed broadcast to ${groupJid}`);
+                    console.log(`❌ Failed broadcast to ${groupJid}:`, error.message);
                 }
             }
-            
-            await this.sock.sendMessage(sender, { 
-                text: `✅ Broadcast sent to ${successCount}/${groups.length} groups`
-            });
-            
+
+            await message.reply(`✅ Broadcast sent to ${successCount}/${groups.length} groups`);
+
         } catch (error) {
-            await this.sock.sendMessage(sender, { text: '❌ Broadcast error' });
+            await message.reply('❌ Broadcast error: ' + error.message);
         }
     }
 
+    async handleScheduleCommand(message, sender, body) {
+        if (!this.isAdmin(sender)) {
+            await message.reply('❌ Admin only command.');
+            return;
+        }
+
+        const args = body.split(' ').slice(1);
+        if (args.length === 0) {
+            const schedule = this.getTodaysSchedule();
+            await message.reply(schedule);
+            return;
+        }
+
+        // Handle specific schedule commands
+        await message.reply('📅 Schedule management commands coming soon...');
+    }
+
+    async handleStatsCommand(message, sender) {
+        if (!this.isAdmin(sender)) {
+            await message.reply('❌ Admin only command.');
+            return;
+        }
+
+        const stats = this.getStats();
+        const statsText = `📊 *GROUP MANAGER STATS*\n\n` +
+                         `• Joined Groups: ${stats.joinedGroups}\n` +
+                         `• Status: ${stats.isRunning ? 'Running' : 'Stopped'}\n` +
+                         `• Active Tasks: ${stats.intervals + stats.timeouts}\n` +
+                         `• Next Post: ${this.getNextScheduledPost()}`;
+
+        await message.reply(statsText);
+    }
+
+    async handleBotCommand(message, sender) {
+        // Basic bot response - available to everyone but only admins can trigger via group messages
+        await message.reply(
+            `🤖 *Download Bot Active*\n\n` +
+            `I manage entertainment & music updates in this group!\n\n` +
+            `*Admin Commands:*\n` +
+            `!broadcast [msg] - Send to all groups\n` +
+            `!schedule - Show today's schedule\n` +
+            `!stats - Bot statistics\n\n` +
+            `*Channels:*\n` +
+            `🎵 ${this.channelLinks.music}\n` +
+            `🎭 ${this.channelLinks.entertainment}`
+        );
+    }
+
     async sendWelcomeMessage(groupJid) {
-        const welcome = `🤖 *Welcome!* I'll share daily entertainment & music updates!\n\n*Channels:*\n🎵 ${this.channelLinks.music}\n🎭 ${this.channelLinks.entertainment}`;
-        await this.sock.sendMessage(groupJid, { text: welcome });
+        try {
+            const welcome = `🤖 *Welcome!* I'll share daily entertainment & music updates!\n\n` +
+                           `*I only respond to admin commands.*\n\n` +
+                           `*Our Channels:*\n` +
+                           `🎵 Music: ${this.channelLinks.music}\n` +
+                           `🎭 Entertainment: ${this.channelLinks.entertainment}\n\n` +
+                           `Type !bot for more info.`;
+
+            await this.client.sendMessage(groupJid, welcome);
+            console.log(`✅ Welcome message sent to ${groupJid}`);
+        } catch (error) {
+            console.error('Welcome message error:', error);
+        }
     }
 
     startScheduledTasks() {
@@ -280,19 +376,19 @@ class GroupManager {
         this.scheduleDailyTask(20, 0, () => this.postComedianContent('night')); // 8:00 PM
         this.scheduleDailyTask(19, 0, () => this.sendNewsUpdate()); // 7:00 PM
         this.scheduleDailyTask(21, 0, () => this.sendNewsUpdate()); // 9:00 PM
-        
+
         // Hyping quotes every 30 minutes
         this.scheduleInterval(() => this.sendHypingQuote(), 30 * 60 * 1000);
-        
+
         // MUSIC CHANNEL SCHEDULE
         this.scheduleDailyTask(6, 0, () => this.updateMusicSchedule()); // 6:00 AM
         this.scheduleDailyTask(12, 0, () => this.updateMusicSchedule()); // 12:00 PM
         this.scheduleDailyTask(18, 0, () => this.updateMusicSchedule()); // 6:00 PM
         this.scheduleDailyTask(21, 0, () => this.postChartToppers()); // 9:00 PM
-        
+
         // Saturday shows (Friday 5 PM)
         this.scheduleWeeklyTask(5, 17, 0, () => this.promoteSaturdayShows());
-        
+
         console.log('📅 All entertainment & music tasks scheduled');
     }
 
@@ -300,15 +396,15 @@ class GroupManager {
         const now = new Date();
         const target = new Date();
         target.setHours(hour, minute, 0, 0);
-        
+
         if (target <= now) target.setDate(target.getDate() + 1);
-        
+
         const delay = target.getTime() - now.getTime();
         const timeout = setTimeout(() => {
             task();
             this.scheduleDailyTask(hour, minute, task);
         }, delay);
-        
+
         this.timeouts.push(timeout);
     }
 
@@ -316,20 +412,20 @@ class GroupManager {
         const now = new Date();
         const target = new Date();
         target.setHours(hour, minute, 0, 0);
-        
+
         let daysUntilTarget = dayOfWeek - now.getDay();
         if (daysUntilTarget < 0 || (daysUntilTarget === 0 && target <= now)) {
             daysUntilTarget += 7;
         }
-        
+
         target.setDate(now.getDate() + daysUntilTarget);
         const delay = target.getTime() - now.getTime();
-        
+
         const timeout = setTimeout(() => {
             task();
             this.scheduleWeeklyTask(dayOfWeek, hour, minute, task);
         }, delay);
-        
+
         this.timeouts.push(timeout);
     }
 
@@ -341,296 +437,150 @@ class GroupManager {
 
     // ENTERTAINMENT CHANNEL FUNCTIONS
     async postComedianContent(timeOfDay) {
-        const zimComedian = this.zimComedians[Math.floor(Math.random() * this.zimComedians.length)];
-        const saComedian = this.saComedians[Math.floor(Math.random() * this.saComedians.length)];
-        
-        const timeLabels = {
-            'lunch': 'LUNCH BREAK COMEDY',
-            'break': 'AFTERNOON COMEDY BREAK', 
-            'night': 'EVENING COMEDY SPECIAL'
-        };
-        
-        const message = `🎭 *${timeLabels[timeOfDay]}* 🎭\n\n` +
-                       `🇿🇼 *Zimbabwean Comedian:* ${zimComedian.name}\n` +
-                       `🇿🇦 *South African Comedian:* ${saComedian.name}\n\n` +
-                       `*Credits:*\n` +
-                       `Instagram: @${zimComedian.instagram} & @${saComedian.instagram}\n` +
-                       `YouTube: ${zimComedian.youtube} & ${saComedian.youtube}\n\n` +
-                       `#Comedy #${zimComedian.name.replace(/\s+/g, '')} #${saComedian.name.replace(/\s+/g, '')}`;
-        
-        await this.sendToChannel('entertainment', message);
-        
-        // Download and send comedy content
-        await this.downloadAndSendComedyContent(zimComedian, saComedian);
-    }
-
-    async downloadAndSendComedyContent(zimComedian, saComedian) {
         try {
-            // Try Instagram reel first, then YouTube
-            const instagramUrl = await this.searchInstagramReel(zimComedian.instagram);
-            if (instagramUrl) {
-                const videoPath = await this.downloadInstagramVideo(instagramUrl);
-                if (videoPath) {
-                    await this.sendVideoToChannel('entertainment', videoPath, 
-                        `🎬 Comedy clip from @${zimComedian.instagram}\nCredits: ${zimComedian.name} - Instagram`);
-                    return;
-                }
-            }
-            
-            // Fallback to YouTube
-            const youtubeUrl = await this.searchYouTubeComedy(zimComedian.name);
-            if (youtubeUrl) {
-                const videoPath = await this.downloadYouTubeVideo(youtubeUrl);
-                if (videoPath) {
-                    await this.sendVideoToChannel('entertainment', videoPath,
-                        `🎬 Comedy clip from ${zimComedian.name}\nCredits: ${zimComedian.youtube} - YouTube`);
-                }
-            }
+            const zimComedian = this.zimComedians[Math.floor(Math.random() * this.zimComedians.length)];
+            const saComedian = this.saComedians[Math.floor(Math.random() * this.saComedians.length)];
+
+            const timeLabels = {
+                'lunch': 'LUNCH BREAK COMEDY',
+                'break': 'AFTERNOON COMEDY BREAK', 
+                'night': 'EVENING COMEDY SPECIAL'
+            };
+
+            const message = `🎭 *${timeLabels[timeOfDay]}* 🎭\n\n` +
+                           `🇿🇼 *Zimbabwean Comedian:* ${zimComedian.name}\n` +
+                           `🇿🇦 *South African Comedian:* ${saComedian.name}\n\n` +
+                           `*Credits:*\n` +
+                           `Instagram: @${zimComedian.instagram} & @${saComedian.instagram}\n` +
+                           `YouTube: ${zimComedian.youtube} & ${saComedian.youtube}\n\n` +
+                           `#Comedy #${zimComedian.name.replace(/\s+/g, '')} #${saComedian.name.replace(/\s+/g, '')}`;
+
+            await this.sendToChannel('entertainment', message);
+            console.log(`✅ Posted comedian content: ${timeOfDay}`);
+
         } catch (error) {
-            console.log('❌ Comedy content error:', error);
+            console.error('Comedian content error:', error);
         }
     }
 
     async promoteSaturdayShows() {
-        const show = this.saturdayShows[Math.floor(Math.random() * this.saturdayShows.length)];
-        const message = `📺 *SATURDAY NIGHT PREVIEW* 📺\n\n` +
-                       `This Saturday: *${show}*\n` +
-                       `Don't miss the amazing performances!\n\n` +
-                       `#SaturdayShows #${show.replace(/\s+/g, '')}`;
-        
-        await this.sendToChannel('entertainment', message);
+        try {
+            const show = this.saturdayShows[Math.floor(Math.random() * this.saturdayShows.length)];
+            const message = `📺 *SATURDAY NIGHT PREVIEW* 📺\n\n` +
+                           `This Saturday: *${show}*\n` +
+                           `Don't miss the amazing performances!\n\n` +
+                           `#SaturdayShows #${show.replace(/\s+/g, '')}`;
+
+            await this.sendToChannel('entertainment', message);
+        } catch (error) {
+            console.error('Saturday shows error:', error);
+        }
     }
 
     async sendNewsUpdate() {
-        const source = this.newsSources[Math.floor(Math.random() * this.newsSources.length)];
-        const message = `📰 *LATEST NEWS UPDATE* 📰\n\n` +
-                       `Source: *${source.name}*\n` +
-                       `Stay informed with current headlines!\n` +
-                       `Read more: ${source.url}\n\n` +
-                       `#News #${source.name.replace(/\s+/g, '')}`;
-        
-        await this.sendToChannel('entertainment', message);
+        try {
+            const source = this.newsSources[Math.floor(Math.random() * this.newsSources.length)];
+            const message = `📰 *LATEST NEWS UPDATE* 📰\n\n` +
+                           `Source: *${source.name}*\n` +
+                           `Stay informed with current headlines!\n` +
+                           `Read more: ${source.url}\n\n` +
+                           `#News #${source.name.replace(/\s+/g, '')}`;
+
+            await this.sendToChannel('entertainment', message);
+        } catch (error) {
+            console.error('News update error:', error);
+        }
     }
 
     async sendHypingQuote() {
-        const quote = this.hypingQuotes[Math.floor(Math.random() * this.hypingQuotes.length)];
-        const message = `💫 *DAILY MOTIVATION* 💫\n\n${quote}\n\nKeep shining! ✨`;
-        await this.sendToChannel('entertainment', message);
+        try {
+            const quote = this.hypingQuotes[Math.floor(Math.random() * this.hypingQuotes.length)];
+            const message = `💫 *DAILY MOTIVATION* 💫\n\n${quote}\n\nKeep shining! ✨`;
+            await this.sendToChannel('entertainment', message);
+        } catch (error) {
+            console.error('Hyping quote error:', error);
+        }
     }
 
     // MUSIC CHANNEL FUNCTIONS
     async updateMusicSchedule() {
-        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-        const schedule = this.musicSchedule[today];
-        
-        if (schedule) {
-            const currentTime = new Date();
-            const currentHour = currentTime.getHours();
-            let currentGenre = '';
-            
-            for (const [timeRange, genre] of schedule) {
-                const [start, end] = timeRange.split('-').map(t => parseInt(t.split(':')[0]));
-                if (currentHour >= start && currentHour < end) {
-                    currentGenre = genre;
-                    break;
-                }
-            }
-            
-            const scheduleText = schedule.map(([time, genre]) => 
-                `⏰ ${time} - ${genre}${genre === currentGenre ? ' 🎧 NOW PLAYING' : ''}`
-            ).join('\n');
-            
-            const message = `🎵 *${today.toUpperCase()} MUSIC SCHEDULE* 🎵\n\n${scheduleText}\n\nEnjoy the music! 🎶`;
-            
-            await this.sendToChannel('music', message);
-            
-            if (currentGenre) {
-                await this.downloadAndSendMusic(currentGenre);
-            }
-        }
-    }
-
-    async downloadAndSendMusic(genre) {
         try {
-            const queries = this.genreQueries[genre] || [genre + ' music'];
-            const query = queries[Math.floor(Math.random() * queries.length)];
-            
-            console.log(`🎵 Searching for ${genre} music: ${query}`);
-            
-            const youtubeUrl = await this.searchYouTubeMusic(query);
-            if (youtubeUrl) {
-                // Download MP3
-                const audioPath = await this.downloadYouTubeAudio(youtubeUrl);
-                if (audioPath) {
-                    await this.sendAudioToChannel('music', audioPath, 
-                        `🎵 ${genre} Track\nQuery: ${query}\n\n*Copyright Disclaimer:* This content is shared for entertainment purposes only. All rights belong to the respective artists and copyright holders.`);
-                
-                    // Download video (50% chance)
-                    if (Math.random() > 0.5) {
-                        const videoPath = await this.downloadYouTubeVideo(youtubeUrl);
-                        if (videoPath) {
-                            await this.sendVideoToChannel('music', videoPath,
-                                `🎬 ${genre} Music Video\nQuery: ${query}\n\n*Copyright Disclaimer:* This content is shared for entertainment purposes only. All rights belong to the respective artists and copyright holders.`);
-                        }
+            const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            const schedule = this.musicSchedule[today];
+
+            if (schedule) {
+                const currentTime = new Date();
+                const currentHour = currentTime.getHours();
+                let currentGenre = '';
+
+                for (const [timeRange, genre] of schedule) {
+                    const [start, end] = timeRange.split('-').map(t => parseInt(t.split(':')[0]));
+                    if (currentHour >= start && currentHour < end) {
+                        currentGenre = genre;
+                        break;
                     }
                 }
+
+                const scheduleText = schedule.map(([time, genre]) => 
+                    `⏰ ${time} - ${genre}${genre === currentGenre ? ' 🎧 NOW PLAYING' : ''}`
+                ).join('\n');
+
+                const message = `🎵 *${today.toUpperCase()} MUSIC SCHEDULE* 🎵\n\n${scheduleText}\n\nEnjoy the music! 🎶`;
+                await this.sendToChannel('music', message);
+
+                console.log(`✅ Updated music schedule for ${today}`);
             }
         } catch (error) {
-            console.log('❌ Music download error:', error);
+            console.error('Music schedule error:', error);
         }
     }
 
     async postChartToppers() {
-        const chart = this.musicCharts[Math.floor(Math.random() * this.musicCharts.length)];
-        const message = `🏆 *TONIGHT'S CHART TOPPERS* 🏆\n\n` +
-                       `Chart: *${chart}*\n` +
-                       `Here are the hottest tracks right now! 🔥\n\n` +
-                       `#Charts #${chart.replace(/\s+/g, '')}`;
-        
-        await this.sendToChannel('music', message);
-        
-        await this.downloadAndSendChartMusic(chart);
-    }
-
-    async downloadAndSendChartMusic(chart) {
         try {
-            const query = `${chart} top 10 2024`;
-            const youtubeUrl = await this.searchYouTubeMusic(query);
-            if (youtubeUrl) {
-                const audioPath = await this.downloadYouTubeAudio(youtubeUrl);
-                if (audioPath) {
-                    await this.sendAudioToChannel('music', audioPath,
-                        `🏆 ${chart} Hit\n\n*Copyright Disclaimer:* This content is shared for entertainment purposes only. All rights belong to the respective artists, labels, and copyright holders.`);
-                }
-            }
+            const chart = this.musicCharts[Math.floor(Math.random() * this.musicCharts.length)];
+            const message = `🏆 *TONIGHT'S CHART TOPPERS* 🏆\n\n` +
+                           `Chart: *${chart}*\n` +
+                           `Here are the hottest tracks right now! 🔥\n\n` +
+                           `#Charts #${chart.replace(/\s+/g, '')}`;
+
+            await this.sendToChannel('music', message);
         } catch (error) {
-            console.log('❌ Chart music error:', error);
+            console.error('Chart toppers error:', error);
         }
     }
 
-    // DOWNLOAD METHODS
-    async searchYouTubeMusic(query) {
-        try {
-            // Simulate YouTube search (you'd use youtube-search-api in real implementation)
-            return `https://youtube.com/watch?v=simulated_${Date.now()}`;
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async searchYouTubeComedy(query) {
-        try {
-            return `https://youtube.com/watch?v=comedy_${Date.now()}`;
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async searchInstagramReel(username) {
-        try {
-            // Simulate Instagram search
-            return `https://instagram.com/reel/simulated_${Date.now()}`;
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async downloadYouTubeAudio(url) {
-        try {
-            const filename = `music_${Date.now()}.mp3`;
-            const filepath = path.join(this.downloadDir, filename);
-            
-            // Simulate download (replace with ytdl-core)
-            console.log(`⬇️ Downloading audio: ${filename}`);
-            await this.delay(2000);
-            
-            // In real implementation:
-            // const stream = ytdl(url, { filter: 'audioonly' });
-            // stream.pipe(fs.createWriteStream(filepath));
-            
-            return filepath;
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async downloadYouTubeVideo(url) {
-        try {
-            const filename = `video_${Date.now()}.mp4`;
-            const filepath = path.join(this.downloadDir, filename);
-            
-            console.log(`⬇️ Downloading video: ${filename}`);
-            await this.delay(3000);
-            
-            return filepath;
-        } catch (error) {
-            return null;
-        }
-    }
-
-    async downloadInstagramVideo(url) {
-        try {
-            const filename = `reel_${Date.now()}.mp4`;
-            const filepath = path.join(this.downloadDir, filename);
-            
-            console.log(`⬇️ Downloading Instagram reel: ${filename}`);
-            await this.delay(2000);
-            
-            return filepath;
-        } catch (error) {
-            return null;
-        }
-    }
-
-    // SEND METHODS
+    // UTILITY METHODS
     async sendToChannel(channel, message) {
         try {
             const channelJid = this.channels[channel];
             if (channelJid) {
-                await this.sock.sendMessage(channelJid, { text: message });
+                await this.client.sendMessage(channelJid, message);
                 console.log(`✅ Sent to ${channel} channel`);
             }
         } catch (error) {
-            console.log(`❌ Error sending to ${channel}:`, error);
+            console.error(`Error sending to ${channel}:`, error);
         }
     }
 
-    async sendVideoToChannel(channel, videoPath, caption) {
-        try {
-            const channelJid = this.channels[channel];
-            if (channelJid) {
-                // Simulate video send
-                await this.sock.sendMessage(channelJid, {
-                    text: caption
-                });
-                console.log(`✅ Sent video to ${channel} channel`);
-            }
-        } catch (error) {
-            console.log(`❌ Error sending video to ${channel}:`, error);
-        }
+    getTodaysSchedule() {
+        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const schedule = this.musicSchedule[today] || [];
+        
+        const scheduleText = schedule.map(([time, genre]) => 
+            `⏰ ${time} - ${genre}`
+        ).join('\n');
+
+        return `📅 *${today.toUpperCase()} SCHEDULE*\n\n${scheduleText || 'No schedule for today'}`;
     }
 
-    async sendAudioToChannel(channel, audioPath, caption) {
-        try {
-            const channelJid = this.channels[channel];
-            if (channelJid) {
-                // Simulate audio send
-                await this.sock.sendMessage(channelJid, {
-                    text: caption
-                });
-                console.log(`✅ Sent audio to ${channel} channel`);
-            }
-        } catch (error) {
-            console.log(`❌ Error sending audio to ${channel}:`, error);
-        }
+    getNextScheduledPost() {
+        // Simple implementation - returns next hour
+        const nextHour = new Date().getHours() + 1;
+        return `${nextHour}:00`;
     }
 
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    addGroup(groupJid) {
-        this.joinedGroups.add(groupJid);
     }
 
     getStats() {
@@ -638,7 +588,8 @@ class GroupManager {
             joinedGroups: this.joinedGroups.size,
             isRunning: this.isRunning,
             intervals: this.intervals.length,
-            timeouts: this.timeouts.length
+            timeouts: this.timeouts.length,
+            admins: this.constantAdmins.length
         };
     }
 }
