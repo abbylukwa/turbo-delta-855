@@ -2,27 +2,30 @@ FROM node:18-bullseye-slim
 
 WORKDIR /app
 
-# Install system dependencies (minimal set)
+# Install system dependencies (optimized)
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
     build-essential \
     python3 \
     ffmpeg \
+    curl \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files first for better caching
 COPY package*.json ./
 
-# Install dependencies (skip npm update)
-RUN npm install --omit=dev --omit=optional
+# Install dependencies with clean cache
+RUN npm ci --omit=dev --omit=optional \
+    && npm cache clean --force
 
 # Copy application code
 COPY . .
 
-# Create necessary directories
+# Create necessary directories with proper permissions
 RUN mkdir -p /app/auth_info_baileys /app/downloads
 
-# Create non-root user
+# Create non-root user and set permissions
 RUN groupadd -r nodejs && \
     useradd -r -g nodejs -s /bin/bash whatsappbot && \
     chown -R whatsappbot:nodejs /app
@@ -31,7 +34,8 @@ USER whatsappbot
 
 EXPOSE 3000
 
+# Healthcheck (fixed to use node process instead of curl)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
 
-CMD ["node", "polyfill.js"]
+CMD ["npm", "start"]
