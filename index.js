@@ -4,10 +4,8 @@ const qrcode = require('qrcode-terminal');
 const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion, makeWASocket } = require('@whiskeysockets/baileys');
 const express = require('express');
 
-// Import GroupManager from external file
 const GroupManager = require('./group-manager.js');
 
-// Config
 const ACTIVATION_KEY = 'Abbie911';
 const CONSTANT_ADMINS = [
     '0775156210@s.whatsapp.net', 
@@ -16,7 +14,6 @@ const CONSTANT_ADMINS = [
     '263777627210@s.whatsapp.net'
 ];
 
-// State
 let sock = null;
 let isConnected = false;
 let reconnectAttempts = 0;
@@ -24,7 +21,6 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const userActivations = new Map();
 let groupManager = null;
 
-// Simple logger
 const simpleLogger = {
     level: 'silent',
     trace: () => {},
@@ -36,12 +32,10 @@ const simpleLogger = {
     child: () => simpleLogger
 };
 
-// Crypto polyfill for Render
 if (typeof crypto === 'undefined') {
     global.crypto = require('crypto');
 }
 
-// QR Code Display
 function showQR(qr) {
     console.log('\n'.repeat(3));
     console.log('═'.repeat(50));
@@ -56,7 +50,6 @@ function showQR(qr) {
     console.log('\n');
 }
 
-// User Management
 function activateUser(phoneNumber) {
     userActivations.set(phoneNumber, {
         activated: true,
@@ -75,7 +68,6 @@ function isAdmin(sender) {
     return CONSTANT_ADMINS.includes(sender);
 }
 
-// Initialize Group Manager when WhatsApp connects
 function initializeGroupManager() {
     if (!groupManager && sock) {
         console.log('🚀 Initializing Group Manager from external file...');
@@ -92,7 +84,6 @@ function initializeGroupManager() {
     }
 }
 
-// Message Handler
 async function handleMessage(message) {
     if (!message.message) return;
 
@@ -106,31 +97,25 @@ async function handleMessage(message) {
         text = message.message.extendedTextMessage.text;
     }
 
-    // Ignore messages without text or not starting with command prefix
     if (!text || !text.startsWith('.')) return;
 
     console.log(`📨 Message from ${phoneNumber} (Admin: ${isAdmin(sender)}): ${text}`);
 
-    // Check if user is admin or activated
     const admin = isAdmin(sender);
     const activated = isUserActivated(phoneNumber);
 
-    // IGNORE messages from non-admin and non-activated users (except activation/help/status commands)
     if (!admin && !activated) {
         console.log(`🚫 Ignoring non-activated user: ${phoneNumber}`);
 
-        // Only respond to activation, help, or status commands
         const command = text.slice(1).split(' ')[0].toLowerCase();
         const allowedCommands = ['activate', 'help', 'status'];
 
         if (allowedCommands.includes(command)) {
             await handleBasicCommand(sock, sender, phoneNumber, text);
         }
-        // IGNORE all other commands from non-activated users
         return;
     }
 
-    // Process the message for admins or activated users
     try {
         await handleBasicCommand(sock, sender, phoneNumber, text);
     } catch (error) {
@@ -141,7 +126,6 @@ async function handleMessage(message) {
     }
 }
 
-// Basic command handler
 async function handleBasicCommand(sock, sender, phoneNumber, text) {
     const args = text.slice(1).split(' ');
     const command = args[0].toLowerCase();
@@ -150,7 +134,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
 
     console.log(`🔧 Processing command: ${command} from ${phoneNumber} (Admin: ${admin}, Activated: ${activated})`);
 
-    // Activation command - available to everyone
     if (command === 'activate') {
         if (args[1] === ACTIVATION_KEY) {
             activateUser(phoneNumber);
@@ -165,7 +148,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         return;
     }
 
-    // Help command - available to everyone
     if (command === 'help') {
         let helpText = `📋 *DOWNLOAD BOT COMMANDS* 📋\n\n`;
         helpText += `*FOR EVERYONE:*\n`;
@@ -187,7 +169,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         return;
     }
 
-    // Status command - available to everyone
     if (command === 'status') {
         const statusText = `🤖 *BOT STATUS*\n\n` +
                          `• Connection: ${isConnected ? '✅ Connected' : '❌ Disconnected'}\n` +
@@ -201,7 +182,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         return;
     }
 
-    // Group status command
     if (command === 'groupstatus') {
         if (!admin) {
             await sock.sendMessage(sender, { 
@@ -222,7 +202,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         return;
     }
 
-    // Admin-only commands
     if (command === 'users' || command === 'stats') {
         if (!admin) {
             await sock.sendMessage(sender, { 
@@ -255,7 +234,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         }
     }
 
-    // Check if user is activated for premium commands
     if (!admin && !activated) {
         await sock.sendMessage(sender, {
             text: '❌ Please activate your account to use this command!\n\nUse: .activate ' + ACTIVATION_KEY + '\nOr contact admin for assistance.'
@@ -263,7 +241,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
         return;
     }
 
-    // Premium commands for activated users and admins
     switch (command) {
         case 'download':
             if (args.length < 2) {
@@ -336,7 +313,6 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
     }
 }
 
-// Connection Manager
 class ConnectionManager {
     constructor() {
         this.isConnecting = false;
@@ -348,10 +324,10 @@ class ConnectionManager {
         this.isConnecting = true;
 
         try {
-            // Ensure auth directory exists
-            if (!fs.existsSync('auth_info_baileys')) {
-                fs.mkdirSync('auth_info_baileys', { recursive: true });
+            if (fs.existsSync('auth_info_baileys')) {
+                fs.rmSync('auth_info_baileys', { recursive: true });
             }
+            fs.mkdirSync('auth_info_baileys', { recursive: true });
 
             const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
             const { version } = await fetchLatestBaileysVersion();
@@ -367,7 +343,6 @@ class ConnectionManager {
                 markOnlineOnConnect: true
             });
 
-            // Handle connection events
             sock.ev.on('connection.update', (update) => {
                 const { connection, qr } = update;
 
@@ -385,10 +360,8 @@ class ConnectionManager {
                 }
             });
 
-            // Handle credentials
             sock.ev.on('creds.update', saveCreds);
 
-            // Handle messages
             sock.ev.on('messages.upsert', async ({ messages }) => {
                 const msg = messages[0];
                 if (msg.key.remoteJid === 'status@broadcast') return;
@@ -415,7 +388,6 @@ class ConnectionManager {
         console.log(`🔑 Admin users: ${CONSTANT_ADMINS.length}`);
         console.log(`👥 Active users: ${userActivations.size}`);
 
-        // Initialize Group Manager from external file after successful connection
         initializeGroupManager();
     }
 
@@ -423,7 +395,6 @@ class ConnectionManager {
         isConnected = false;
         this.isConnecting = false;
 
-        // Stop group manager on disconnection
         if (groupManager) {
             groupManager.stop();
             groupManager = null;
@@ -441,7 +412,6 @@ class ConnectionManager {
             }
         } else {
             console.log('❌ Device logged out, please scan QR code again');
-            // Clear auth info to force new QR scan
             if (fs.existsSync('auth_info_baileys')) {
                 fs.rmSync('auth_info_baileys', { recursive: true });
             }
@@ -451,12 +421,10 @@ class ConnectionManager {
     handleConnectionError(error) {
         console.log('❌ Connection setup error:', error.message);
         this.isConnecting = false;
-        // Don't attempt reconnection for setup errors
         console.log('💤 Connection setup failed, waiting for manual restart');
     }
 }
 
-// Web Server
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -485,7 +453,6 @@ app.get('/', (req, res) => {
     });
 });
 
-// Start function
 async function start() {
     try {
         console.log('🚀 Starting Enhanced WhatsApp Download Bot...');
@@ -495,13 +462,11 @@ async function start() {
         console.log('💡 Bot will IGNORE messages from non-activated users except admins');
         console.log('📁 Group Manager: External file');
 
-        // Start web server
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`🌐 Server running on port ${PORT}`);
             console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
         });
 
-        // Start WhatsApp connection
         const connectionManager = new ConnectionManager();
         await connectionManager.connect();
 
@@ -511,7 +476,6 @@ async function start() {
     }
 }
 
-// Graceful shutdown
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down gracefully...');
     if (groupManager) groupManager.stop();
@@ -526,7 +490,6 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-// Error handling
 process.on('uncaughtException', (error) => {
     console.log('💥 Uncaught Exception:', error);
 });
@@ -535,5 +498,4 @@ process.on('unhandledRejection', (reason, promise) => {
     console.log('💥 Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Start the application
 start();
