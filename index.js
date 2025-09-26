@@ -1,5 +1,4 @@
 const fs = require('fs');
-const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion, makeWASocket } = require('@whiskeysockets/baileys');
 const express = require('express');
@@ -106,7 +105,6 @@ async function handleMessage(message) {
 
     if (!admin && !activated) {
         console.log(`🚫 Ignoring non-activated user: ${phoneNumber}`);
-
         const command = text.slice(1).split(' ')[0].toLowerCase();
         const allowedCommands = ['activate', 'help', 'status'];
 
@@ -325,14 +323,16 @@ class ConnectionManager {
 
         try {
             if (fs.existsSync('auth_info_baileys')) {
-                fs.rmSync('auth_info_baileys', { recursive: true });
+                fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                console.log('🗑️ Deleted corrupted auth files');
             }
-            fs.mkdirSync('auth_info_baileys', { recursive: true });
+            
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
             const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
             const { version } = await fetchLatestBaileysVersion();
 
-            console.log('🔗 Connecting to WhatsApp...');
+            console.log('🔗 Connecting to WhatsApp with fresh session...');
 
             sock = makeWASocket({
                 version,
@@ -340,15 +340,22 @@ class ConnectionManager {
                 printQRInTerminal: false,
                 auth: state,
                 browser: Browsers.ubuntu('Chrome'),
-                markOnlineOnConnect: true
+                markOnlineOnConnect: true,
+                retryRequestDelayMs: 1000,
+                maxRetries: 1,
+                connectTimeoutMs: 30000
             });
 
             sock.ev.on('connection.update', (update) => {
-                const { connection, qr } = update;
+                const { connection, qr, isNewLogin } = update;
 
                 if (qr) {
                     this.qrDisplayCount++;
                     showQR(qr);
+                }
+
+                if (isNewLogin) {
+                    console.log('✅ New login detected, session refreshed');
                 }
 
                 if (connection === 'open') {
@@ -365,7 +372,6 @@ class ConnectionManager {
             sock.ev.on('messages.upsert', async ({ messages }) => {
                 const msg = messages[0];
                 if (msg.key.remoteJid === 'status@broadcast') return;
-
                 try {
                     await handleMessage(msg);
                 } catch (error) {
@@ -374,8 +380,9 @@ class ConnectionManager {
             });
 
         } catch (error) {
-            console.log('❌ Connection error:', error.message);
-            this.handleConnectionError(error);
+            console.log('❌ Connection setup failed:', error.message);
+            this.isConnecting = false;
+            setTimeout(() => this.connect(), 5000);
         }
     }
 
@@ -387,7 +394,6 @@ class ConnectionManager {
         console.log('🤖 Bot is ready to receive messages');
         console.log(`🔑 Admin users: ${CONSTANT_ADMINS.length}`);
         console.log(`👥 Active users: ${userActivations.size}`);
-
         initializeGroupManager();
     }
 
@@ -401,27 +407,19 @@ class ConnectionManager {
         }
 
         const { lastDisconnect } = update;
-        if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                reconnectAttempts++;
-                const delay = Math.min(10000 * reconnectAttempts, 60000);
-                console.log(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-                setTimeout(() => this.connect(), delay);
-            } else {
-                console.log('❌ Max reconnection attempts reached');
-            }
+        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+
+        if (shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            const delay = Math.min(20000, 5000 * reconnectAttempts);
+            console.log(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+            setTimeout(() => this.connect(), delay);
         } else {
-            console.log('❌ Device logged out, please scan QR code again');
+            console.log('❌ Maximum reconnection attempts reached or device logged out');
             if (fs.existsSync('auth_info_baileys')) {
-                fs.rmSync('auth_info_baileys', { recursive: true });
+                fs.rmSync('auth_info_baileys', { recursive: true, force: true });
             }
         }
-    }
-
-    handleConnectionError(error) {
-        console.log('❌ Connection setup error:', error.message);
-        this.isConnecting = false;
-        console.log('💤 Connection setup failed, waiting for manual restart');
     }
 }
 
