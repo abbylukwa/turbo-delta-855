@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { useMultiFileAuthState, Browsers, DisconnectReason, fetchLatestBaileysVersion, makeWASocket } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useSingleFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const express = require('express');
 
 const GroupManager = require('./group-manager.js');
@@ -32,6 +32,19 @@ const simpleLogger = {
 
 if (typeof crypto === 'undefined') {
     global.crypto = require('crypto');
+}
+
+function cleanAuthFile() {
+    const authFile = './auth_info.json';
+    if (fs.existsSync(authFile)) {
+        console.log('🗑️ Removing corrupted auth file...');
+        try {
+            fs.unlinkSync(authFile);
+            console.log('✅ Auth file cleaned successfully');
+        } catch (error) {
+            console.log('❌ Error cleaning auth file:', error.message);
+        }
+    }
 }
 
 function activateUser(phoneNumber) {
@@ -298,15 +311,16 @@ async function handleBasicCommand(sock, sender, phoneNumber, text) {
 
 async function connectToWhatsApp() {
     try {
-        if (fs.existsSync('auth_info_baileys')) {
-            console.log('🗑️ Removing old auth files to fix authentication error...');
-            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
-        }
-
-        const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-        const { version, isLatest } = await fetchLatestBaileysVersion();
+        console.log('🔄 Starting WhatsApp connection with single file auth...');
         
-        console.log(`🔗 Using WA v${version.join('.')}, isLatest: ${isLatest}`);
+        cleanAuthFile();
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const { state, saveState } = useSingleFileAuthState('./auth_info.json');
+        const { version } = await fetchLatestBaileysVersion();
+
+        console.log(`🔗 Using WA v${version.join('.')}`);
 
         sock = makeWASocket({
             version,
@@ -315,16 +329,16 @@ async function connectToWhatsApp() {
             auth: state,
             browser: Browsers.ubuntu('Chrome'),
             markOnlineOnConnect: true,
-            generateHighQualityLinkPreview: true,
-            syncFullHistory: false,
-            linkPreviewImageThumbnailWidth: 192,
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 10000,
+            maxIdleTimeMs: 60000,
+            maxRetries: 3,
+            emitOwnEvents: true,
+            defaultQueryTimeoutMs: 0,
             transactionOpts: {
-                maxCommitRetries: 10,
-                delayBetweenTriesMs: 3000
-            },
-            maxMsgRetryCount: 5,
-            defaultQueryTimeoutMs: 60000,
-            connectTimeoutMs: 60000
+                maxCommitRetries: 3,
+                delayBetweenTriesMs: 1000
+            }
         });
 
         sock.ev.on('connection.update', (update) => {
@@ -344,29 +358,34 @@ async function connectToWhatsApp() {
             if (connection === 'close') {
                 isConnected = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
+                
                 console.log(`🔌 Connection closed. Status: ${statusCode || 'unknown'}`);
                 
-                if (shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                if (statusCode === DisconnectReason.loggedOut) {
+                    console.log('❌ Device logged out, cleaning auth file...');
+                    cleanAuthFile();
+                    return;
+                }
+
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                     reconnectAttempts++;
-                    const delay = Math.min(30000, reconnectAttempts * 2000);
+                    const delay = Math.min(10000, reconnectAttempts * 2000);
                     console.log(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
                     setTimeout(connectToWhatsApp, delay);
                 } else {
-                    console.log('❌ Max reconnection attempts reached or logged out');
-                    if (fs.existsSync('auth_info_baileys')) {
-                        fs.rmSync('auth_info_baileys', { recursive: true, force: true });
-                    }
+                    console.log('❌ Max reconnection attempts reached');
+                    cleanAuthFile();
                 }
+            }
+            
+            if (connection === 'connecting') {
+                console.log('🔄 Connecting to WhatsApp...');
             }
         });
 
-        sock.ev.on('creds.update', saveCreds);
+        sock.ev.on('creds.update', saveState);
 
-        sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            if (type !== 'notify') return;
-            
+        sock.ev.on('messages.upsert', async ({ messages }) => {
             for (const msg of messages) {
                 if (msg.key.remoteJid === 'status@broadcast') continue;
                 try {
@@ -377,16 +396,20 @@ async function connectToWhatsApp() {
             }
         });
 
-        sock.ev.on('messages.update', () => {});
-        sock.ev.on('message-receipt.update', () => {});
-        sock.ev.on('presence.update', () => {});
+        sock.ev.on('call', (call) => {
+            console.log('📞 Incoming call ignored');
+        });
 
     } catch (error) {
-        console.log('❌ Connection error:', error.message);
-        if (fs.existsSync('auth_info_baileys')) {
-            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+        console.log('❌ Connection setup failed:', error.message);
+        cleanAuthFile();
+        
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            const delay = 5000;
+            console.log(`🔄 Retrying connection in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+            setTimeout(connectToWhatsApp, delay);
         }
-        setTimeout(connectToWhatsApp, 5000);
     }
 }
 
@@ -418,15 +441,31 @@ app.get('/', (req, res) => {
     });
 });
 
+app.get('/users', (req, res) => {
+    if (req.query.key !== ACTIVATION_KEY) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    const users = Array.from(userActivations.entries()).map(([phone, data]) => ({
+        phone,
+        activated: data.activated,
+        activationTime: data.activationTime,
+        freeDownloads: data.freeDownloads
+    }));
+    
+    res.json({ totalUsers: users.length, users });
+});
+
 async function start() {
-    console.log('🚀 Starting WhatsApp Download Bot...');
+    console.log('🚀 Starting WhatsApp Download Bot with Single File Auth...');
     console.log('🔑 Activation Key:', ACTIVATION_KEY);
     console.log('👑 Admin Users:', CONSTANT_ADMINS.length);
-    console.log('🔄 Auto-cleaning old auth files...');
+    console.log('💾 Using single file authentication system');
     
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`🌐 Server running on port ${PORT}`);
         console.log(`📊 Health check: http://0.0.0.0:${PORT}/health`);
+        console.log(`👥 Users API: http://0.0.0.0:${PORT}/users?key=${ACTIVATION_KEY}`);
     });
 
     await connectToWhatsApp();
