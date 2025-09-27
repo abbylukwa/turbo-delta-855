@@ -1,43 +1,39 @@
-const { default: makeWASocket } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
+const venom = require('venom-bot');
 
-console.log('🚀 Starting WhatsApp Bot...');
+console.log('🚀 Starting WhatsApp Bot with Venom...');
 
-try {
-    const sock = makeWASocket({
-        printQRInTerminal: true,
-        logger: console
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
+venom
+    .create({
+        session: 'my-bot',
+        headless: true,
+        useChrome: false,
+        debug: false,
+        logQR: true
+    })
+    .then((client) => {
+        console.log('✅ WhatsApp connected successfully!');
         
-        if (qr) {
-            console.log('📱 Scan this QR code with WhatsApp:');
-            qrcode.generate(qr, { small: true });
-        }
-        
-        if (connection === 'open') {
-            console.log('✅ WhatsApp connected! Bot is ready.');
-        }
-    });
-
-    sock.ev.on('messages.upsert', ({ messages }) => {
-        const m = messages[0];
-        
-        if (m && m.message) {
-            const text = m.message.conversation || '';
+        client.onMessage((message) => {
+            console.log('Received message:', message.body);
             
-            if (text === '!ping') {
-                sock.sendMessage(m.key.remoteJid, { text: 'pong' });
+            if (message.body === '!ping') {
+                client.sendText(message.from, '🏓 pong!');
             }
             
-            if (text === '!hello') {
-                sock.sendMessage(m.key.remoteJid, { text: 'Hello there! 👋' });
+            if (message.body === '!hello') {
+                client.sendText(message.from, '👋 Hello! Bot is working!');
             }
-        }
+            
+            if (message.body === '!info') {
+                client.sendText(message.from, '🤖 This is a simple WhatsApp bot');
+            }
+        });
+        
+        // Auto-reply when bot starts
+        client.sendText('0775156210@c.us', '🤖 Bot started successfully!')
+            .then(() => console.log('Startup message sent'))
+            .catch(() => console.log('Could not send startup message'));
+    })
+    .catch((error) => {
+        console.log('❌ Error:', error);
     });
-
-} catch (error) {
-    console.log('Error starting bot:', error);
-}
